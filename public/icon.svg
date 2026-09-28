@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="moon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#c084fc" />
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Shield -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="#1e293b" stroke-width="4" />
+
+  <!-- Circadian Orbit Ring -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#334155" stroke-width="12" stroke-dasharray="8 12" />
+  
+  <!-- Crescent Moon Glow -->
+  <path d="M 280 150 A 100 100 0 1 1 200 350 A 120 120 0 0 0 280 150 Z" fill="url(#moon)" opacity="0.9" />
+
+  <!-- Jet Aircraft Silhouette in Ascending Flight -->
+  <path d="M 256 160 L 268 230 L 370 260 L 370 280 L 268 270 L 264 340 L 290 360 L 290 375 L 256 368 L 222 375 L 222 360 L 248 340 L 244 270 L 142 280 L 142 260 L 244 230 Z" fill="url(#accent)" />
+
+  <!-- Core Body Clock Star -->
+  <circle cx="256" cy="256" r="10" fill="#ffffff" />
+  <circle cx="256" cy="256" r="20" fill="none" stroke="#38bdf8" stroke-width="3" opacity="0.6" />
+</svg>

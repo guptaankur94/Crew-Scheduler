@@ -1,0 +1,9 @@
+{
+  "appId": "com.crewcircadian.app",
+  "appName": "CrewCircadian",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}

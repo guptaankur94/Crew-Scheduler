@@ -71,6 +71,7 @@ export interface PrepDetails {
   groomingMinutes: number;
   cabBufferMinutes: number;
   targetBedtimeHbt?: string;
+  targetBedtimeDateStr?: string;
   caffeineCutoffHbt?: string;
   wakeUpUtc?: string;
   cabPickupUtc?: string;
@@ -79,6 +80,9 @@ export interface PrepDetails {
   step1Label?: string;
   step1Description?: string;
   bedtimeExplanation?: string;
+  debriefMinutes?: number;
+  debriefStartHbt?: string;
+  debriefEndHbt?: string;
 }
 
 export interface CircadianEvent {
@@ -117,6 +121,7 @@ export interface CrewPreferences {
   preferredNapDuration: 25 | 26 | 45 | 90; // NASA 26m vs full cycle 90m
   groomingMinutes: number; // Time from wake-up to cab pickup (e.g. 60 min)
   cabBufferMinutes: number; // Time from cab pickup to reporting at base (e.g. 60 min)
+  debriefMinutes?: number; // Post-flight debrief & release buffer (e.g. 30 min)
   crewRank: CrewRank;
   currency: SalaryCurrency;
   customBasePay?: number;
@@ -169,6 +174,8 @@ export interface RosterData {
   standbyHours?: number;
   rawText?: string;
   parsedAt: string;
+  sourceDocumentUrl?: string;
+  sourceDocumentName?: string;
 }
 
 export type HistoryActionType = 'upload' | 'preset' | 'manual_edit' | 'cleared';
@@ -185,6 +192,8 @@ export interface RosterHistoryEntry {
   dateRange?: string; // e.g. "Oct 01 - Oct 30, 2026"
   isActive: boolean;
   rosterSnapshot?: RosterData; // Snapshot to enable instant restore
+  sourceDocumentUrl?: string;
+  sourceDocumentName?: string;
 }
 
 export interface DailyCircadianSummary {

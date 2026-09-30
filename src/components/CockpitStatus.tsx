@@ -6,7 +6,6 @@ import {
   Utensils,
   Zap,
   HelpCircle,
-  Droplets,
   AlertTriangle,
   Sun,
   Shield,
@@ -14,6 +13,7 @@ import {
   CheckCircle2,
   Clock,
   Glasses,
+  Bed,
 } from 'lucide-react';
 
 interface CockpitStatusProps {
@@ -22,8 +22,6 @@ interface CockpitStatusProps {
 }
 
 export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienceModal }) => {
-  const [waterCups, setWaterCups] = useState<number>(3);
-  const targetWater = 8;
   const { currentStatus } = plan;
 
   const getStatusTheme = () => {
@@ -281,20 +279,28 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
               </p>
             </div>
 
-            {/* Altitude Hydration Logger */}
-            <button
-              onClick={() => setWaterCups((c) => Math.min(10, c + 1))}
-              className="flex items-center justify-center sm:justify-start gap-2 rounded-xl border border-sky-800/60 bg-sky-950/40 hover:bg-sky-900/50 px-3 py-2 text-xs transition-colors w-full sm:w-auto"
-              title="Click to log +250ml water intake"
-            >
-              <Droplets className="h-4 w-4 text-sky-400" />
-              <div className="text-left font-mono">
-                <span className="text-[10px] text-slate-400 block">Hydration (+250ml)</span>
-                <span className="font-bold text-sky-200">
-                  {waterCups * 250}ml <span className="text-[10px] text-slate-400">({waterCups}/{targetWater})</span>
-                </span>
+            {/* Rest & Sleep Prep Window Protocol */}
+            {currentStatus.stateType === 'sleep_prep' ? (
+              <div className="flex items-center justify-center sm:justify-start gap-2 rounded-xl border border-purple-800/60 bg-purple-950/40 px-3 py-2 text-xs transition-colors w-full sm:w-auto">
+                <Moon className="h-4 w-4 text-purple-400 shrink-0" />
+                <div className="text-left">
+                  <span className="text-[10px] text-purple-400 block font-bold uppercase tracking-wider">Sleep Protocol</span>
+                  <span className="font-semibold text-purple-200 text-[11px]">
+                    Dark, cool room (18°C) • Zero blue light
+                  </span>
+                </div>
               </div>
-            </button>
+            ) : (
+              <div className="flex items-center justify-center sm:justify-start gap-2 rounded-xl border border-blue-900/50 bg-blue-950/30 px-3 py-2 text-xs transition-colors w-full sm:w-auto">
+                <Bed className="h-4 w-4 text-blue-400 shrink-0" />
+                <div className="text-left">
+                  <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Home Rest Rhythm</span>
+                  <span className="font-bold text-sky-200 text-[11px]">
+                    Aligned with Base {plan.roster.homeBase}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

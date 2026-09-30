@@ -21,6 +21,7 @@ import { SalaryView } from './components/views/SalaryView';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
 import { ScienceView } from './components/views/ScienceView';
+import { MasterRosterOverview } from './components/MasterRosterOverview';
 import { EventDetailModal } from './components/EventDetailModal';
 import {
   Clock,
@@ -28,6 +29,7 @@ import {
   DollarSign,
   UploadCloud,
   Sliders,
+  FileText,
 } from 'lucide-react';
 
 export default function App() {
@@ -473,6 +475,7 @@ export default function App() {
   const viewTitles: Record<NavView, string> = {
     today: "Today's Duty & Runway",
     roster: 'Monthly Roster & Sectors',
+    mastersheet: 'Master Roster Duty Sheet (AIMS)',
     salary: 'Salary & Payslip Studio',
     upload: 'Roster Ingestion Hub',
     settings: 'Buffers & Circadian Preferences',
@@ -540,6 +543,16 @@ export default function App() {
             />
           )}
 
+          {activeView === 'mastersheet' && (
+            <MasterRosterOverview
+              plan={plan}
+              onJumpToTimeline={(dateStr) => {
+                setActiveView('roster');
+              }}
+              onSelectEvent={setSelectedEvent}
+            />
+          )}
+
           {activeView === 'salary' && (
             <SalaryView
               plan={plan}
@@ -556,6 +569,7 @@ export default function App() {
               onSelectPreset={handleSelectPreset}
               onRosterParsed={handleRosterParsed}
               onViewRosterTimeline={() => setActiveView('roster')}
+              onViewMasterSheet={() => setActiveView('mastersheet')}
               onRestoreRoster={handleRestoreRoster}
               onClearActiveRoster={handleClearActiveRoster}
               onDeleteHistoryItem={handleDeleteHistoryItem}
@@ -598,10 +612,10 @@ export default function App() {
       <div className="fixed bottom-0 left-0 right-0 z-30 lg:hidden border-t border-slate-800 bg-slate-950/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shadow-2xl">
         {[
           { id: 'today' as NavView, label: 'Today', icon: <Clock className="h-4 w-4" /> },
-          { id: 'roster' as NavView, label: 'Roster', icon: <Calendar className="h-4 w-4" /> },
+          { id: 'roster' as NavView, label: 'Timeline', icon: <Calendar className="h-4 w-4" /> },
+          { id: 'mastersheet' as NavView, label: 'Sheet', icon: <FileText className="h-4 w-4" /> },
           { id: 'salary' as NavView, label: 'Salary', icon: <DollarSign className="h-4 w-4" /> },
           { id: 'upload' as NavView, label: 'Upload', icon: <UploadCloud className="h-4 w-4" /> },
-          { id: 'settings' as NavView, label: 'Buffers', icon: <Sliders className="h-4 w-4" /> },
         ].map((tab) => {
           const isActive = activeView === tab.id;
           return (

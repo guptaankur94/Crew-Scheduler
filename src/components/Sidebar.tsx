@@ -13,11 +13,12 @@ import {
   Sparkles,
   MapPin,
   CheckCircle2,
+  FileText,
 } from 'lucide-react';
 import { CircadianPlan } from '../types/circadian';
 import { AIRPORTS } from '../data/airports';
 
-export type NavView = 'today' | 'roster' | 'salary' | 'upload' | 'settings' | 'science';
+export type NavView = 'today' | 'roster' | 'mastersheet' | 'salary' | 'upload' | 'settings' | 'science';
 
 interface SidebarProps {
   activeView: NavView;
@@ -51,10 +52,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'roster',
-      label: 'Monthly Roster',
-      shortLabel: 'Roster',
+      label: 'Chrono Timeline',
+      shortLabel: 'Timeline',
       icon: <Calendar className="h-4 w-4" />,
       desc: '30-Day Sectors & Caps',
+    },
+    {
+      id: 'mastersheet',
+      label: 'Master Duty Sheet',
+      shortLabel: 'Sheet',
+      icon: <FileText className="h-4 w-4" />,
+      desc: 'AIMS Table & Verification',
+      badge: 'AIMS',
     },
     {
       id: 'salary',

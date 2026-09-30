@@ -54,6 +54,7 @@ interface UploadViewProps {
   onClearAllHistory: () => void;
   onAddManualSector?: (flight: FlightLeg) => void;
   onMergeRosterSnapshot?: (snapshot: RosterData, title: string) => void;
+  onViewMasterSheet?: () => void;
 }
 
 export interface FileBatchItem {
@@ -87,6 +88,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   onClearAllHistory,
   onAddManualSector,
   onMergeRosterSnapshot,
+  onViewMasterSheet,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'samples' | 'text' | 'history'>('upload');
   const [isParsingBatch, setIsParsingBatch] = useState(false);
@@ -682,12 +684,24 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 </button>
               )}
               {currentRoster.flights.length > 0 && (
-                <button
-                  onClick={onViewRosterTimeline}
-                  className="rounded-lg bg-blue-600 hover:bg-blue-500 px-2.5 py-1 text-[11px] font-bold text-white transition-colors"
-                >
-                  Timeline ➔
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {onViewMasterSheet && (
+                    <button
+                      onClick={onViewMasterSheet}
+                      className="flex items-center gap-1 rounded-lg border border-emerald-700/60 bg-emerald-950/40 hover:bg-emerald-900/60 px-2.5 py-1 text-[11px] font-bold text-emerald-300 transition-colors shadow-sm"
+                      title="Cross-check parsed flight sheet against AIMS portal"
+                    >
+                      <FileText className="h-3 w-3 text-emerald-400" />
+                      <span>Quick Audit / View Master Sheet ➔</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={onViewRosterTimeline}
+                    className="rounded-lg bg-blue-600 hover:bg-blue-500 px-2.5 py-1 text-[11px] font-bold text-white transition-colors"
+                  >
+                    Timeline ➔
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -765,13 +779,23 @@ export const UploadView: React.FC<UploadViewProps> = ({
               <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
               <span className="font-bold text-white text-sm">{successMessage}</span>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 onClick={() => setActiveTab('history')}
                 className="rounded-lg bg-emerald-800/60 hover:bg-emerald-700/80 px-2.5 py-1 font-bold text-emerald-100 text-xs"
               >
                 View History Logs
               </button>
+              {onViewMasterSheet && (
+                <button
+                  onClick={onViewMasterSheet}
+                  className="rounded-lg border border-emerald-500/50 bg-emerald-900/60 hover:bg-emerald-800/80 px-3 py-1 font-bold text-emerald-200 text-xs flex items-center gap-1 shadow-sm"
+                  title="Open Master Sheet in Split-Screen verification mode"
+                >
+                  <FileText className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Quick Audit / View Master Sheet ➔</span>
+                </button>
+              )}
               <button
                 onClick={onViewRosterTimeline}
                 className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1 font-bold text-white text-xs flex items-center gap-1 shadow-sm"

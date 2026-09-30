@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CircadianEvent,
   CircadianPlan,
@@ -26,8 +26,14 @@ import {
   CheckCircle2,
   Calendar,
   Bed,
+  FileText,
 } from 'lucide-react';
 import { CockpitStatus } from '../CockpitStatus';
+import {
+  formatAviationDate,
+  calculateDebriefEndTime,
+  getPriorDayDateStr,
+} from '../../utils/dateUtils';
 
 interface TodayViewProps {
   plan: CircadianPlan;
@@ -51,6 +57,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const { events, dailySummaries, preferences, roster } = plan;
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
+
+  // Debrief duration state per flight (default 30 mins, adjustable to 15, 30, 45, or +/- 5m)
+  const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
 
   // Active summary based on selected day (defaults to Day 1 = Today)
   const activeSummary = dailySummaries[selectedDayIndex] || dailySummaries[0];
@@ -118,7 +127,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
               Inspect Duty Day
             </span>
             <span className="rounded bg-blue-950 px-2 py-0.5 text-[10px] font-mono text-blue-300 border border-blue-800/40">
-              {activeSummary ? `Day ${activeSummary.dayNumber} • ${activeSummary.dayLabel.split(',')[0]}` : 'Today'}
+              {activeSummary ? `${formatAviationDate(activeSummary.dateStr)} • ${activeSummary.dayLabel.split(',')[0]}` : 'Today'}
             </span>
           </div>
 
@@ -127,13 +136,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
               onClick={() => setSelectedDayIndex(0)}
               className="text-[11px] font-bold text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
             >
-              Reset to Today (Day 1)
+              Reset to Today ({dailySummaries[0] ? formatAviationDate(dailySummaries[0].dateStr) : 'Day 1'})
             </button>
           )}
         </div>
 
         {/* Scrollable Day Badges for Fast Touch Access */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
           {dailySummaries.map((summary, idx) => {
             const isSelected = selectedDayIndex === idx;
             return (
@@ -152,7 +161,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   {idx === 0 ? 'Today' : summary.dayLabel.split(',')[0]}
                 </span>
                 <span className="font-mono text-xs font-extrabold mt-0.5">
-                  Day {summary.dayNumber}
+                  {formatAviationDate(summary.dateStr)}
                 </span>
                 <span className={`text-[9px] mt-0.5 font-semibold ${
                   isSelected
@@ -338,22 +347,40 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
           {/* Reverse Bedtime & Prior-Day Caffeine Cutoff Banner */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            {prepDetails.bedtimeExplanation ? (
+            {prepDetails.targetBedtimeHbt ? (
+              (() => {
+                const priorDateStr = getPriorDayDateStr(activeDateStr);
+                const priorDateAviation = formatAviationDate(priorDateStr);
+                const priorWeekday = new Date(`${priorDateStr}T12:00:00Z`).toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  timeZone: 'UTC',
+                });
+                const dutyAviation = formatAviationDate(activeDateStr);
+                const dutyWeekday = activeSummary ? activeSummary.dayLabel.split(',')[0]?.trim() : '';
+
+                return (
+                  <div className="rounded-xl border border-purple-800/60 bg-purple-950/30 p-3 flex items-start gap-2.5 text-xs shadow-sm">
+                    <Moon className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <strong className="text-purple-300 font-bold">Prior-Day Sleep Bedtime:</strong>
+                        <span className="rounded bg-purple-900/60 border border-purple-700/50 px-1.5 py-0.2 text-[9px] font-mono font-bold text-purple-200">
+                          {priorWeekday}, {priorDateAviation} • {prepDetails.targetBedtimeHbt} HBT
+                        </span>
+                      </div>
+                      <p className="text-slate-300 text-[11px] leading-snug">
+                        To wake up refreshed at <strong className="text-white font-mono">{prepDetails.wakeUpHbt} HBT</strong> for duty on <span className="text-sky-300 font-bold">{dutyAviation} ({dutyWeekday})</span>, lights out by <strong className="text-purple-200 font-mono bg-purple-950 px-1.5 py-0.5 rounded border border-purple-800/60">{prepDetails.targetBedtimeHbt} HBT</strong> the evening before (<span className="text-amber-300 font-semibold">{priorDateAviation}</span>) for your {preferences.targetSleepHours}h target.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : prepDetails.bedtimeExplanation ? (
               <div className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-3 flex items-center gap-2.5 text-xs">
                 <Moon className="h-4 w-4 text-purple-400 shrink-0" />
                 <div>
                   <strong className="text-purple-300 font-semibold">Circadian Sleep Schedule: </strong>
                   <span className="text-slate-300">{prepDetails.bedtimeExplanation}</span>
-                </div>
-              </div>
-            ) : prepDetails.targetBedtimeHbt ? (
-              <div className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-3 flex items-center gap-2.5 text-xs">
-                <Moon className="h-4 w-4 text-purple-400 shrink-0" />
-                <div>
-                  <strong className="text-purple-300 font-semibold">Reverse Bedtime Recommendation: </strong>
-                  <span className="text-slate-300">
-                    To wake up refreshed at {prepDetails.wakeUpHbt} with your {preferences.targetSleepHours}h target, lights out by <strong className="text-white font-mono">{prepDetails.targetBedtimeHbt}</strong> the evening before.
-                  </span>
                 </div>
               </div>
             ) : null}
@@ -521,6 +548,39 @@ export const TodayView: React.FC<TodayViewProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {/* Smart Debrief & Duty Release Marker (Understated mental picture footer) */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-900/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <span className="text-slate-500 text-[10px]">Debrief & Duty Release:</span>
+                          <strong className="text-indigo-300 font-bold">
+                            {calculateDebriefEndTime(flight.endHbtStr, debriefMinutesByFlight[flight.id] || 30)} HBT
+                          </strong>
+                          <span className="text-slate-600 text-[10px]">•</span>
+                          <span className="text-slate-400 text-[10px]">
+                            Touchdown {flight.endHbtStr} + {debriefMinutesByFlight[flight.id] || 30}m buffer
+                          </span>
+                        </div>
+
+                        {/* Subtle Debrief Buffer Switcher */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] text-slate-500 font-mono">Debrief:</span>
+                          {[15, 30, 45].map((mins) => (
+                            <button
+                              key={mins}
+                              onClick={() => setDebriefMinutesByFlight((prev) => ({ ...prev, [flight.id]: mins }))}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                                (debriefMinutesByFlight[flight.id] || 30) === mins
+                                  ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-bold'
+                                  : 'text-slate-500 hover:text-slate-300'
+                              }`}
+                              title={`${mins}m debrief buffer`}
+                            >
+                              {mins}m
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Turnaround between sectors */}
@@ -571,14 +631,42 @@ export const TodayView: React.FC<TodayViewProps> = ({
             ) : (
               sleepEvents.map((event) => {
                 const nudge = customNudges[event.id] || 0;
+
+                // Precision calendar date resolution for bedtime vs wake-up in Home Base Time
+                const startDateObj = new Date(new Date(event.startUtc).getTime() + preferences.homeBaseTzOffset * 3600000);
+                const endDateObj = new Date(new Date(event.endUtc).getTime() + preferences.homeBaseTzOffset * 3600000);
+                const startDateAviation = formatAviationDate(startDateObj);
+                const endDateAviation = formatAviationDate(endDateObj);
+                const startWeekday = startDateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+                const endWeekday = endDateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+                const currentDutyAviation = formatAviationDate(activeDateStr);
+                const currentDutyWeekday = activeSummary ? activeSummary.dayLabel.split(',')[0]?.trim() : '';
+
+                // Is bedtime on the prior calendar day before today's wake-up?
+                const isPriorDayBedtime = startDateAviation !== currentDutyAviation;
+                const crossesMidnight = startDateAviation !== endDateAviation;
+
                 return (
-                  <div key={event.id} className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-3 text-xs space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
+                  <div key={event.id} className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-3 text-xs space-y-2.5 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                      <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <p className="font-bold text-white flex items-center gap-1.5">
                             <span>{event.title}</span>
                           </p>
+                          {isPriorDayBedtime ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300">
+                              🌙 Prior-Day Bedtime ({startWeekday}, {startDateAviation})
+                            </span>
+                          ) : crossesMidnight ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-purple-900/60 border border-purple-700/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-purple-300">
+                              🌙 Crosses Midnight
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded bg-blue-900/40 border border-blue-700/40 px-1.5 py-0.5 text-[9px] font-mono font-bold text-blue-300">
+                              ☀️ Daytime Rest
+                            </span>
+                          )}
                           {event.type === 'anchor_sleep' && prepDetails && (
                             <span className="inline-flex items-center gap-1 rounded bg-purple-900/40 border border-purple-700/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-purple-300">
                               ✓ In Sync with Runway
@@ -586,13 +674,42 @@ export const TodayView: React.FC<TodayViewProps> = ({
                           )}
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">{event.subtitle}</p>
+
+                        {/* Explicit calendar breakdown subtext for total clarity */}
+                        <div className="rounded-lg bg-slate-950/70 border border-purple-900/30 p-2 text-[10px] space-y-1 mt-1.5">
+                          <div className="flex items-center justify-between text-slate-300 font-mono">
+                            <span className="text-purple-300 font-bold flex items-center gap-1">
+                              🛌 Lights Out (Bedtime):
+                            </span>
+                            <span className="text-white font-extrabold">
+                              {startWeekday}, {startDateAviation} • {event.startHbtStr} HBT{' '}
+                              {isPriorDayBedtime && <span className="text-amber-400 font-sans font-bold">(Evening Before)</span>}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-slate-300 font-mono border-t border-slate-900 pt-1">
+                            <span className="text-sky-300 font-bold flex items-center gap-1">
+                              ⏰ Wake-Up Alarm:
+                            </span>
+                            <span className="text-white font-extrabold">
+                              {endWeekday}, {endDateAviation} • {event.endHbtStr} HBT{' '}
+                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : 'Duty Morning'})</span>
+                            </span>
+                          </div>
+                          {isPriorDayBedtime && (
+                            <p className="text-[10px] text-amber-300/90 pt-1 border-t border-slate-900 font-sans">
+                              💡 <strong>Operational Strategy:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.floor(event.durationMinutes / 60)}h rest finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="text-right shrink-0">
-                        <span className="font-mono text-xs font-extrabold text-purple-200">
+                      <div className="text-left sm:text-right shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-purple-900/20">
+                        <span className="font-mono text-xs font-black text-purple-200 block">
                           {event.startHbtStr} – {event.endHbtStr}
                         </span>
-                        <p className="text-[10px] text-slate-500">Home Time</p>
+                        <p className="text-[9px] text-slate-400 font-mono">
+                          {Math.floor(event.durationMinutes / 60)}h {event.durationMinutes % 60}m Sleep Block
+                        </p>
                       </div>
                     </div>
 

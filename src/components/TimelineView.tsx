@@ -38,10 +38,16 @@ import {
   Trash2,
   Hotel,
   GitMerge,
+  FileText,
 } from 'lucide-react';
 import { SalarySection } from './SalarySection';
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { FlightLeg } from '../types/circadian';
+import {
+  formatAviationDate,
+  calculateDebriefEndTime,
+  getPriorDayDateStr,
+} from '../utils/dateUtils';
 
 interface TimelineViewProps {
   plan: CircadianPlan;
@@ -53,6 +59,8 @@ interface TimelineViewProps {
   onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
+  onSwitchToMasterSheet?: () => void;
+  initialDate?: string;
 }
 
 export const TimelineView: React.FC<TimelineViewProps> = ({
@@ -65,6 +73,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onDelaySector,
   onDeleteSector,
   onAddStandbyFlight,
+  onSwitchToMasterSheet,
+  initialDate,
 }) => {
   const { events, dailySummaries, preferences, monthlyStats, salaryBreakdown } = plan;
 
@@ -72,6 +82,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const [activeWeek, setActiveWeek] = useState<string>('w1');
   const [showSalaryStudio, setShowSalaryStudio] = useState<boolean>(false);
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
+
+  // Debrief duration state per flight (default 30 mins)
+  const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
 
   // Multi-Month detection across continuous timeline (e.g. Jan, Feb, Mar)
   const monthsInTimeline = React.useMemo(() => {
@@ -97,10 +110,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     flight?: FlightLeg;
   } | null>(null);
 
-  // Default to day 1
+  // Default to initialDate or day 1
   const [selectedDate, setSelectedDate] = useState<string>(
-    dailySummaries[0]?.dateStr || ''
+    initialDate || dailySummaries[0]?.dateStr || ''
   );
+
+  React.useEffect(() => {
+    if (initialDate) {
+      setSelectedDate(initialDate);
+    }
+  }, [initialDate]);
 
   const activeDaySummary = dailySummaries.find((d) => d.dateStr === selectedDate) || dailySummaries[0];
 
@@ -184,8 +203,19 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </p>
             </div>
 
-            {/* Dedicated Salary Studio Trigger Button */}
-            <div className="flex items-center gap-2">
+            {/* Dedicated Salary Studio & Master Sheet Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {onSwitchToMasterSheet && (
+                <button
+                  onClick={onSwitchToMasterSheet}
+                  className="flex items-center gap-2 rounded-xl border border-blue-800/60 bg-blue-950/40 hover:bg-blue-900/50 hover:border-blue-700 px-3.5 py-2.5 text-xs font-bold text-blue-300 transition-all shadow-sm"
+                  title="Open AIMS Master Roster Sheet & Verification Table"
+                >
+                  <FileText className="h-4 w-4 text-blue-400" />
+                  <span>Master Sheet (AIMS)</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setShowSalaryStudio(!showSalaryStudio)}
                 className="flex items-center gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/40 hover:bg-emerald-900/50 hover:border-emerald-700 px-4 py-2.5 text-xs font-bold text-emerald-300 transition-all shadow-sm"
@@ -287,111 +317,167 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         />
       )}
 
-      {/* Layer 1.5: Continuous Multi-Month Timeline Bar (Jan, Feb, Mar) */}
-      {monthsInTimeline.length > 1 && (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-2xl border border-blue-900/50 bg-gradient-to-r from-blue-950/40 via-slate-900 to-slate-950 p-3 text-xs">
-          <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
-            <span className="font-bold text-white">Continuous Multi-Month Timeline:</span>
-            <span className="text-slate-400 font-mono text-[11px]">
-              {dailySummaries.length} Days • {monthlyStats.totalSectors} Sectors Total
-            </span>
+      {/* Layer 2: Consolidated Smart Roster Navigator (Unified Month, Week & Inspection State) */}
+      <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-slate-950 p-3 sm:p-3.5 shadow-sm space-y-2.5">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          {/* Left: Combined Scope & Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-300 font-bold">
+              <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
+              <span>Timeline:</span>
+            </div>
+
+            {/* If multi-month timeline, render sleek Month segmented buttons */}
+            {monthsInTimeline.length > 1 && (
+              <div className="inline-flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs">
+                <button
+                  onClick={() => {
+                    setActiveMonthFilter('all');
+                    setActiveWeek('w1');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                    activeMonthFilter === 'all'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  All ({monthsInTimeline[0]?.label.split(' ')[0]}–{monthsInTimeline[monthsInTimeline.length - 1]?.label.split(' ')[0]})
+                </button>
+                {monthsInTimeline.map((m) => (
+                  <button
+                    key={m.key}
+                    onClick={() => {
+                      setActiveMonthFilter(m.key);
+                      setActiveWeek('all');
+                      const firstInMonth = dailySummaries.find((d) => d.dateStr.startsWith(m.key));
+                      if (firstInMonth) setSelectedDate(firstInMonth.dateStr);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                      activeMonthFilter === m.key
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {m.label.split(' ')[0]} ({m.count}d)
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Week Pills Segmented Group - Compact, responsive & clean */}
+            <div className="inline-flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs">
+              {[
+                {
+                  id: 'w1',
+                  label: 'W1',
+                  fullLabel: dailySummaries[0] && dailySummaries[6]
+                    ? `W1 (${formatAviationDate(dailySummaries[0].dateStr)} – ${formatAviationDate(dailySummaries[6].dateStr)})`
+                    : 'W1',
+                },
+                {
+                  id: 'w2',
+                  label: 'W2',
+                  fullLabel: dailySummaries[7] && dailySummaries[13]
+                    ? `W2 (${formatAviationDate(dailySummaries[7].dateStr)} – ${formatAviationDate(dailySummaries[13].dateStr)})`
+                    : 'W2',
+                },
+                {
+                  id: 'w3',
+                  label: 'W3',
+                  fullLabel: dailySummaries[14] && dailySummaries[20]
+                    ? `W3 (${formatAviationDate(dailySummaries[14].dateStr)} – ${formatAviationDate(dailySummaries[20].dateStr)})`
+                    : 'W3',
+                },
+                {
+                  id: 'w4',
+                  label: 'W4',
+                  fullLabel: dailySummaries[21] && dailySummaries[27]
+                    ? `W4 (${formatAviationDate(dailySummaries[21].dateStr)} – ${formatAviationDate(dailySummaries[27].dateStr)})`
+                    : 'W4',
+                },
+                {
+                  id: 'w5',
+                  label: 'W5',
+                  fullLabel: dailySummaries[28]
+                    ? `W5 (${formatAviationDate(dailySummaries[28].dateStr)}${dailySummaries[dailySummaries.length - 1] ? ` – ${formatAviationDate(dailySummaries[dailySummaries.length - 1].dateStr)}` : ''})`
+                    : 'W5',
+                },
+                { id: 'all', label: 'All 30d', fullLabel: `All ${dailySummaries.length} Days` },
+              ].map((wk) => {
+                const isActive = activeWeek === wk.id;
+                return (
+                  <button
+                    key={wk.id}
+                    onClick={() => {
+                      setActiveWeek(wk.id);
+                      if (wk.id === 'w1' && dailySummaries[0]) setSelectedDate(dailySummaries[0].dateStr);
+                      if (wk.id === 'w2' && dailySummaries[7]) setSelectedDate(dailySummaries[7].dateStr);
+                      if (wk.id === 'w3' && dailySummaries[14]) setSelectedDate(dailySummaries[14].dateStr);
+                      if (wk.id === 'w4' && dailySummaries[21]) setSelectedDate(dailySummaries[21].dateStr);
+                      if (wk.id === 'w5' && dailySummaries[28]) setSelectedDate(dailySummaries[28].dateStr);
+                    }}
+                    title={wk.fullLabel}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {wk.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-w-full">
-            <button
-              onClick={() => {
-                setActiveMonthFilter('all');
-                setActiveWeek('w1');
-              }}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all shrink-0 ${
-                activeMonthFilter === 'all'
-                  ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
-                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              All Months ({monthsInTimeline[0]?.label.split(' ')[0]} – {monthsInTimeline[monthsInTimeline.length - 1]?.label})
-            </button>
-            {monthsInTimeline.map((m) => (
-              <button
-                key={m.key}
-                onClick={() => {
-                  setActiveMonthFilter(m.key);
-                  setActiveWeek('all');
-                  const firstInMonth = dailySummaries.find((d) => d.dateStr.startsWith(m.key));
-                  if (firstInMonth) setSelectedDate(firstInMonth.dateStr);
-                }}
-                className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all shrink-0 ${
-                  activeMonthFilter === m.key
-                    ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
-                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+          {/* Right: Selected Day & Fatigue Status Pill */}
+          {activeDaySummary && selectedDate !== 'all' && (
+            <div className="flex items-center gap-2 text-xs self-start lg:self-center shrink-0">
+              <span className="text-slate-400">
+                Selected: <strong className="text-white font-mono">{formatAviationDate(activeDaySummary.dateStr)}</strong> ({activeDaySummary.dayLabel.split(',')[0]})
+              </span>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  activeDaySummary.isOffDay
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : activeDaySummary.fatigueRiskLevel === 'high'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
                 }`}
               >
-                {m.label} ({m.count} duty days)
-              </button>
-            ))}
-          </div>
+                {activeDaySummary.isOffDay ? '🏖️ Rest Day (WKOFF)' : `${activeDaySummary.fatigueRiskLevel} Load`}
+              </span>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Layer 2: Week Selector Tabs */}
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full scrollbar-thin">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1 shrink-0">
-            <Calendar className="h-3.5 w-3.5 text-blue-400" /> Week:
+        {/* Sub-strip: Range Context Label without scrollbar */}
+        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60 font-mono">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Current Window:</span>
+            <span className="text-sky-300 font-semibold font-sans">
+              {activeWeek === 'all'
+                ? `Continuous Timeline (${formatAviationDate(dailySummaries[0]?.dateStr || '')} – ${formatAviationDate(dailySummaries[dailySummaries.length - 1]?.dateStr || '')}) • ${dailySummaries.length} Days`
+                : activeWeek === 'w1'
+                ? `Week 1 (${formatAviationDate(dailySummaries[0]?.dateStr || '')} – ${formatAviationDate(dailySummaries[6]?.dateStr || '')})`
+                : activeWeek === 'w2'
+                ? `Week 2 (${formatAviationDate(dailySummaries[7]?.dateStr || '')} – ${formatAviationDate(dailySummaries[13]?.dateStr || '')})`
+                : activeWeek === 'w3'
+                ? `Week 3 (${formatAviationDate(dailySummaries[14]?.dateStr || '')} – ${formatAviationDate(dailySummaries[20]?.dateStr || '')})`
+                : activeWeek === 'w4'
+                ? `Week 4 (${formatAviationDate(dailySummaries[21]?.dateStr || '')} – ${formatAviationDate(dailySummaries[27]?.dateStr || '')})`
+                : `Week 5 (${formatAviationDate(dailySummaries[28]?.dateStr || '')} – ${formatAviationDate(dailySummaries[dailySummaries.length - 1]?.dateStr || '')})`}
+            </span>
+          </div>
+
+          <span className="text-[10px] text-slate-500 hidden sm:inline font-sans">
+            Tap any day below to inspect schedule & alarms
           </span>
-          {[
-            { id: 'w1', label: 'W1 (1–7)' },
-            { id: 'w2', label: 'W2 (8–14)' },
-            { id: 'w3', label: 'W3 (15–21)' },
-            { id: 'w4', label: 'W4 (22–28)' },
-            { id: 'w5', label: 'W5 (29–30)' },
-            { id: 'all', label: 'All 30 Days' },
-          ].map((wk) => (
-            <button
-              key={wk.id}
-              onClick={() => {
-                setActiveWeek(wk.id);
-                if (wk.id === 'w1' && dailySummaries[0]) setSelectedDate(dailySummaries[0].dateStr);
-                if (wk.id === 'w2' && dailySummaries[7]) setSelectedDate(dailySummaries[7].dateStr);
-                if (wk.id === 'w3' && dailySummaries[14]) setSelectedDate(dailySummaries[14].dateStr);
-                if (wk.id === 'w4' && dailySummaries[21]) setSelectedDate(dailySummaries[21].dateStr);
-                if (wk.id === 'w5' && dailySummaries[28]) setSelectedDate(dailySummaries[28].dateStr);
-              }}
-              className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                activeWeek === wk.id
-                  ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
-                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              {wk.label}
-            </button>
-          ))}
         </div>
-
-        {/* Selected Day Header Label */}
-        {activeDaySummary && selectedDate !== 'all' && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400">
-              Selected: <strong className="text-white">Day {activeDaySummary.dayNumber}</strong> ({activeDaySummary.dayLabel})
-            </span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                activeDaySummary.isOffDay
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                  : activeDaySummary.fatigueRiskLevel === 'high'
-                  ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                  : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
-              }`}
-            >
-              {activeDaySummary.isOffDay ? '🏖️ Rest Day (WKOFF)' : `${activeDaySummary.fatigueRiskLevel} Load`}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Layer 3: Day Selector Pills for the Active Week */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar">
         {filteredSummaries.map((day: DailyCircadianSummary) => {
           const isSelected = selectedDate === day.dateStr;
           return (
@@ -410,7 +496,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 {day.dayLabel.split(',')[0]}
               </span>
               <span className="font-mono text-xs font-bold text-white mt-0.5">
-                Day {day.dayNumber}
+                {formatAviationDate(day.dateStr)}
               </span>
               <span className="text-[9px] mt-1 font-medium">
                 {day.isOffDay ? (
@@ -601,22 +687,40 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
           {/* Reverse Bedtime & Caffeine Guidance Bar */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            {prepDetails.bedtimeExplanation ? (
+            {prepDetails.targetBedtimeHbt ? (
+              (() => {
+                const priorDateStr = getPriorDayDateStr(activeDaySummary?.dateStr || '');
+                const priorDateAviation = formatAviationDate(priorDateStr);
+                const priorWeekday = new Date(`${priorDateStr}T12:00:00Z`).toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  timeZone: 'UTC',
+                });
+                const dutyAviation = formatAviationDate(activeDaySummary?.dateStr || '');
+                const dutyWeekday = activeDaySummary ? activeDaySummary.dayLabel.split(',')[0]?.trim() : '';
+
+                return (
+                  <div className="rounded-xl border border-purple-800/60 bg-purple-950/30 p-3 flex items-start gap-2.5 text-xs shadow-sm">
+                    <Moon className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <strong className="text-purple-300 font-bold">Prior-Day Sleep Bedtime:</strong>
+                        <span className="rounded bg-purple-900/60 border border-purple-700/50 px-1.5 py-0.2 text-[9px] font-mono font-bold text-purple-200">
+                          {priorWeekday}, {priorDateAviation} • {prepDetails.targetBedtimeHbt} HBT
+                        </span>
+                      </div>
+                      <p className="text-slate-300 text-[11px] leading-snug">
+                        To wake up refreshed at <strong className="text-white font-mono">{prepDetails.wakeUpHbt} HBT</strong> for duty on <span className="text-sky-300 font-bold">{dutyAviation} ({dutyWeekday})</span>, lights out by <strong className="text-purple-200 font-mono bg-purple-950 px-1.5 py-0.5 rounded border border-purple-800/60">{prepDetails.targetBedtimeHbt} HBT</strong> the evening before (<span className="text-amber-300 font-semibold">{priorDateAviation}</span>) for your {preferences.targetSleepHours}h target.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : prepDetails.bedtimeExplanation ? (
               <div className="rounded-xl border border-purple-900/30 bg-purple-950/15 p-3 flex items-center gap-2.5 text-xs">
                 <Moon className="h-4 w-4 text-purple-400 shrink-0" />
                 <div>
                   <strong className="text-purple-300 font-semibold">Circadian Sleep Schedule: </strong>
                   <span className="text-slate-300">{prepDetails.bedtimeExplanation}</span>
-                </div>
-              </div>
-            ) : prepDetails.targetBedtimeHbt ? (
-              <div className="rounded-xl border border-purple-900/30 bg-purple-950/15 p-3 flex items-center gap-2.5 text-xs">
-                <Moon className="h-4 w-4 text-purple-400 shrink-0" />
-                <div>
-                  <strong className="text-purple-300 font-semibold">Reverse Bedtime Recommendation: </strong>
-                  <span className="text-slate-300">
-                    To get your target {preferences.targetSleepHours}h sleep before your {prepDetails.wakeUpHbt} alarm, lights out by <strong className="text-white font-mono">{prepDetails.targetBedtimeHbt}</strong> the night before.
-                  </span>
                 </div>
               </div>
             ) : null}
@@ -874,6 +978,39 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           )}
                         </div>
                       </div>
+
+                      {/* Smart Debrief & Duty Release Marker (Understated mental picture footer) */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-900/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <span className="text-slate-500 text-[10px]">Debrief & Duty Release:</span>
+                          <strong className="text-indigo-300 font-bold">
+                            {calculateDebriefEndTime(flight.endHbtStr, debriefMinutesByFlight[flight.id] || 30)} HBT
+                          </strong>
+                          <span className="text-slate-600 text-[10px]">•</span>
+                          <span className="text-slate-400 text-[10px]">
+                            Touchdown {flight.endHbtStr} + {debriefMinutesByFlight[flight.id] || 30}m buffer
+                          </span>
+                        </div>
+
+                        {/* Subtle Debrief Buffer Switcher */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] text-slate-500 font-mono">Debrief:</span>
+                          {[15, 30, 45].map((mins) => (
+                            <button
+                              key={mins}
+                              onClick={() => setDebriefMinutesByFlight((prev) => ({ ...prev, [flight.id]: mins }))}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                                (debriefMinutesByFlight[flight.id] || 30) === mins
+                                  ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-bold'
+                                  : 'text-slate-500 hover:text-slate-300'
+                              }`}
+                              title={`${mins}m debrief buffer`}
+                            >
+                              {mins}m
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Ground Turnaround & Transit Card between consecutive sectors */}
@@ -924,17 +1061,45 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             ) : (
               sleepEvents.map((event) => {
                 const nudge = customNudges[event.id] || 0;
+
+                // Precision calendar date resolution for bedtime vs wake-up in Home Base Time
+                const startDateObj = new Date(new Date(event.startUtc).getTime() + preferences.homeBaseTzOffset * 3600000);
+                const endDateObj = new Date(new Date(event.endUtc).getTime() + preferences.homeBaseTzOffset * 3600000);
+                const startDateAviation = formatAviationDate(startDateObj);
+                const endDateAviation = formatAviationDate(endDateObj);
+                const startWeekday = startDateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+                const endWeekday = endDateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+                const currentDutyAviation = formatAviationDate(selectedDate);
+                const currentDutyWeekday = activeDaySummary ? activeDaySummary.dayLabel.split(',')[0]?.trim() : '';
+
+                // Is bedtime on the prior calendar day before today's wake-up?
+                const isPriorDayBedtime = startDateAviation !== currentDutyAviation;
+                const crossesMidnight = startDateAviation !== endDateAviation;
+
                 return (
                   <div
                     key={event.id}
-                    className="rounded-xl border border-purple-900/30 bg-purple-950/15 p-3 text-xs space-y-2"
+                    className="rounded-xl border border-purple-900/30 bg-purple-950/15 p-3 text-xs space-y-2.5 shadow-sm"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                      <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <p className="font-bold text-white flex items-center gap-1.5">
                             <span>{event.title}</span>
                           </p>
+                          {isPriorDayBedtime ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300">
+                              🌙 Prior-Day Bedtime ({startWeekday}, {startDateAviation})
+                            </span>
+                          ) : crossesMidnight ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-purple-900/60 border border-purple-700/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-purple-300">
+                              🌙 Crosses Midnight
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded bg-blue-900/40 border border-blue-700/40 px-1.5 py-0.5 text-[9px] font-mono font-bold text-blue-300">
+                              ☀️ Daytime Rest
+                            </span>
+                          )}
                           {event.type === 'anchor_sleep' && prepDetails && (
                             <span className="inline-flex items-center gap-1 rounded bg-purple-900/40 border border-purple-700/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-purple-300">
                               ✓ In Sync with Runway
@@ -942,13 +1107,42 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           )}
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">{event.subtitle}</p>
+
+                        {/* Explicit calendar breakdown subtext for total clarity */}
+                        <div className="rounded-lg bg-slate-950/70 border border-purple-900/30 p-2 text-[10px] space-y-1 mt-1.5">
+                          <div className="flex items-center justify-between text-slate-300 font-mono">
+                            <span className="text-purple-300 font-bold flex items-center gap-1">
+                              🛌 Lights Out (Bedtime):
+                            </span>
+                            <span className="text-white font-extrabold">
+                              {startWeekday}, {startDateAviation} • {event.startHbtStr} HBT{' '}
+                              {isPriorDayBedtime && <span className="text-amber-400 font-sans font-bold">(Evening Before)</span>}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-slate-300 font-mono border-t border-slate-900 pt-1">
+                            <span className="text-sky-300 font-bold flex items-center gap-1">
+                              ⏰ Wake-Up Alarm:
+                            </span>
+                            <span className="text-white font-extrabold">
+                              {endWeekday}, {endDateAviation} • {event.endHbtStr} HBT{' '}
+                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : 'Duty Morning'})</span>
+                            </span>
+                          </div>
+                          {isPriorDayBedtime && (
+                            <p className="text-[10px] text-amber-300/90 pt-1 border-t border-slate-900 font-sans">
+                              💡 <strong>Operational Strategy:</strong> Sleep commences the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.floor(event.durationMinutes / 60)}h rest finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="text-right shrink-0">
-                        <span className="font-mono text-xs font-extrabold text-purple-200">
+                      <div className="text-left sm:text-right shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-purple-900/20">
+                        <span className="font-mono text-xs font-black text-purple-200 block">
                           {event.startHbtStr} – {event.endHbtStr}
                         </span>
-                        <p className="text-[10px] text-slate-500">Home Time</p>
+                        <p className="text-[9px] text-slate-400 font-mono">
+                          {Math.floor(event.durationMinutes / 60)}h {event.durationMinutes % 60}m Rest
+                        </p>
                       </div>
                     </div>
 

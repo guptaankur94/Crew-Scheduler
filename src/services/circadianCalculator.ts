@@ -12,6 +12,7 @@ import {
   ScientificCitation,
 } from '../types/circadian';
 import { AIRPORTS } from '../data/airports';
+import { formatAviationDate } from '../utils/dateUtils';
 
 // Format helper for UTC ISO string to time string with timezone offset
 export function formatTimeWithTz(isoUtc: string, tzOffsetHours: number): string {
@@ -513,6 +514,11 @@ export function generateCircadianPlan(
     let caffeineCutoffHbt = '';
     let caffeineCutoffUtc = '';
 
+    const debriefMin = preferences.debriefMinutes !== undefined ? preferences.debriefMinutes : 30;
+    const debriefStartHbt = formatShortTime(lastFlight.arrivalTimeUtc, hbtOffset);
+    const debriefEndUtc = new Date(new Date(lastFlight.arrivalTimeUtc).getTime() + debriefMin * 60000);
+    const debriefEndHbt = formatShortTime(debriefEndUtc.toISOString(), hbtOffset);
+
     if (isEarlyMorning) {
       dutyCategory = 'early_morning';
       step1Label = 'Step 1: Wake-Up Alarm';
@@ -525,7 +531,10 @@ export function generateCircadianPlan(
       caffeineCutoffUtc = cafCutoff.toISOString();
       caffeineCutoffHbt = formatShortTime(caffeineCutoffUtc, hbtOffset);
 
-      bedtimeExplanation = `Early morning departure requires sleep advance: lights out by ${targetBedtimeHbt} the evening before for a ${prepStartHbt} wake-up.`;
+      const eveDateObj = new Date(bedtime.getTime() + hbtOffset * 3600000);
+      const eveAviation = formatAviationDate(eveDateObj);
+      const dutyAviation = formatAviationDate(dateStr);
+      bedtimeExplanation = `Early morning departure: lights out by ${targetBedtimeHbt} on the evening before (${eveAviation}) to wake up refreshed at ${prepStartHbt} on ${dutyAviation}.`;
     } else if (isDaytime) {
       dutyCategory = 'daytime';
       step1Label = 'Step 1: Prep & Uniform Alarm';
@@ -577,6 +586,7 @@ export function generateCircadianPlan(
       groomingMinutes: groomingMin,
       cabBufferMinutes: cabMin,
       targetBedtimeHbt,
+      targetBedtimeDateStr: new Date(new Date(targetBedtimeUtc).getTime() + hbtOffset * 3600000).toISOString().slice(0, 10),
       caffeineCutoffHbt,
       wakeUpUtc: prepStartTime.toISOString(),
       cabPickupUtc: cabPickupTime.toISOString(),
@@ -585,6 +595,9 @@ export function generateCircadianPlan(
       step1Label,
       step1Description,
       bedtimeExplanation,
+      debriefMinutes: debriefMin,
+      debriefStartHbt,
+      debriefEndHbt,
     };
     dayPrepMap.set(dateStr, prepDetails);
 
@@ -628,12 +641,20 @@ export function generateCircadianPlan(
       const nudgedEnd = new Date(prepStartTime.getTime() + nudge * 60000).toISOString();
       const durationMinutes = Math.round((new Date(nudgedEnd).getTime() - new Date(nudgedStart).getTime()) / 60000);
 
+      const eveDateObj = new Date(new Date(nudgedStart).getTime() + hbtOffset * 3600000);
+      const wakeDateObj = new Date(new Date(nudgedEnd).getTime() + hbtOffset * 3600000);
+      const eveAviation = formatAviationDate(eveDateObj);
+      const wakeAviation = formatAviationDate(wakeDateObj);
+      const isNightBefore = eveAviation !== wakeAviation;
+
       events.push({
         id: anchorId,
         dutyDate: dateStr,
         type: 'anchor_sleep',
         title: `🛏️ Pre-Duty Anchor Sleep (${(durationMinutes / 60).toFixed(1)}h Target)`,
-        subtitle: `Bedtime at ${targetBedtimeHbt} for ${prepStartHbt} wake-up (Cab: ${cabPickupHbt})`,
+        subtitle: isNightBefore
+          ? `🌙 Eve of ${eveAviation} at ${targetBedtimeHbt} ➔ Wake ${wakeAviation} at ${prepStartHbt} (Cab: ${cabPickupHbt})`
+          : `Bedtime at ${targetBedtimeHbt} for ${prepStartHbt} wake-up (Cab: ${cabPickupHbt})`,
         startUtc: nudgedStart,
         endUtc: nudgedEnd,
         durationMinutes,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FlightLeg } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { getAirportTzOffset } from '../data/airports';
+import { buildManualFlight } from '../services/manualFlight';
 import {
   Plane,
   X,
@@ -44,6 +45,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
   const [date, setDate] = useState(defaultDate);
   const [depTime, setDepTime] = useState('14:30');
   const [arrTime, setArrTime] = useState('16:45');
+  const [formError, setFormError] = useState<string | null>(null);
   
   // Delay form state
   const [delayMinutes, setDelayMinutes] = useState(60);
@@ -53,30 +55,25 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
 
   const handleStandbySubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!flightNumber.trim() || !origin || !destination) return;
 
-    const depUtc = new Date(`${date}T${depTime}:00Z`).toISOString();
-    const arrUtc = new Date(`${date}T${arrTime}:00Z`).toISOString();
-    const depMs = new Date(depUtc).getTime();
-    const arrMs = new Date(arrUtc).getTime();
-    const durationMin = Math.max(30, Math.round((arrMs - depMs) / 60000));
-
-    const newFlight: FlightLeg = {
+    const result = buildManualFlight({
       id: `standby-callout-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      flightNumber: flightNumber.trim().toUpperCase(),
-      origin: origin.toUpperCase(),
-      destination: destination.toUpperCase(),
-      departureTimeUtc: depUtc,
-      arrivalTimeUtc: arrUtc,
-      reportTimeUtc: new Date(depMs - 60 * 60000).toISOString(),
-      releaseTimeUtc: new Date(arrMs + 30 * 60000).toISOString(),
-      originTzOffset: AIRPORTS[origin.toUpperCase()]?.tzOffset ?? 5.5,
-      destTzOffset: AIRPORTS[destination.toUpperCase()]?.tzOffset ?? 5.5,
-      durationMinutes: durationMin,
-      isRedEye: false,
-    };
+      flightNumber,
+      origin,
+      destination,
+      dateStr: date,
+      depTime,
+      arrTime,
+      reportLeadMinutes: 60,
+      fallbackTzOffset: getAirportTzOffset(homeBase, new Date()) ?? 5.5,
+    });
 
-    onAddStandbyFlight(newFlight);
+    if ('error' in result) {
+      setFormError(result.error);
+      return;
+    }
+
+    onAddStandbyFlight(result.flight);
     onClose();
   };
 
@@ -200,7 +197,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                  Departure Time (Local/HBT)
+                  Departure Time (Local at Origin)
                 </label>
                 <input
                   type="time"
@@ -213,7 +210,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                  Arrival Time (Local/HBT)
+                  Arrival Time (Local at Destination)
                 </label>
                 <input
                   type="time"
@@ -224,6 +221,12 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
                 />
               </div>
             </div>
+
+            {formError && (
+              <div role="alert" className="rounded-xl bg-rose-950/30 border border-rose-800/50 p-3 text-[11px] text-rose-200">
+                {formError}
+              </div>
+            )}
 
             <div className="rounded-xl bg-amber-950/20 border border-amber-800/40 p-3 text-[11px] text-amber-200">
               💡 <strong>Instant Recalculation:</strong> Adding this sector will convert standby hours into flying hours, recalculate your salary breakdown, and schedule immediate pre-flight wake-up alarms.

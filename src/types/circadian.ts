@@ -5,7 +5,8 @@ export interface AirportInfo {
   name: string;
   city: string;
   country: string;
-  tzOffset: number; // in hours from UTC, e.g. +5.5 for DEL/BOM, +4 for DXB
+  tzOffset: number; // standard-time hours from UTC, e.g. +5.5 for DEL/BOM, +4 for DXB
+  timeZone?: string; // IANA zone (e.g. 'Europe/London') for daylight-saving-aware offsets
 }
 
 export interface FlightLeg {

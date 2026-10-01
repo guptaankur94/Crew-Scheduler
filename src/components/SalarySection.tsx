@@ -118,6 +118,8 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset so choosing the same file again still triggers a new upload
+    e.target.value = '';
     if (!file) return;
 
     setIsUploading(true);
@@ -162,6 +164,10 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
         } finally {
           setIsUploading(false);
         }
+      };
+      reader.onerror = () => {
+        setUploadError('Could not read that file. Please try a different image or PDF.');
+        setIsUploading(false);
       };
       reader.readAsDataURL(file);
     } catch (err: any) {
@@ -537,7 +543,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
               Upload Airline Salary Slip / Paystub
             </h4>
             <p className="text-[11px] text-slate-400">
-              Upload a photo or PDF screenshot of your monthly paystub. Multimodal Gemini extracts the exact base pay, hourly block rates, and allowances automatically.
+              Upload a photo or PDF screenshot of your monthly paystub. Multimodal Gemini extracts the exact base pay, hourly block rates, and allowances automatically. The file is sent to Google Gemini to be read, so crop out bank details or ID numbers you do not want to share.
             </p>
           </div>
 

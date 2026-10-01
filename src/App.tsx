@@ -12,7 +12,8 @@ import {
   computeRosterDateRange,
   setActiveHistoryItem,
 } from './services/rosterHistoryService';
-import { analyzeRosterMerge, resolveAndMergeFlights } from './services/rosterMerger';
+import { analyzeRosterMerge } from './services/rosterMerger';
+import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
 import { TodayView } from './components/views/TodayView';
@@ -32,8 +33,27 @@ import {
   FileText,
 } from 'lucide-react';
 
+const DEFAULT_PREFERENCES: CrewPreferences = {
+  airline: 'airline',
+  homeBaseIata: 'DEL',
+  homeBaseTzOffset: 5.5,
+  chronotype: 'intermediate',
+  targetSleepHours: 7.5,
+  caffeineCutoffHours: 6,
+  preferredNapDuration: 26,
+  groomingMinutes: 60,
+  cabBufferMinutes: 60,
+  crewRank: 'senior',
+  currency: 'INR',
+};
+
 export default function App() {
   const presets = useMemo(() => getPresets(), []);
+
+  // Roster, preferences and adjustments saved from the previous visit (null on first run)
+  const savedState = useMemo(() => loadAppState(DEFAULT_PREFERENCES), []);
+  // Sample rosters are dated relative to today, so a saved sample is regenerated rather than restored stale
+  const savedPreset = savedState ? presets.find((p) => p.id === savedState.activePresetId) : undefined;
   
   // Navigation State: 'today' | 'roster' | 'salary' | 'upload' | 'settings' | 'science'
   const [activeView, setActiveView] = useState<NavView>('today');
@@ -41,10 +61,11 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // Default to 30-day full monthly roster
-  const [activePresetId, setActivePresetId] = useState<string>('monthly-30day-roster');
-  
+  const [activePresetId, setActivePresetId] = useState<string>(savedState?.activePresetId ?? presets[0].id);
+
   const [roster, setRoster] = useState<RosterData>(() => {
-    return presets[0].roster;
+    if (savedPreset) return savedPreset.roster;
+    return savedState?.roster ?? presets[0].roster;
   });
 
   // Roster Upload & Audit History State
@@ -71,27 +92,29 @@ export default function App() {
     return [initialEntry];
   });
 
-  const [preferences, setPreferences] = useState<CrewPreferences>({
-    airline: 'airline',
-    homeBaseIata: 'DEL',
-    homeBaseTzOffset: 5.5,
-    chronotype: 'intermediate',
-    targetSleepHours: 7.5,
-    caffeineCutoffHours: 6,
-    preferredNapDuration: 26,
-    groomingMinutes: 60,
-    cabBufferMinutes: 60,
-    crewRank: 'senior',
-    currency: 'INR',
-  });
+  const [preferences, setPreferences] = useState<CrewPreferences>(savedState?.preferences ?? DEFAULT_PREFERENCES);
 
-  const [customNudges, setCustomNudges] = useState<Record<string, number>>({});
+  const [customNudges, setCustomNudges] = useState<Record<string, number>>(
+    savedPreset ? {} : savedState?.customNudges ?? {}
+  );
+  // Date to open when jumping from the master sheet into the timeline
+  const [timelineJumpDate, setTimelineJumpDate] = useState<string | undefined>(undefined);
   const [selectedEvent, setSelectedEvent] = useState<CircadianEvent | null>(null);
 
   // Generate reactive Circadian Plan whenever roster, preferences, or nudges change
   const plan = useMemo(() => {
     return generateCircadianPlan(roster, preferences, customNudges);
   }, [roster, preferences, customNudges]);
+
+  // Keep the latest roster, preferences and adjustments so a reload restores them
+  useEffect(() => {
+    saveAppState({ roster, preferences, customNudges, activePresetId });
+  }, [roster, preferences, customNudges, activePresetId]);
+
+  // A sample roster that has been edited is the user's own data from then on
+  const markEdited = () => {
+    setActivePresetId((id) => (presets.some((p) => p.id === id) ? 'custom-edit' : id));
+  };
 
   // Handle Home Base Change
   const handleChangeHomeBase = (iata: string, tzOffset: number) => {
@@ -100,6 +123,7 @@ export default function App() {
       homeBaseIata: iata,
       homeBaseTzOffset: tzOffset,
     }));
+    markEdited();
     setRoster((prev) => {
       const updated = {
         ...prev,
@@ -225,6 +249,7 @@ export default function App() {
 
   // Handle Adding a Manual Sector
   const handleAddManualSector = (flight: FlightLeg) => {
+    markEdited();
     setRoster((prev) => {
       const newFlights = [...prev.flights, flight].sort(
         (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
@@ -291,6 +316,7 @@ export default function App() {
         flights: mergedFlights,
         parsedAt: new Date().toISOString(),
       };
+      markEdited();
       setRoster(updatedRoster);
 
       const updatedHistory = recordRosterAction({
@@ -310,6 +336,7 @@ export default function App() {
 
   // Tactical Duty Action 1: Cancel Sector
   const handleCancelSector = (flightId: string, convertToLayover: boolean) => {
+    markEdited();
     setRoster((prev) => {
       const cancelledFlight = prev.flights.find((f) => f.id === flightId);
       if (!cancelledFlight) return prev;
@@ -360,6 +387,7 @@ export default function App() {
 
   // Tactical Duty Action 2: Delay Sector
   const handleDelaySector = (flightId: string, delayMinutes: number) => {
+    markEdited();
     setRoster((prev) => {
       const flight = prev.flights.find((f) => f.id === flightId);
       if (!flight) return prev;
@@ -407,6 +435,7 @@ export default function App() {
 
   // Tactical Duty Action 3: Add Standby Callout Flight
   const handleAddStandbyFlight = (newFlight: FlightLeg) => {
+    markEdited();
     setRoster((prev) => {
       const newFlights = [...prev.flights, newFlight].sort(
         (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
@@ -436,6 +465,7 @@ export default function App() {
 
   // Tactical Duty Action 4: Delete Sector
   const handleDeleteSector = (flightId: string) => {
+    markEdited();
     setRoster((prev) => {
       const flight = prev.flights.find((f) => f.id === flightId);
       if (!flight) return prev;
@@ -540,6 +570,7 @@ export default function App() {
               onDelaySector={handleDelaySector}
               onDeleteSector={handleDeleteSector}
               onAddStandbyFlight={handleAddStandbyFlight}
+              initialDate={timelineJumpDate}
             />
           )}
 
@@ -547,6 +578,7 @@ export default function App() {
             <MasterRosterOverview
               plan={plan}
               onJumpToTimeline={(dateStr) => {
+                setTimelineJumpDate(dateStr);
                 setActiveView('roster');
               }}
               onSelectEvent={setSelectedEvent}

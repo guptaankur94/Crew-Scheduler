@@ -94,6 +94,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [isParsingBatch, setIsParsingBatch] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Flights the server refused to guess at; shown so the user can add them by hand
+  const [parseWarnings, setParseWarnings] = useState<string[]>([]);
   const [batchSummary, setBatchSummary] = useState<{
     totalUniqueFlights: number;
     filesCount: number;
@@ -257,6 +259,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setParseError(null);
     setSuccessMessage(null);
     setBatchSummary(null);
+    setParseWarnings([]);
     setPreviewModalIndex(null);
   };
 
@@ -267,6 +270,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setParseError(null);
     setSuccessMessage(null);
     setBatchSummary(null);
+    setParseWarnings([]);
     setIsParsingBatch(true);
 
     const itemsToProcess = [...fileBatch];
@@ -318,6 +322,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
           allExtractedFlights.push(...flights);
           breakdown.push({ fileName: currentItem.name, count: flights.length });
+          if (Array.isArray(result.data.warnings) && result.data.warnings.length > 0) {
+            const fileWarnings: string[] = result.data.warnings;
+            setParseWarnings((prev) => [...prev, ...fileWarnings]);
+          }
 
           setFileBatch((prev) =>
             prev.map((item) =>
@@ -509,6 +517,29 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setPendingConflictData(null);
   };
 
+  // Merge a history snapshot into the active roster; clashes go through the same review dialog as uploads
+  const handleMergeSnapshot = (snapshot: RosterData, title: string) => {
+    if (currentRoster.flights.length > 0 && snapshot.flights && snapshot.flights.length > 0) {
+      const mergeAnalysis = analyzeRosterMerge(currentRoster.flights, snapshot.flights);
+      if (mergeAnalysis.hasConflicts) {
+        setPendingConflictData({
+          conflicts: mergeAnalysis.conflicts,
+          identicalCount: mergeAnalysis.identicalCount,
+          newSectorsCount: mergeAnalysis.newSectorsCount,
+          incomingFlights: snapshot.flights,
+          sourceTitle: `Merged "${title}"`,
+          customDescription: `Merged ${snapshot.flights.length} flight legs from history`,
+          detectedAirline: currentRoster.airline,
+          detectedCrewName: currentRoster.crewName || 'Cabin Crew',
+          detectedHomeBase: currentRoster.homeBase,
+          detectedHomeBaseTzOffset: currentRoster.homeBaseTzOffset,
+        });
+        return;
+      }
+    }
+    if (onMergeRosterSnapshot) onMergeRosterSnapshot(snapshot, title);
+  };
+
   // Retry an individual file
   const retrySingleFile = async (itemId: string) => {
     const item = fileBatch.find((f) => f.id === itemId);
@@ -572,6 +603,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setParseError(null);
     setSuccessMessage(null);
     setBatchSummary(null);
+    setParseWarnings([]);
 
     try {
       const response = await fetch('/api/roster/parse', {
@@ -583,6 +615,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       const result = await response.json();
       if (result.success && result.data) {
         const newFlights: FlightLeg[] = result.data.flights || [];
+        setParseWarnings(Array.isArray(result.data.warnings) ? result.data.warnings : []);
         
         if (currentRoster.flights.length > 0) {
           const mergeAnalysis = analyzeRosterMerge(currentRoster.flights, newFlights);
@@ -771,6 +804,12 @@ export const UploadView: React.FC<UploadViewProps> = ({
         </button>
       </div>
 
+      {/* Privacy Notice */}
+      <p className="text-[11px] text-slate-500">
+        Privacy: files and text you submit here are sent to Google Gemini to be read. Your roster is then stored only in
+        this browser. Crop out anything you do not want to share before uploading.
+      </p>
+
       {/* Success Banner */}
       {successMessage && (
         <div className="rounded-2xl border border-emerald-800/60 bg-emerald-950/40 p-4 text-xs space-y-3 text-emerald-200">
@@ -819,6 +858,28 @@ export const UploadView: React.FC<UploadViewProps> = ({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Flights left out because they could not be read reliably */}
+      {parseWarnings.length > 0 && (
+        <div role="alert" className="rounded-2xl border border-amber-800/60 bg-amber-950/30 p-4 text-xs space-y-2 text-amber-200">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-white text-sm">
+                {parseWarnings.length} item{parseWarnings.length === 1 ? '' : 's'} need your attention
+              </p>
+              <p className="text-amber-200/90">
+                Nothing was guessed. Check these against your roster and add any missing sector manually from the History tab.
+              </p>
+            </div>
+          </div>
+          <ul className="list-disc pl-9 space-y-0.5 font-mono text-[11px] text-amber-100/90">
+            {parseWarnings.map((warning, idx) => (
+              <li key={idx}>{warning}</li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -1208,7 +1269,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
               onUploadFiles={stageIncomingFiles}
               isParsing={isParsingBatch}
               onViewTimeline={onViewRosterTimeline}
-              onMergeRosterSnapshot={onMergeRosterSnapshot}
+              onMergeRosterSnapshot={handleMergeSnapshot}
             />
           </div>
         </div>
@@ -1228,7 +1289,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
           onUploadFiles={stageIncomingFiles}
           isParsing={isParsingBatch}
           onViewTimeline={onViewRosterTimeline}
-          onMergeRosterSnapshot={onMergeRosterSnapshot}
+          onMergeRosterSnapshot={handleMergeSnapshot}
         />
       )}
 

@@ -15,6 +15,7 @@ interface RosterViewProps {
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
   initialTab?: 'timeline' | 'sheet';
+  initialDate?: string;
 }
 
 export const RosterView: React.FC<RosterViewProps> = ({
@@ -28,9 +29,10 @@ export const RosterView: React.FC<RosterViewProps> = ({
   onDeleteSector,
   onAddStandbyFlight,
   initialTab = 'timeline',
+  initialDate,
 }) => {
   const [activeTab, setActiveTab] = useState<'timeline' | 'sheet'>(initialTab);
-  const [timelineDate, setTimelineDate] = useState<string | undefined>(undefined);
+  const [timelineDate, setTimelineDate] = useState<string | undefined>(initialDate);
 
   return (
     <div className="space-y-4">

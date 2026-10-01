@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { RosterData, RosterHistoryEntry, FlightLeg } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { buildManualFlight } from '../services/manualFlight';
 import {
   History,
   Trash2,
@@ -78,6 +78,7 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
   );
   const [manualDepTime, setManualDepTime] = useState('06:30');
   const [manualArrTime, setManualArrTime] = useState('08:45');
+  const [manualError, setManualError] = useState<string | null>(null);
 
   // Filter history
   const filteredHistory = history.filter((item) => {
@@ -145,42 +146,27 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
 
   const handleCreateManualFlight = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualFlightNumber.trim() || !onAddManualSector) return;
+    if (!onAddManualSector) return;
 
-    const originAirport = AIRPORTS[manualOrigin.toUpperCase()] || { tzOffset: 5.5, city: manualOrigin };
-    const destAirport = AIRPORTS[manualDestination.toUpperCase()] || { tzOffset: 5.5, city: manualDestination };
-
-    const depUtc = new Date(
-      Date.parse(`${manualDate}T${manualDepTime}:00Z`) - originAirport.tzOffset * 3600000
-    ).toISOString();
-    const arrUtc = new Date(
-      Date.parse(`${manualDate}T${manualArrTime}:00Z`) - destAirport.tzOffset * 3600000
-    ).toISOString();
-
-    const reportUtc = new Date(new Date(depUtc).getTime() - 75 * 60000).toISOString();
-    const releaseUtc = new Date(new Date(arrUtc).getTime() + 30 * 60000).toISOString();
-
-    const durationMin = Math.max(
-      30,
-      Math.round((new Date(arrUtc).getTime() - new Date(depUtc).getTime()) / 60000)
-    );
-
-    const newFlight: FlightLeg = {
+    const result = buildManualFlight({
       id: `manual-leg-${Date.now()}`,
-      flightNumber: manualFlightNumber.toUpperCase().trim(),
-      origin: manualOrigin.toUpperCase().trim(),
-      originCity: originAirport.city,
-      destination: manualDestination.toUpperCase().trim(),
-      destinationCity: destAirport.city,
-      departureTimeUtc: depUtc,
-      arrivalTimeUtc: arrUtc,
-      reportTimeUtc: reportUtc,
-      releaseTimeUtc: releaseUtc,
-      originTzOffset: originAirport.tzOffset,
-      destTzOffset: destAirport.tzOffset,
-      durationMinutes: durationMin,
-    };
+      flightNumber: manualFlightNumber,
+      origin: manualOrigin,
+      destination: manualDestination,
+      dateStr: manualDate,
+      depTime: manualDepTime,
+      arrTime: manualArrTime,
+      reportLeadMinutes: 75,
+      fallbackTzOffset: currentRoster.homeBaseTzOffset,
+    });
 
+    if ('error' in result) {
+      setManualError(result.error);
+      return;
+    }
+
+    const newFlight = result.flight;
+    setManualError(null);
     onAddManualSector(newFlight);
     setShowManualModal(false);
     setManualFlightNumber('');
@@ -877,7 +863,7 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                    Departure (Local)
+                    Departure (Local at Origin)
                   </label>
                   <input
                     type="time"
@@ -889,7 +875,7 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                    Arrival (Local)
+                    Arrival (Local at Destination)
                   </label>
                   <input
                     type="time"
@@ -900,6 +886,12 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
                   />
                 </div>
               </div>
+
+              {manualError && (
+                <p role="alert" className="rounded-xl border border-rose-800/50 bg-rose-950/30 p-2.5 text-[11px] text-rose-200">
+                  {manualError}
+                </p>
+              )}
 
               <p className="text-[10px] text-slate-500">
                 Reporting time automatically sets 75 min prior to departure; release 30 min after arrival.

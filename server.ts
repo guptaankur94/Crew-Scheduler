@@ -128,7 +128,9 @@ YOU HANDLE ALL PRESENTATION FORMATS:
 
 CRITICAL EXTRACTION RULES:
 - EXTRACT EVERY REAL FLIGHT LEG: Look for flight numbers (2-character or 3-character airline code followed by digits, e.g. 6E 205, AI 101, EK 512, QR 570, BA 142, UA 880, DL 1234, FR 405, QP 1102, SG 8145, UK 955, etc.).
-- DISREGARD NON-FLIGHT DUTIES: Days off (OFF, D/O, G/D, RD), Standby / Reserve (SBY, RSRV, ASBY), Leave (AL, S/L, CL), Training / Sim (SIM, TRG, G/S), Hotel / Layover (HOTEL, L/O, REST) must NOT be returned as flight legs. Only actual flights are included.
+- STANDBY: Standby / reserve duties (SBY, RSRV, HSBY, ASBY, "standby", "reserve") are NOT flights. Return each one in the "standby" array with its start and end time in UTC. Use "airport" for airport standby (ASBY, airport reserve) and "home" for home standby (SBY, HSBY, home reserve).
+- POSITIONING: Flights travelled as a passenger to or from a duty (marked DH, DHD, POS, PAX, "deadhead" or "positioning") ARE returned in "flights" with "isPositioning": true. Normal working flights have "isPositioning": false.
+- DISREGARD OTHER NON-FLIGHT DUTIES: Days off (OFF, D/O, G/D, RD), Leave (AL, S/L, CL), Training / Sim (SIM, TRG, G/S) and Hotel / Layover (HOTEL, L/O, REST) must not be returned.
 - AIRPORTS: Extract 3-letter IATA codes (e.g. DEL, BOM, DXB, LHR, JFK). If city names or 4-letter ICAO codes are shown, convert them to 3-letter IATA codes.
 - MISSING YEAR: Today's date is ${today}. If the year is omitted from the document (e.g. only "01 OCT" or "Mon 14" is visible), choose the year that places the date closest to today.
 - NEVER GUESS: If a flight's date, time or airport cannot be read, leave that field as an empty string rather than inventing a value.
@@ -160,8 +162,12 @@ CRITICAL EXTRACTION RULES:
       "destTzOffset": 5.5,
       "aircraftType": "string",
       "durationMinutes": 120,
-      "isRedEye": false
+      "isRedEye": false,
+      "isPositioning": false
     }
+  ],
+  "standby": [
+    { "type": "home", "airport": "DEL", "startTimeUtc": "YYYY-MM-DDTHH:mm:ssZ", "endTimeUtc": "YYYY-MM-DDTHH:mm:ssZ" }
   ],
   "notes": "string"
 }

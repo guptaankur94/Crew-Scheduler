@@ -1,5 +1,5 @@
 import { AIRPORTS, getAirportTzOffset } from '../src/data/airports';
-import type { FlightLeg } from '../src/types/circadian';
+import type { FlightLeg, StandbyDuty } from '../src/types/circadian';
 
 export interface SanitizedRoster {
   airline: string;
@@ -9,6 +9,7 @@ export interface SanitizedRoster {
   flights: FlightLeg[];
   notes: string;
   warnings: string[];
+  standby: StandbyDuty[];
 }
 
 const IATA_RE = /^[A-Z]{3}$/;
@@ -111,10 +112,45 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       destTzOffset,
       aircraftType: typeof fl.aircraftType === 'string' && fl.aircraftType.trim() ? fl.aircraftType.trim() : undefined,
       durationMinutes,
+      isPositioning: fl.isPositioning === true ? true : undefined,
     });
   });
 
-  if (flights.length === 0) return null;
+  // Standby periods: kept only when their times make sense
+  const standby: StandbyDuty[] = [];
+  (Array.isArray(parsed.standby) ? parsed.standby : []).forEach((sb: any, i: number) => {
+    if (!sb || typeof sb !== 'object') return;
+    const start = parseInstant(sb.startTimeUtc);
+    const end = parseInstant(sb.endTimeUtc);
+    if (!start || !end || end <= start || end.getTime() - start.getTime() > 24 * 3600000) {
+      warnings.push('Skipped a standby period: its start or end time could not be read.');
+      return;
+    }
+    if (Math.abs(start.getTime() - now.getTime()) > PLAUSIBLE_WINDOW_MS) return;
+    const airport = cleanCode(sb.airport);
+    standby.push({
+      id: `standby-${batchStamp}-${i}`,
+      kind: sb.type === 'airport' ? 'airport' : 'home',
+      airport: IATA_RE.test(airport) ? airport : declaredHomeBase || '',
+      startUtc: start.toISOString(),
+      endUtc: end.toISOString(),
+    });
+  });
+
+  if (flights.length === 0 && standby.length === 0) return null;
+  if (flights.length === 0) {
+    const homeBase = IATA_RE.test(declaredHomeBase) ? declaredHomeBase : standby[0].airport;
+    return {
+      airline: typeof parsed.airline === 'string' && parsed.airline.trim() ? parsed.airline.trim() : 'Airline',
+      crewName: typeof parsed.crewName === 'string' && parsed.crewName.trim() ? parsed.crewName.trim() : 'Cabin Crew',
+      homeBase,
+      homeBaseTzOffset: getAirportTzOffset(homeBase, standby[0].startUtc) ?? (isPlausibleOffset(parsed.homeBaseTzOffset) ? parsed.homeBaseTzOffset : 0),
+      flights,
+      notes: 'Only standby duties were found.',
+      warnings,
+      standby,
+    };
+  }
 
   flights.sort((a, b) => Date.parse(a.departureTimeUtc) - Date.parse(b.departureTimeUtc));
 
@@ -145,6 +181,7 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       `Parsed ${flights.length} flight legs from document${skipped ? `; ${skipped} could not be read and were left out` : ''}.`
     ),
     warnings,
+    standby: standby.map((sb) => ({ ...sb, airport: sb.airport || homeBase })),
   };
 }
 

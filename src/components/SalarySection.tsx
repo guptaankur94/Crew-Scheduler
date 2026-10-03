@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useAiConsent } from './AiConsentDialog';
 import { CircadianPlan, CrewPreferences, CrewRank, SalaryBreakdown, SalaryCurrency } from '../types/circadian';
 import {
   DollarSign,
@@ -32,6 +33,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
   isModal = false,
 }) => {
   const { salaryBreakdown, preferences, monthlyStats } = plan;
+  const { requestConsent, dialog: consentDialog } = useAiConsent();
   const [activeTab, setActiveTab] = useState<'breakdown' | 'custom' | 'upload'>('breakdown');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -46,9 +48,9 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
   const samplePayslips = [
     {
       id: 'indigo-senior',
-      title: 'IndiGo Airlines Senior FA',
-      subtitle: 'Senior Cabin Crew (Base: DEL/BOM)',
-      badge: 'IndiGo Standard',
+      title: 'Sample: Indian carrier, senior crew',
+      subtitle: 'Example rates in INR',
+      badge: 'INR sample',
       currency: 'INR' as SalaryCurrency,
       rank: 'senior' as CrewRank,
       baseFixedPay: 48000,
@@ -59,9 +61,9 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
     },
     {
       id: 'emirates-grade2',
-      title: 'Emirates Cabin Crew Grade II',
-      subtitle: 'Flight Steward / Stewardess (Base: DXB)',
-      badge: 'Emirates UAE',
+      title: 'Sample: Gulf carrier, cabin crew',
+      subtitle: 'Example rates in AED',
+      badge: 'AED sample',
       currency: 'AED' as SalaryCurrency,
       rank: 'senior' as CrewRank,
       baseFixedPay: 6200,
@@ -72,9 +74,9 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
     },
     {
       id: 'airindia-lead',
-      title: 'Air India / Vistara Lead IFM',
-      subtitle: 'In-Flight Manager / Line Trainer',
-      badge: 'Line Lead',
+      title: 'Sample: Indian carrier, cabin lead',
+      subtitle: 'Example rates in INR',
+      badge: 'INR sample',
       currency: 'INR' as SalaryCurrency,
       rank: 'lead' as CrewRank,
       baseFixedPay: 65000,
@@ -94,10 +96,10 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
       customStandbyRate: preset.standbyHourlyRate,
       customLayoverRate: preset.layoverPerDiem,
       customNightRate: preset.nightAllowanceRate,
-      payslipUploaded: true,
-      payslipFileName: `${preset.title} Payslip Verified`,
+      payslipUploaded: false,
+      payslipFileName: undefined,
     });
-    setUploadSuccess(`Successfully loaded contract numbers from ${preset.title}!`);
+    setUploadSuccess('Sample rates loaded. Replace them with your own rates for an accurate estimate.');
     setUploadError(null);
     setActiveTab('breakdown');
   };
@@ -121,6 +123,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
     // Reset so choosing the same file again still triggers a new upload
     e.target.value = '';
     if (!file) return;
+    if (!(await requestConsent())) return;
 
     setIsUploading(true);
     setUploadError(null);
@@ -177,6 +180,8 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
   };
 
   return (
+    <>
+    {consentDialog}
     <div className={`rounded-2xl border border-slate-800 bg-slate-900/95 p-5 sm:p-6 shadow-xl space-y-5 ${isModal ? 'max-h-[90vh] overflow-y-auto' : ''}`}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-4 gap-3">
@@ -191,7 +196,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
               </h3>
               {preferences.payslipUploaded ? (
                 <span className="flex items-center gap-1 rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-                  <ShieldCheck className="h-3 w-3" /> Payslip Verified
+                  <ShieldCheck className="h-3 w-3" /> From your payslip
                 </span>
               ) : salaryBreakdown.isCustomRates ? (
                 <span className="rounded bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-300">
@@ -199,7 +204,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
                 </span>
               ) : (
                 <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-400">
-                  Standard Model
+                  Example rates
                 </span>
               )}
             </div>
@@ -277,7 +282,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
           <div className="rounded-2xl border border-emerald-900/40 bg-gradient-to-r from-emerald-950/40 via-slate-900/90 to-slate-950 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                <TrendingUp className="h-3.5 w-3.5" /> Projected Monthly Take-Home Pay
+                <TrendingUp className="h-3.5 w-3.5" /> Estimated monthly pay (before deductions)
               </span>
               <p className="text-3xl sm:text-4xl font-black font-mono text-emerald-300">
                 {formatMoney(salaryBreakdown.totalEarnings, salaryBreakdown.currencySymbol)}
@@ -368,10 +373,13 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
             <Info className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-semibold text-slate-300">
-                Commercial Airline Remuneration Mechanics (DGCA & ICAO Standards):
+                How this estimate works
               </p>
               <p className="text-[11px] leading-relaxed">
-                Flight pay is strictly accrued on <strong>Block Hours</strong> (chock-to-chock time between pushback from gate and arrival parking brake). Standby reserve is paid on allocated availability hours. DGCA CAR Section 7 / FAA Part 121 mandates a strict rolling 30-day cap of 100 block hours.
+                Flying pay uses the scheduled flight times on your roster. Layovers are counted from the nights your roster
+                keeps you away from base, and standby counts only if your roster includes it. Airlines calculate pay in
+                different ways and deductions are not included, so treat this as an estimate and check it against your
+                payslip.
               </p>
             </div>
           </div>
@@ -396,8 +404,48 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
               className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
             >
               <RefreshCw className="h-3 w-3" />
-              <span>Reset to Standard Defaults</span>
+              <span>Reset to example rates</span>
             </button>
+          </div>
+
+          {/* Position and currency for the example rate table */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Your position</span>
+              <div className="flex gap-2">
+                {([
+                  { id: 'junior', label: 'Junior crew' },
+                  { id: 'senior', label: 'Senior crew' },
+                  { id: 'lead', label: 'Cabin lead' },
+                ] as { id: CrewRank; label: string }[]).map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => onUpdatePreferences({ crewRank: r.id })}
+                    className={`flex-1 rounded-xl py-2 text-xs font-bold ${
+                      preferences.crewRank === r.id ? 'bg-blue-600 text-white' : 'border border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Currency</span>
+              <div className="flex gap-2">
+                {(['INR', 'AED', 'USD'] as SalaryCurrency[]).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => onUpdatePreferences({ currency: c })}
+                    className={`flex-1 rounded-xl py-2 text-xs font-bold ${
+                      preferences.currency === c ? 'bg-emerald-600 text-white' : 'border border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Currency & Rank Selection */}
@@ -588,7 +636,7 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
           {/* Quick One-Click Sample Payslips */}
           <div className="space-y-2 pt-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-amber-400" /> Or Test with Verified Airline Payslip Samples:
+              <Sparkles className="h-3.5 w-3.5 text-amber-400" /> Or try sample rates:
             </span>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -627,5 +675,6 @@ export const SalarySection: React.FC<SalarySectionProps> = ({
         </div>
       )}
     </div>
+  </>
   );
 };

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { NowNextCard } from '../NowNextCard';
+import { StandbyNotice } from '../StandbyNotice';
 import {
   CircadianEvent,
   CircadianPlan,
@@ -26,6 +28,7 @@ import {
   CheckCircle2,
   Calendar,
   FileText,
+  Bed,
 } from 'lucide-react';
 import { CockpitStatus } from '../CockpitStatus';
 import {
@@ -93,6 +96,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-5">
+      {/* At-a-glance: what matters now and what comes next */}
+      <NowNextCard plan={plan} onSelectEvent={onSelectEvent} />
+
+      {/* Standby periods on the selected day */}
+      <StandbyNotice events={todayEvents} onSelectEvent={onSelectEvent} />
+
       {/* 0. Banner when roster has been cleared */}
       {roster.flights.length === 0 && (
         <div className="rounded-2xl border border-amber-900/50 bg-amber-950/20 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-200 text-xs">
@@ -506,6 +515,50 @@ export const TodayView: React.FC<TodayViewProps> = ({
                           </p>
                         </div>
                       </div>
+                      {/* Long-Haul In-Flight Bunk Shift Rest Selector (>= 5h sectors) */}
+                      {flight.durationMinutes >= 300 && onUpdatePreferences && (
+                        <div className="mt-2 pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-indigo-300 flex items-center gap-1.5">
+                            <Bed className="h-3.5 w-3.5 text-indigo-400" /> Crew rest:
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                onUpdatePreferences({
+                                  bunkShiftAssignments: {
+                                    ...(preferences.bunkShiftAssignments || {}),
+                                    [flight.id]: 'shift1',
+                                  },
+                                });
+                              }}
+                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
+                                (preferences.bunkShiftAssignments?.[flight.id] || 'shift1') === 'shift1'
+                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              First rest period
+                            </button>
+                            <button
+                              onClick={() => {
+                                onUpdatePreferences({
+                                  bunkShiftAssignments: {
+                                    ...(preferences.bunkShiftAssignments || {}),
+                                    [flight.id]: 'shift2',
+                                  },
+                                });
+                              }}
+                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
+                                preferences.bunkShiftAssignments?.[flight.id] === 'shift2'
+                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              Second rest period
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
 
                       {/* Smart Debrief & Duty Release Marker (Understated mental picture footer) */}

@@ -36,8 +36,12 @@ import {
   Hotel,
   GitMerge,
   FileText,
+  DollarSign,
+  Bed,
 } from 'lucide-react';
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
+import { SalarySection } from './SalarySection';
+import { StandbyNotice } from './StandbyNotice';
 import { FlightLeg } from '../types/circadian';
 import {
   formatAviationDate,
@@ -99,6 +103,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   }, [dailySummaries]);
 
   const [activeMonthFilter, setActiveMonthFilter] = useState<string>('all');
+  const [showSalaryStudio, setShowSalaryStudio] = useState<boolean>(false);
   const [tacticalModal, setTacticalModal] = useState<{
     isOpen: boolean;
     type: TacticalModalType;
@@ -191,6 +196,23 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               >
                 <FileText className="h-4 w-4 text-blue-400" />
                 <span>Full roster sheet</span>
+              </button>
+            )}
+
+      {showSalaryStudio && onUpdatePreferences && (
+        <SalarySection plan={plan} onUpdatePreferences={onUpdatePreferences} onClose={() => setShowSalaryStudio(false)} />
+      )}
+            {onUpdatePreferences && (
+              <button
+                onClick={() => setShowSalaryStudio(!showSalaryStudio)}
+                className="flex items-center gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/40 hover:bg-emerald-900/50 px-3.5 py-2 text-xs font-bold text-emerald-300 transition-all shadow-sm self-start"
+              >
+                <DollarSign className="h-4 w-4 text-emerald-400" />
+                <span>
+                  {showSalaryStudio
+                    ? 'Close salary estimate'
+                    : `Salary estimate (~${plan.salaryBreakdown.currencySymbol}${plan.salaryBreakdown.totalEarnings.toLocaleString()})`}
+                </span>
               </button>
             )}
           </div>
@@ -348,7 +370,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
                 }`}
               >
-                {activeDaySummary.isOffDay ? '🏖️ Rest Day (WKOFF)' : `${activeDaySummary.fatigueRiskLevel} Load`}
+                {activeDaySummary.outlook?.headline ?? (activeDaySummary.isOffDay ? 'Day off' : 'Duty day')}
               </span>
             </div>
           )}
@@ -405,7 +427,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 {day.isOffDay ? (
                   <span className="text-emerald-400 font-bold">OFF</span>
                 ) : day.fatigueRiskLevel === 'high' ? (
-                  <span className="text-red-400">Night/WOCL</span>
+                  <span className="text-amber-400">Harder</span>
                 ) : (
                   <span className="text-blue-400">Duty</span>
                 )}
@@ -414,6 +436,22 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           );
         })}
       </div>
+
+      {/* Standby periods on the selected day */}
+      <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} />
+
+      {/* The selected day's outlook in words, when there is something to watch */}
+      {activeDaySummary?.outlook && activeDaySummary.outlook.level !== 'steady' && (
+        <div
+          className={`rounded-2xl border p-4 text-xs ${
+            activeDaySummary.outlook.level === 'harder' ? 'border-amber-800/60 bg-amber-950/20' : 'border-sky-900/60 bg-sky-950/20'
+          }`}
+        >
+          <p className="font-bold text-white text-sm">{activeDaySummary.outlook.headline}</p>
+          <p className="mt-1 text-slate-300">Because of {activeDaySummary.outlook.reasons.join(' and ')}.</p>
+          <p className="mt-1 text-slate-300">{activeDaySummary.outlook.tip}</p>
+        </div>
+      )}
 
       {/* Layer 4: Pre-Flight Morning Routine Runway (Wake-Up Alarm ➔ Cab Pickup ➔ Base Reporting ➔ Wheels Up) */}
       {!isOffDay && prepDetails && (
@@ -801,6 +839,50 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           </p>
                         </div>
                       </div>
+                      {/* Long-Haul In-Flight Bunk Shift Rest Selector (>= 5h sectors) */}
+                      {flight.durationMinutes >= 300 && onUpdatePreferences && (
+                        <div className="mt-2 pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-indigo-300 flex items-center gap-1.5">
+                            <Bed className="h-3.5 w-3.5 text-indigo-400" /> Crew rest:
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                onUpdatePreferences({
+                                  bunkShiftAssignments: {
+                                    ...(preferences.bunkShiftAssignments || {}),
+                                    [flight.id]: 'shift1',
+                                  },
+                                });
+                              }}
+                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
+                                (preferences.bunkShiftAssignments?.[flight.id] || 'shift1') === 'shift1'
+                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              First rest period
+                            </button>
+                            <button
+                              onClick={() => {
+                                onUpdatePreferences({
+                                  bunkShiftAssignments: {
+                                    ...(preferences.bunkShiftAssignments || {}),
+                                    [flight.id]: 'shift2',
+                                  },
+                                });
+                              }}
+                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
+                                preferences.bunkShiftAssignments?.[flight.id] === 'shift2'
+                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              Second rest period
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
 
                       {/* Tactical Flight Modification Bar (Real-Time UI Adjustments) */}

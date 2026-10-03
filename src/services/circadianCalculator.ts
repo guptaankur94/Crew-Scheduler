@@ -10,7 +10,7 @@ import {
   ScientificCitation,
 } from '../types/circadian';
 import { AIRPORTS } from '../data/airports';
-import { buildPlanEvents, flightInBodyNight, groupDuties, HomeClock, planRange } from './planEngine';
+import { buildPlanEvents, flightInBodyNight, groupDuties, HomeClock, planRange, shortSleepCatchUpMs } from './planEngine';
 
 // Format helper for UTC ISO string to time string with timezone offset
 export function formatTimeWithTz(isoUtc: string, tzOffsetHours: number): string {
@@ -140,17 +140,25 @@ export const CITATIONS = {
 } satisfies Record<string, ScientificCitation>;
 
 // Salary breakdown calculator based on real airline cabin crew compensation models
+/** Standby hours: an explicit total if the roster has one, otherwise the sum of its standby periods. */
+export function rosterStandbyHours(roster: RosterData): number {
+  if (roster.standbyHours !== undefined) return roster.standbyHours;
+  const hours = (roster.standbyDuties ?? []).reduce((sum, sb) => sum + (Date.parse(sb.endUtc) - Date.parse(sb.startUtc)) / 3600000, 0);
+  return Number(hours.toFixed(1));
+}
+
 export function calculateSalaryBreakdown(
   roster: RosterData,
   preferences: CrewPreferences,
   totalFlightMinutes: number,
-  woclSectorsCount: number
+  woclSectorsCount: number,
+  layoverNights = 0
 ): SalaryBreakdown {
   const currency = preferences.currency || 'INR';
   const rank = preferences.crewRank || 'senior';
   const flyingHours = Number((totalFlightMinutes / 60).toFixed(1));
-  const standbyHours = roster.standbyHours ?? 0;
-  const layoverCount = roster.layovers?.length ?? 0;
+  const standbyHours = rosterStandbyHours(roster);
+  const layoverCount = layoverNights;
 
   const defaultRankConfigs: Record<SalaryCurrency, Record<CrewRank, { base: number; rate: number; sbyRate: number; layoverPerDiem: number; nightRate: number; title: string }>> = {
     INR: {
@@ -227,7 +235,7 @@ export function generateCircadianPlan(
   const hbtOffset = preferences.homeBaseTzOffset;
   // Home time follows the home airport's real time zone (daylight saving included) when it is known
   const clock = new HomeClock(hbtOffset, AIRPORTS[roster.homeBase]?.timeZone);
-  const duties = groupDuties(roster.flights, roster.homeBase);
+  const duties = groupDuties(roster.flights, roster.homeBase, roster.standbyDuties ?? []);
   // Every flight belongs to the home-time date its duty starts on, so a duty that crosses midnight stays together
   const dutyDateByFlight = new Map<string, string>();
   duties.forEach((d) => d.flights.forEach((f) => dutyDateByFlight.set(f.id, clock.date(d.startMs))));
@@ -278,7 +286,7 @@ export function generateCircadianPlan(
       id: `flight-${flight.id}`,
       dutyDate: flightDutyDate,
       type: 'flight',
-      title: `Flight ${flight.flightNumber}: ${flight.origin} ✈️ ${flight.destination}`,
+      title: `${flight.isPositioning ? 'Positioning (as passenger) ' : 'Flight '}${flight.flightNumber}: ${flight.origin} ✈️ ${flight.destination}`,
       subtitle: `${flight.originCity || flight.origin} to ${flight.destinationCity || flight.destination} • ${Math.floor(flDur / 60)}h ${flDur % 60}m ${flight.aircraftType ? `• ${flight.aircraftType}` : ''}`,
       startUtc: flStart,
       endUtc: flEnd,
@@ -380,10 +388,15 @@ export function generateCircadianPlan(
   let totalSleepAccumMinutes = 0;
 
   roster.flights.forEach((fl) => {
-    totalFlightMinutes += fl.durationMinutes;
+    // Positioning as a passenger is duty time but not flying time
+    if (!fl.isPositioning) totalFlightMinutes += fl.durationMinutes;
     totalSectors += 1;
     if (flightInBodyNight(fl, clock)) woclCount += 1;
   });
+
+  // The day after a logged short night (home time), if the log is still recent
+  const catchUp = shortSleepCatchUpMs(preferences, Date.now());
+  const shortNightDate = catchUp ? clock.date(catchUp.loggedAtMs) : undefined;
 
   const dailySummaries: DailyCircadianSummary[] = sortedDates.map((dateStr, idx) => {
     const dayEvents = events.filter((e) => e.dutyDate === dateStr);
@@ -395,20 +408,38 @@ export function generateCircadianPlan(
     const naps = dayEvents.filter((e) => e.type === 'nasa_nap').length;
     const woclExposure = dayEvents.filter((e) => e.type === 'wocl_risk').reduce((acc, cur) => acc + cur.durationMinutes, 0);
 
-    const isOffDay = dayFlights.length === 0;
+    const hasStandby = dayEvents.some((e) => e.type === 'standby');
+    const isOffDay = dayFlights.length === 0 && !hasStandby;
     if (!isOffDay) dutyDaysCount += 1;
 
-    const isHighRisk = woclExposure > 120 || (totalSleepMin < 300 && !isOffDay);
-    const isModRisk = woclExposure > 0 || (totalSleepMin < 390 && !isOffDay);
-
-    let guidance = 'Well-balanced schedule with full circadian recovery.';
-    if (isOffDay) {
-      guidance = 'Circadian Re-alignment Day. Sleep banking and metabolic restoration on home rhythm.';
-    } else if (isHighRisk) {
-      guidance = 'High fatigue exposure (WOCL night duty / short sleep). Strictly observe the 26m nap and post-flight blackout sleep.';
-    } else if (isModRisk) {
-      guidance = 'Moderate operational load. Maintain hydration and adhere to the 6h caffeine cutoff.';
+    // A worded outlook for the day, with its reasons, instead of a number
+    const reasons: string[] = [];
+    const prep = dayPrepMap.get(dateStr);
+    if (prep?.dutyCategory === 'early_morning' && prep.wakeUpUtc && clock.hour(Date.parse(prep.wakeUpUtc)) < 5) {
+      reasons.push(`an early start (wake ${prep.wakeUpHbt})`);
     }
+    if (woclExposure > 0) reasons.push('flying through your body-clock night');
+    if (!isOffDay && totalSleepMin > 0 && totalSleepMin < 6 * 60) {
+      reasons.push(`less than 6 hours of planned sleep (${(totalSleepMin / 60).toFixed(1)}h)`);
+    }
+    if (shortNightDate === dateStr) reasons.push("last night's sleep was short");
+
+    const level: NonNullable<DailyCircadianSummary['outlook']>['level'] =
+      reasons.length >= 2 ? 'harder' : reasons.length === 1 ? 'watch' : 'steady';
+    const outlook: DailyCircadianSummary['outlook'] = {
+      level,
+      headline: level === 'harder' ? 'Harder day ahead' : level === 'watch' ? 'Keep an eye on today' : isOffDay ? 'A day to rest' : 'A steadier day',
+      reasons,
+      tip:
+        level === 'steady'
+          ? isOffDay
+            ? 'Keep your usual bedtime so the next duty is easier.'
+            : 'Follow your plan as usual.'
+          : woclExposure > 0
+          ? 'Protect your nap before the duty, have caffeine early in it, and move around on board when you can.'
+          : 'Protect any nap you can get and go to bed on time tonight.',
+    };
+    const guidance = `${outlook.headline}.${reasons.length ? ` Because of ${reasons.join(' and ')}.` : ''} ${outlook.tip}`;
 
     // Layover station details if night ends in non-home airport
     let layoverStation: DailyCircadianSummary['layoverStation'] = undefined;
@@ -439,13 +470,14 @@ export function generateCircadianPlan(
       dayLabel: formatDateLabel(`${dateStr}T12:00:00Z`, 0),
       dayNumber: idx + 1,
       isOffDay,
-      dutyType: isOffDay ? 'off' : 'flight',
+      dutyType: isOffDay ? 'off' : dayFlights.length === 0 ? 'standby' : 'flight',
       totalSleepHours: Number((totalSleepMin / 60).toFixed(1)),
       napsCount: naps,
       eatingWindowHours: 9.5,
       woclExposureMinutes: woclExposure,
-      fatigueRiskLevel: isOffDay ? 'low' : isHighRisk ? 'high' : isModRisk ? 'moderate' : 'low',
+      fatigueRiskLevel: level === 'harder' ? 'high' : level === 'watch' ? 'moderate' : 'low',
       keyGuidance: guidance,
+      outlook,
       prepDetails: dayPrepMap.get(dateStr),
       layoverStation,
     };
@@ -454,7 +486,7 @@ export function generateCircadianPlan(
   const offDaysCount = sortedDates.length - dutyDaysCount;
   const avgSleepPerDay = sortedDates.length > 0 ? Number((totalSleepAccumMinutes / 60 / sortedDates.length).toFixed(1)) : 7.5;
   // Only standby the roster actually contains; never an assumed figure
-  const standbyHours = roster.standbyHours ?? 0;
+  const standbyHours = rosterStandbyHours(roster);
 
   const monthlyStats = {
     totalFlightHours: Number((totalFlightMinutes / 60).toFixed(1)),
@@ -466,7 +498,13 @@ export function generateCircadianPlan(
     standbyHours,
   };
 
-  const salaryBreakdown = calculateSalaryBreakdown(roster, preferences, totalFlightMinutes, woclCount);
+  // Layovers counted from the roster itself: a duty ending away from base that is followed by one starting there
+  const layoverNights = duties.filter((d, i) => {
+    if (!d.awayAtEnd) return false;
+    const next = duties[i + 1];
+    return !next || (next.awayAtStart && next.startAirport === d.endAirport);
+  }).length;
+  const salaryBreakdown = calculateSalaryBreakdown(roster, preferences, totalFlightMinutes, woclCount, layoverNights);
 
   // 4. Current status: what is happening now and what comes next
   const nowUtc = new Date().toISOString();

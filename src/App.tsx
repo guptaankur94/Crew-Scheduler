@@ -18,6 +18,7 @@ import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
 import { TodayView } from './components/views/TodayView';
 import { RosterView } from './components/views/RosterView';
+import { SalaryView } from './components/views/SalaryView';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
 import { ScienceView } from './components/views/ScienceView';
@@ -27,6 +28,7 @@ import {
   Clock,
   Calendar,
   UploadCloud,
+  DollarSign,
   Sliders,
   FileText,
 } from 'lucide-react';
@@ -504,6 +506,7 @@ export default function App() {
     today: "Today",
     roster: 'Timeline',
     mastersheet: 'Roster sheet',
+    salary: 'Salary estimate',
     upload: 'Upload roster',
     settings: 'Settings',
     science: 'The science',
@@ -582,6 +585,13 @@ export default function App() {
             />
           )}
 
+          {activeView === 'salary' && (
+            <SalaryView
+              plan={plan}
+              onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
+            />
+          )}
+
           {activeView === 'upload' && (
             <UploadView
               currentRoster={roster}
@@ -637,6 +647,7 @@ export default function App() {
           { id: 'today' as NavView, label: 'Today', icon: <Clock className="h-4 w-4" /> },
           { id: 'roster' as NavView, label: 'Timeline', icon: <Calendar className="h-4 w-4" /> },
           { id: 'mastersheet' as NavView, label: 'Sheet', icon: <FileText className="h-4 w-4" /> },
+          { id: 'salary' as NavView, label: 'Salary', icon: <DollarSign className="h-4 w-4" /> },
           { id: 'upload' as NavView, label: 'Upload', icon: <UploadCloud className="h-4 w-4" /> },
         ].map((tab) => {
           const isActive = activeView === tab.id;

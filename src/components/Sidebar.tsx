@@ -13,11 +13,12 @@ import {
   MapPin,
   CheckCircle2,
   FileText,
+  DollarSign,
 } from 'lucide-react';
 import { CircadianPlan } from '../types/circadian';
 import { AIRPORTS } from '../data/airports';
 
-export type NavView = 'today' | 'roster' | 'mastersheet' | 'upload' | 'settings' | 'science';
+export type NavView = 'today' | 'roster' | 'mastersheet' | 'salary' | 'upload' | 'settings' | 'science';
 
 interface SidebarProps {
   activeView: NavView;
@@ -38,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile,
 }) => {
-  const { preferences, roster } = plan;
+  const { preferences, roster, salaryBreakdown } = plan;
 
   const navItems: { id: NavView; label: string; shortLabel: string; icon: React.ReactNode; badge?: string; desc: string }[] = [
     {
@@ -61,6 +62,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortLabel: 'Sheet',
       icon: <FileText className="h-4 w-4" />,
       desc: 'All flights in one table',
+    },
+    {
+      id: 'salary',
+      label: 'Salary estimate',
+      shortLabel: 'Salary',
+      icon: <DollarSign className="h-4 w-4" />,
+      desc: 'Estimated pay from your roster',
+      badge: `~${salaryBreakdown.currencySymbol.trim()}${Math.round(salaryBreakdown.totalEarnings / 1000)}k`,
     },
     {
       id: 'upload',

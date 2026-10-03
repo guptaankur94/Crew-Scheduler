@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { RosterData, RosterHistoryEntry, FlightLeg } from '../../types/circadian';
+import { useAiConsent } from '../AiConsentDialog';
+import { useRosterReview } from '../RosterReviewDialog';
+import { RosterData, RosterHistoryEntry, FlightLeg, StandbyDuty } from '../../types/circadian';
 import { RosterPreset } from '../../data/rosterPresets';
 import { RosterHistoryTable } from '../RosterHistoryTable';
 import { ConflictResolutionModal } from '../ConflictResolutionModal';
@@ -57,6 +59,20 @@ interface UploadViewProps {
   onViewMasterSheet?: () => void;
 }
 
+/** Combines standby periods, dropping exact repeats (same kind and start). */
+function mergeStandby(existing: StandbyDuty[] | undefined, incoming: StandbyDuty[]): StandbyDuty[] {
+  const all = [...(existing ?? []), ...incoming];
+  const seen = new Set<string>();
+  return all
+    .filter((sb) => {
+      const key = `${sb.kind}-${sb.startUtc}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc));
+}
+
 export interface FileBatchItem {
   id: string;
   file: File;
@@ -90,6 +106,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
   onMergeRosterSnapshot,
   onViewMasterSheet,
 }) => {
+  // A sample roster is replaced by the first real upload, never mixed with it
+  const isViewingSample = presets.some((p) => p.id === activePresetId);
+  const { requestConsent, dialog: consentDialog } = useAiConsent();
+  const { reviewFlights, dialog: reviewDialog } = useRosterReview();
+  // Standby periods read along with the flights in the current import
+  const importedStandbyRef = useRef<StandbyDuty[]>([]);
+  const hasOwnRoster = currentRoster.flights.length > 0 && !isViewingSample;
+
   const [activeTab, setActiveTab] = useState<'upload' | 'samples' | 'text' | 'history'>('upload');
   const [isParsingBatch, setIsParsingBatch] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -266,6 +290,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   // Process all staged files with Gemini AI
   const startProcessingBatch = async () => {
     if (fileBatch.length === 0) return;
+    if (!(await requestConsent())) return;
 
     setParseError(null);
     setSuccessMessage(null);
@@ -275,10 +300,12 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
     const itemsToProcess = [...fileBatch];
     const allExtractedFlights: FlightLeg[] = [];
-    let detectedAirline = currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
+    importedStandbyRef.current = [];
+    const batchWarnings: string[] = [];
+    let detectedAirline = !isViewingSample && currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
     let detectedHomeBase = currentRoster.homeBase || 'DEL';
     let detectedHomeBaseTzOffset = currentRoster.homeBaseTzOffset || 5.5;
-    let detectedCrewName = currentRoster.crewName || 'Cabin Crew';
+    let detectedCrewName = (!isViewingSample && currentRoster.crewName) || 'Cabin Crew';
     const breakdown: { fileName: string; count: number }[] = [];
 
     // Process files one by one sequentially
@@ -321,9 +348,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
           }
 
           allExtractedFlights.push(...flights);
+          if (Array.isArray(result.data.standby)) importedStandbyRef.current.push(...result.data.standby);
           breakdown.push({ fileName: currentItem.name, count: flights.length });
           if (Array.isArray(result.data.warnings) && result.data.warnings.length > 0) {
             const fileWarnings: string[] = result.data.warnings;
+            batchWarnings.push(...fileWarnings);
             setParseWarnings((prev) => [...prev, ...fileWarnings]);
           }
 
@@ -359,8 +388,19 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setIsParsingBatch(false);
     setCurrentProcessingIdx(-1);
 
-    // If at least one flight was extracted across all files:
+    // If at least one flight was extracted across all files, let the user check them before anything is saved
     if (allExtractedFlights.length > 0) {
+      const confirmed = await reviewFlights(
+        allExtractedFlights,
+        itemsToProcess.map((item) => ({ name: item.name, url: item.type.startsWith('image/') ? item.previewUrl : undefined })),
+        batchWarnings
+      );
+      if (!confirmed) {
+        setParseError('Nothing was saved. Upload again when you are ready.');
+        return;
+      }
+      allExtractedFlights.splice(0, allExtractedFlights.length, ...confirmed);
+      if (allExtractedFlights.length === 0) return;
       const title =
         itemsToProcess.length === 1
           ? itemsToProcess[0].name
@@ -376,7 +416,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
       // SMART CONTINUOUS TIMELINE MERGING:
       // If there's an existing active roster, check for conflicts and continuous overlap!
-      if (currentRoster.flights.length > 0) {
+      if (hasOwnRoster) {
         const mergeAnalysis = analyzeRosterMerge(currentRoster.flights, allExtractedFlights);
 
         if (mergeAnalysis.hasConflicts) {
@@ -406,6 +446,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
             homeBaseTzOffset: detectedHomeBaseTzOffset,
             flights: mergedFlights,
             layovers: currentRoster.layovers || [],
+            standbyDuties: mergeStandby(currentRoster.standbyDuties, importedStandbyRef.current),
             parsedAt: new Date().toISOString(),
           };
 
@@ -454,6 +495,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         homeBaseTzOffset: detectedHomeBaseTzOffset,
         flights: initialFlights,
         layovers: [],
+        standbyDuties: mergeStandby([], importedStandbyRef.current),
         parsedAt: new Date().toISOString(),
       };
 
@@ -495,6 +537,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       homeBaseTzOffset: pendingConflictData.detectedHomeBaseTzOffset,
       flights: mergedFlights,
       layovers: currentRoster.layovers || [],
+      standbyDuties: mergeStandby(currentRoster.standbyDuties, importedStandbyRef.current),
       parsedAt: new Date().toISOString(),
     };
 
@@ -544,6 +587,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const retrySingleFile = async (itemId: string) => {
     const item = fileBatch.find((f) => f.id === itemId);
     if (!item) return;
+    if (!(await requestConsent())) return;
 
     setFileBatch((prev) =>
       prev.map((f) => (f.id === itemId ? { ...f, status: 'processing', error: undefined } : f))
@@ -599,6 +643,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   const handleParseText = async () => {
     if (!rawTextInput.trim()) return;
+    if (!(await requestConsent())) return;
     setIsParsingBatch(true);
     setParseError(null);
     setSuccessMessage(null);
@@ -614,10 +659,17 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
       const result = await response.json();
       if (result.success && result.data) {
-        const newFlights: FlightLeg[] = result.data.flights || [];
-        setParseWarnings(Array.isArray(result.data.warnings) ? result.data.warnings : []);
+        importedStandbyRef.current = Array.isArray(result.data.standby) ? result.data.standby : [];
+        const textWarnings: string[] = Array.isArray(result.data.warnings) ? result.data.warnings : [];
+        setParseWarnings(textWarnings);
+        const confirmed = await reviewFlights(result.data.flights || [], [], textWarnings);
+        if (!confirmed || confirmed.length === 0) {
+          setParseError('Nothing was saved. Paste your roster again when you are ready.');
+          return;
+        }
+        const newFlights: FlightLeg[] = confirmed;
         
-        if (currentRoster.flights.length > 0) {
+        if (hasOwnRoster) {
           const mergeAnalysis = analyzeRosterMerge(currentRoster.flights, newFlights);
           if (mergeAnalysis.hasConflicts) {
             setPendingConflictData({
@@ -643,6 +695,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
               homeBaseTzOffset: result.data.homeBaseTzOffset || currentRoster.homeBaseTzOffset,
               flights: merged,
               layovers: currentRoster.layovers || [],
+              standbyDuties: mergeStandby(currentRoster.standbyDuties, importedStandbyRef.current),
               parsedAt: new Date().toISOString(),
             };
             onRosterParsed(continuous, 'Pasted Raw Schedule Text', `Merged into continuous timeline (${merged.length} sectors)`);
@@ -659,6 +712,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
           homeBaseTzOffset: result.data.homeBaseTzOffset || 5.5,
           flights: newFlights,
           layovers: [],
+          standbyDuties: mergeStandby([], importedStandbyRef.current),
           parsedAt: new Date().toISOString(),
         };
         onRosterParsed(parsed, 'Pasted Raw Schedule Text', `Extracted ${parsed.flights.length} flights from text`);
@@ -679,6 +733,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   return (
     <div className="space-y-5">
+      {consentDialog}
+      {reviewDialog}
       {/* Header Banner */}
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-slate-950 p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { createBackupFromDevice, deleteAllLocalData, parseBackup, writeRestoredData } from '../../services/backup';
-import { CrewPreferences, RosterData } from '../../types/circadian';
+import { getAiConsentDate, withdrawAiConsent } from '../../services/aiConsent';
+import { Chronotype, CrewPreferences, RosterData } from '../../types/circadian';
 import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
 import {
   Sliders,
@@ -27,6 +28,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dataMessage, setDataMessage] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [aiConsentDate, setAiConsentDate] = useState(() => getAiConsentDate());
 
   const handleExport = () => {
     const blob = new Blob([createBackupFromDevice()], { type: 'application/json' });
@@ -170,6 +172,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </h3>
         </div>
 
+        {/* Chronotype: nudges the usual bedtime */}
+        <div className="space-y-2">
+          <label className="font-bold uppercase tracking-wider text-slate-300 text-xs">Are you a morning or evening person?</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {([
+              { id: 'lark', title: '🌅 Morning person', desc: 'Usual bedtime about 45 minutes earlier (around 22:15).' },
+              { id: 'intermediate', title: '🌤️ In between', desc: 'Usual bedtime around 23:00.' },
+              { id: 'owl', title: '🦉 Evening person', desc: 'Usual bedtime about 45 minutes later (around 23:45).' },
+            ] as { id: Chronotype; title: string; desc: string }[]).map((c) => {
+              const isSelected = preferences.chronotype === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => onUpdatePreferences({ chronotype: c.id })}
+                  className={`rounded-xl border p-3 text-left transition-all ${
+                    isSelected ? 'border-purple-500 bg-purple-950/30 ring-1 ring-purple-500' : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                  }`}
+                >
+                  <p className="font-bold text-white text-xs">{c.title}</p>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-snug">{c.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-slate-500">
+            This only moves your bedtime on nights without an early start. It is approximate: people with the same answer
+            can differ by several hours, so adjust any sleep with "Move this" if it does not suit you.
+          </p>
+        </div>
+
         {/* Target Sleep Hours & Caffeine Clearance */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Target Sleep Duration */}
@@ -223,6 +255,65 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+
+        {/* Last night's sleep: a short night moves the next bedtime earlier */}
+        <div className="rounded-xl border border-indigo-900/50 bg-indigo-950/20 p-4 space-y-3">
+          <div>
+            <span className="font-bold text-xs uppercase tracking-wider text-indigo-300">How did you sleep last night?</span>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Enter roughly how many hours you slept (from memory or your watch). If it was short, tonight's bedtime moves up
+              to an hour earlier. The entry stops applying after two days.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[4, 5, 6, 7, 8, 9].map((h) => {
+              const isRecent =
+                preferences.actualLastSleepLoggedAt !== undefined &&
+                Date.now() - Date.parse(preferences.actualLastSleepLoggedAt) < 48 * 3600000;
+              const selected = isRecent && preferences.actualLastSleepHours === h;
+              return (
+                <button
+                  key={h}
+                  onClick={() => onUpdatePreferences({ actualLastSleepHours: h, actualLastSleepLoggedAt: new Date().toISOString() })}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                    selected ? 'bg-indigo-600 text-white' : 'border border-slate-800 bg-slate-950 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {h === 4 ? '4h or less' : h === 9 ? '9h or more' : `${h}h`}
+                </button>
+              );
+            })}
+            {preferences.actualLastSleepLoggedAt && (
+              <button
+                onClick={() => onUpdatePreferences({ actualLastSleepHours: undefined, actualLastSleepLoggedAt: undefined })}
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-400 underline underline-offset-2"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Melatonin: information only, no doses */}
+        <details className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs">
+          <summary className="cursor-pointer font-bold text-white">About melatonin</summary>
+          <div className="mt-3 space-y-2 leading-relaxed text-slate-300">
+            <p>
+              Melatonin is a hormone your body releases in the evening. As a supplement, research shows it can help with jet
+              lag when the timing is right, but the evidence for shift work is weak, and taking it at the wrong time can push
+              your body clock the wrong way.
+            </p>
+            <p>
+              Products vary a lot: one study found actual content ranged from far below to several times the amount on the
+              label.
+            </p>
+            <p>
+              Its legal status differs between countries (it needs a prescription in some), and airlines may have rules about
+              taking it before duty. This app does not suggest doses or times. Please ask your airline doctor or a
+              pharmacist before using it.
+            </p>
+          </div>
+        </details>
       </div>
 
       {/* 3. Home Base Airport & Position Rank */}
@@ -302,6 +393,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Cancel
               </button>
             </span>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+          {aiConsentDate ? (
+            <span className="flex flex-wrap items-center gap-2">
+              You allowed roster and payslip reading by Google Gemini on{' '}
+              {new Date(aiConsentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+              <button
+                onClick={() => {
+                  withdrawAiConsent();
+                  setAiConsentDate(null);
+                }}
+                className="font-semibold text-rose-300 underline underline-offset-2"
+              >
+                Withdraw
+              </button>
+            </span>
+          ) : (
+            <span>AI reading is off. You will be asked before any file is sent to Google Gemini.</span>
           )}
         </div>
         {dataMessage && (

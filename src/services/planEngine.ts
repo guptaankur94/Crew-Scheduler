@@ -1,4 +1,5 @@
-import { CircadianEvent, CrewPreferences, EventType, FlightLeg, PrepDetails, RosterData, ScientificCitation } from '../types/circadian';
+import { getAirportTzOffset } from '../data/airports';
+import { CircadianEvent, CrewPreferences, EventType, FlightLeg, PrepDetails, RosterData, ScientificCitation, StandbyDuty } from '../types/circadian';
 
 /**
  * Plan engine: treats the roster as one continuous timeline.
@@ -32,10 +33,37 @@ export const RECOVERY_SLEEP_MAX_HOURS = 5;
 export const DEFAULT_BEDTIME_HOUR = 23;
 /** Flight sectors at least this long may have in-flight crew rest. */
 export const CREW_REST_SECTOR_MINUTES = 7 * 60;
+/** Shortest sector on which a chosen bunk-rest shift is used. */
+export const BUNK_CHOICE_SECTOR_MINUTES = 5 * 60;
+/** A crew-rest nap ends at least this long before landing so grogginess has passed. */
+export const CREW_REST_LANDING_BUFFER_MINUTES = 60;
+/** Chronotype nudges the usual bedtime. The questionnaire is approximate, so the shift is kept small. */
+export const CHRONOTYPE_BEDTIME_SHIFT_HOURS = { lark: -0.75, intermediate: 0, owl: 0.75 } as const;
+/** After a short night the next night's sleep starts earlier by up to this much. */
+export const SHORT_SLEEP_CATCH_UP_MAX_HOURS = 1;
+/** A logged night's sleep only influences the plan for this long. */
+export const SLEEP_LOG_VALID_HOURS = 48;
+
+/** The usual home-time bedtime for this person. */
+export function usualBedtimeHour(preferences: CrewPreferences): number {
+  return DEFAULT_BEDTIME_HOUR + (CHRONOTYPE_BEDTIME_SHIFT_HOURS[preferences.chronotype] ?? 0);
+}
+
+/** How much earlier tonight's sleep should start after a logged short night (0 if none applies). */
+export function shortSleepCatchUpMs(preferences: CrewPreferences, nowMs: number): { amountMs: number; loggedAtMs: number } | null {
+  const hours = preferences.actualLastSleepHours;
+  const loggedAt = preferences.actualLastSleepLoggedAt ? Date.parse(preferences.actualLastSleepLoggedAt) : NaN;
+  if (hours === undefined || !Number.isFinite(loggedAt)) return null;
+  if (nowMs - loggedAt > SLEEP_LOG_VALID_HOURS * HOUR || nowMs < loggedAt - HOUR) return null;
+  const deficit = preferences.targetSleepHours - hours;
+  if (deficit < 0.5) return null;
+  return { amountMs: Math.min(deficit, SHORT_SLEEP_CATCH_UP_MAX_HOURS) * HOUR, loggedAtMs: loggedAt };
+}
 
 export interface Duty {
   index: number;
-  flights: FlightLeg[];
+  flights: FlightLeg[]; // empty for an airport standby with no callout
+  airportStandby?: StandbyDuty;
   startMs: number; // first report
   endMs: number; // last release
   startAirport: string;
@@ -64,6 +92,7 @@ interface Block {
 }
 
 interface SleepBlock extends Block {
+  catchUp?: boolean;
   kind: 'night' | 'before_duty' | 'recovery' | 'nap_before_night' | 'nap_after_early';
   id: string;
   windowStart: number;
@@ -146,7 +175,7 @@ function timeAt(ms: number, offsetHours: number): string {
 }
 
 /** Groups flights into duties: a new duty starts when the gap since the last release is long. */
-export function groupDuties(flights: FlightLeg[], homeBase: string): Duty[] {
+export function groupDuties(flights: FlightLeg[], homeBase: string, standby: StandbyDuty[] = []): Duty[] {
   const sorted = [...flights].sort((a, b) => Date.parse(a.reportTimeUtc) - Date.parse(b.reportTimeUtc));
   const duties: Duty[] = [];
 
@@ -175,6 +204,33 @@ export function groupDuties(flights: FlightLeg[], homeBase: string): Duty[] {
       });
     }
   }
+  // Airport standby is time at work: it becomes a duty, merged with any flight it overlaps (a callout)
+  for (const sb of standby) {
+    if (sb.kind !== 'airport') continue;
+    const start = Date.parse(sb.startUtc);
+    const end = Date.parse(sb.endUtc);
+    const overlapping = duties.find((d) => d.startMs < end && d.endMs > start);
+    if (overlapping) {
+      overlapping.startMs = Math.min(overlapping.startMs, start);
+      overlapping.endMs = Math.max(overlapping.endMs, end);
+      continue;
+    }
+    const away = sb.airport !== homeBase;
+    duties.push({
+      index: 0,
+      flights: [],
+      airportStandby: sb,
+      startMs: start,
+      endMs: end,
+      startAirport: sb.airport,
+      endAirport: sb.airport,
+      awayAtStart: away,
+      awayAtEnd: away,
+      endLocalOffset: getAirportTzOffset(sb.airport, new Date(end)) ?? 0,
+    });
+  }
+  duties.sort((x, y) => x.startMs - y.startMs);
+  duties.forEach((d, i) => (d.index = i));
   return duties;
 }
 
@@ -334,7 +390,7 @@ function planGapSleeps(gap: Gap, preferences: CrewPreferences, clock: HomeClock)
   // Regular home-time nights in between
   let date = clock.date(cursor - 12 * HOUR);
   while (true) {
-    const nightStart = clock.at(date, DEFAULT_BEDTIME_HOUR);
+    const nightStart = clock.at(date, usualBedtimeHour(preferences));
     if (nightStart >= gap.end) break;
     const night = { startMs: nightStart, endMs: nightStart + targetMs };
     const clashesWithLast = lastSleep && night.endMs > lastSleep.startMs - 2 * HOUR;
@@ -376,6 +432,8 @@ export interface PlanOutput {
 }
 
 export interface PlanInput {
+  /** The current time, for time-limited inputs such as a logged night's sleep. */
+  now?: number;
   roster: RosterData;
   preferences: CrewPreferences;
   customNudges: Record<string, number>;
@@ -490,6 +548,21 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     }
   }
   sleeps.sort((a, b) => a.startMs - b.startMs);
+
+  // After a logged short night, start the next night's sleep earlier (inside its rest gap)
+  const catchUp = shortSleepCatchUpMs(preferences, input.now ?? Date.now());
+  if (catchUp) {
+    const index = sleeps.findIndex(
+      (s) => s.kind === 'night' && s.startMs > catchUp.loggedAtMs && s.startMs < catchUp.loggedAtMs + SLEEP_LOG_VALID_HOURS * HOUR
+    );
+    if (index >= 0) {
+      const s = sleeps[index];
+      const previousEnd = index > 0 ? sleeps[index - 1].endMs : -Infinity;
+      s.startMs = Math.max(s.startMs - catchUp.amountMs, s.windowStart, previousEnd);
+      s.catchUp = true;
+    }
+  }
+
   // Nudges can push neighbouring sleeps in the same gap together; trim rather than overlap
   for (let i = 1; i < sleeps.length; i++) {
     if (sleeps[i].startMs < sleeps[i - 1].endMs) sleeps[i].startMs = sleeps[i - 1].endMs;
@@ -507,8 +580,9 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
         : s.kind === 'nap_after_early'
         ? citations.nasa_nap_26
         : citations.anchor_sleep;
+    const subtitle = s.catchUp ? 'A little earlier tonight, because you logged a short sleep last night' : text.subtitle;
     events.push(
-      make(s.id, text.type, text.title(hours), text.subtitle, s.startMs, s.endMs, citation, text.priority, '#8b5cf6', 'moon', clock.date(s.endMs), {
+      make(s.id, text.type, text.title(hours), subtitle, s.startMs, s.endMs, citation, text.priority, '#8b5cf6', 'moon', clock.date(s.endMs), {
         userAdjustable: true,
       })
     );
@@ -549,8 +623,10 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     const travel = travelMinutes(duty.awayAtStart, preferences);
     const wakeMs = wakeTimeFor(duty, preferences);
     const pickupMs = duty.startMs - travel * MIN;
-    const firstFlight = duty.flights[0];
-    const lastFlight = duty.flights[duty.flights.length - 1];
+    const firstFlight = duty.flights[0] as FlightLeg | undefined;
+    const lastFlight = duty.flights[duty.flights.length - 1] as FlightLeg | undefined;
+    const dutyKey = firstFlight?.id ?? `standby-${new Date(duty.startMs).toISOString().slice(0, 16)}`;
+    const standbyNote = duty.airportStandby && !firstFlight ? ' (airport standby)' : '';
 
     const sleepBefore = [...mainSleeps].reverse().find((s) => s.endMs <= wakeMs + MIN);
     const napBefore = validSleeps.find((s) => s.kind === 'nap_before_night' && Math.abs(s.endMs - wakeMs) < MIN);
@@ -569,7 +645,7 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
       wakeUpHbt: clock.time(wakeMs),
       cabPickupHbt: clock.time(pickupMs),
       reportHbt: clock.time(duty.startMs),
-      departureHbt: clock.time(Date.parse(firstFlight.departureTimeUtc)),
+      departureHbt: firstFlight ? clock.time(Date.parse(firstFlight.departureTimeUtc)) : clock.time(duty.startMs),
       groomingMinutes: grooming,
       cabBufferMinutes: travel,
       targetBedtimeHbt: bedtimeMs !== undefined ? clock.time(bedtimeMs) : undefined,
@@ -582,8 +658,8 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
       step1Label: category === 'redeye' ? 'Step 1: Wake from your nap & get ready' : 'Step 1: Wake-up alarm',
       step1Description: duty.awayAtStart ? 'Get ready at the hotel: uniform, documents and bag' : 'Shower, uniform, documents and flight bag',
       bedtimeExplanation: explanation,
-      debriefMinutes: Math.round((Date.parse(lastFlight.releaseTimeUtc) - Date.parse(lastFlight.arrivalTimeUtc)) / MIN),
-      debriefStartHbt: clock.time(Date.parse(lastFlight.arrivalTimeUtc)),
+      debriefMinutes: lastFlight ? Math.round((Date.parse(lastFlight.releaseTimeUtc) - Date.parse(lastFlight.arrivalTimeUtc)) / MIN) : 0,
+      debriefStartHbt: clock.time(lastFlight ? Date.parse(lastFlight.arrivalTimeUtc) : duty.endMs),
       debriefEndHbt: clock.time(duty.endMs),
       isAwayFromBase: duty.awayAtStart,
       pickupLabel: pickupWord,
@@ -592,9 +668,9 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
 
     events.push(
       make(
-        `prep-routine-${firstFlight.id}`,
+        `prep-routine-${dutyKey}`,
         'pre_flight_prep',
-        `⏰ ${clock.time(wakeMs)} wake-up ➔ ${pickupWord} ${clock.time(pickupMs)}`,
+        `⏰ ${clock.time(wakeMs)} wake-up ➔ ${pickupWord} ${clock.time(pickupMs)}${standbyNote}`,
         `${grooming} min to get ready, ${travel} min to travel, report at ${clock.time(duty.startMs)} (${duty.startAirport})`,
         wakeMs,
         duty.startMs,
@@ -614,7 +690,7 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     if (cafEnd - duty.startMs >= 30 * MIN) {
       events.push(
         make(
-          `caffeine-ok-${firstFlight.id}`,
+          `caffeine-ok-${dutyKey}`,
           'caffeine_allowed',
           '☕ Good time for caffeine',
           'Have coffee or tea early in the duty rather than near its end',
@@ -635,7 +711,7 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     if (firstSleepAfter && firstSleepAfter.kind === 'recovery' && releaseLocalHour >= 5 && releaseLocalHour < 19) {
       events.push(
         make(
-          `sunglasses-${firstFlight.id}`,
+          `sunglasses-${dutyKey}`,
           'melatonin_shield',
           '🕶️ Wear dark sunglasses on the way to bed',
           'Bright daylight now makes it harder to sleep when you get in',
@@ -728,19 +804,28 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     );
   }
 
-  // 6. Optional nap during in-flight crew rest on long sectors
+  // 6. Optional nap during in-flight crew rest: in the chosen half of the flight, ending well before landing
   for (const duty of duties) {
     for (const flight of duty.flights) {
-      if (flight.durationMinutes < CREW_REST_SECTOR_MINUTES) continue;
-      const mid = (Date.parse(flight.departureTimeUtc) + Date.parse(flight.arrivalTimeUtc)) / 2;
+      const shift = preferences.bunkShiftAssignments?.[flight.id];
+      const eligible = shift ? flight.durationMinutes >= BUNK_CHOICE_SECTOR_MINUTES : flight.durationMinutes >= CREW_REST_SECTOR_MINUTES;
+      if (!eligible) continue;
+      const dep = Date.parse(flight.departureTimeUtc);
+      const arr = Date.parse(flight.arrivalTimeUtc);
+      const fraction = shift === 'shift1' ? 1 / 3 : shift === 'shift2' ? 2 / 3 : 1 / 2;
+      const latestEnd = arr - CREW_REST_LANDING_BUFFER_MINUTES * MIN;
+      const napEnd = Math.min(dep + (arr - dep) * fraction + 10 * MIN, latestEnd);
+      const napStart = napEnd - 20 * MIN;
+      if (napStart <= dep) continue;
+      const which = shift === 'shift1' ? ' (first rest period)' : shift === 'shift2' ? ' (second rest period)' : '';
       events.push(
         make(
           `crew-rest-${flight.id}`,
           'nasa_nap',
-          '⚡ Short nap if you get crew rest',
+          `⚡ Short nap in crew rest${which}`,
           'Aim for 10–20 minutes and allow time to wake up properly before duties',
-          mid - 10 * MIN,
-          mid + 10 * MIN,
+          napStart,
+          napEnd,
           citations.nasa_nap_26,
           'optional',
           '#6366f1',
@@ -751,7 +836,30 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     }
   }
 
-  void roster;
+  // 7. Standby periods from the roster
+  for (const sb of roster.standbyDuties ?? []) {
+    const start = Date.parse(sb.startUtc);
+    const end = Date.parse(sb.endUtc);
+    const atAirport = sb.kind === 'airport';
+    events.push(
+      make(
+        `standby-${sb.id}`,
+        'standby',
+        atAirport ? `🧳 Airport standby (${sb.airport})` : `📱 Home standby (${sb.airport})`,
+        atAirport
+          ? 'You are on duty at the airport and may be called to fly. Your sleep is planned around it.'
+          : 'Keep your phone on and your bag ready. Sleep as planned; a callout will change the plan.',
+        start,
+        end,
+        citations.prep,
+        atAirport ? 'critical' : 'recommended',
+        '#a855f7',
+        'phone',
+        clock.date(start)
+      )
+    );
+  }
+
   events.sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc));
   return { events, prepByDate };
 }

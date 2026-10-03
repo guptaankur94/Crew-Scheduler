@@ -22,7 +22,7 @@ export function generateIcsFile(plan: CircadianPlan): string {
     const dtStart = toIcsDate(event.startUtc);
     const dtEnd = toIcsDate(event.endUtc);
     const summary = `${event.title}`;
-    const description = `${event.subtitle}\\n\\nScientific Basis: ${event.scientificCitation.organization} - ${event.scientificCitation.studyTitle}\\nTakeaway: ${event.scientificCitation.actionableTip}`;
+    const description = `${event.subtitle}\\n\\nSource: ${event.scientificCitation.organization} - ${event.scientificCitation.studyTitle}\\nTakeaway: ${event.scientificCitation.actionableTip}`;
 
     lines.push(
       'BEGIN:VEVENT',

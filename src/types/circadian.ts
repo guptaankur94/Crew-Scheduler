@@ -57,11 +57,12 @@ export type EventType =
   | 'standby';
 
 export interface ScientificCitation {
-  organization: 'NASA Ames' | 'ICAO FRMS' | 'Salk Institute' | 'FAA/EASA' | 'Sleep Research Society';
+  organization: string;
   studyTitle: string;
   keyFinding: string;
   explanation: string;
   actionableTip: string;
+  sourceUrl?: string; // link to the document the claim comes from
 }
 
 export interface PrepDetails {
@@ -241,9 +242,6 @@ export interface CircadianPlan {
     woclNightFlights: number;
     avgSleepPerDay: number;
     standbyHours: number;
-    cumulativeSleepDebtHours: number;
-    fdpCompliant: boolean;
-    maxFdpHours: number;
   };
   salaryBreakdown: SalaryBreakdown;
   generatedAt: string;
@@ -254,8 +252,6 @@ export interface CircadianPlan {
     nextMilestoneTitle: string;
     nextMilestoneTime: string;
     minutesUntilNext: number;
-    safteScore: number; // 0 to 100 ReadiScore biomathematical cognitive effectiveness
-    safteCategory: 'optimal' | 'moderate' | 'fatigue_risk';
     biologicalPhase: 'day' | 'night_nadir' | 'transition';
     immediateAction: ImmediateActionCard;
   };

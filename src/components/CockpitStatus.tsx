@@ -9,11 +9,9 @@ import {
   AlertTriangle,
   Sun,
   Shield,
-  Activity,
   CheckCircle2,
   Clock,
   Glasses,
-  Bed,
 } from 'lucide-react';
 
 interface CockpitStatusProps {
@@ -50,7 +48,7 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
       case 'fasting':
         return {
           icon: <Utensils className="h-4 w-4 text-emerald-400" />,
-          title: 'Gut Rest / Fasting Period',
+          title: 'Keep food light',
           pill: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
           border: 'border-emerald-500/20',
         };
@@ -72,34 +70,6 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
   };
 
   const theme = getStatusTheme();
-  const safte = currentStatus.safteScore;
-
-  // Color classes for SAFTE Score
-  const safteTheme =
-    safte >= 85
-      ? {
-          color: 'text-emerald-400',
-          border: 'border-emerald-500/40',
-          bg: 'bg-emerald-950/30',
-          label: 'Optimal Vigilance',
-          sub: 'Reaction time & executive function peak',
-        }
-      : safte >= 70
-      ? {
-          color: 'text-sky-300',
-          border: 'border-sky-500/40',
-          bg: 'bg-sky-950/30',
-          label: 'Standard Alertness',
-          sub: 'Routine flight operations compliant',
-        }
-      : {
-          color: 'text-rose-400',
-          border: 'border-rose-500/40',
-          bg: 'bg-rose-950/30',
-          label: 'WOCL Fatigue Risk',
-          sub: 'Micro-sleep vulnerability; cross-check duties',
-        };
-
   const [showMobileDetails, setShowMobileDetails] = useState<boolean>(false);
   const action = currentStatus.immediateAction;
 
@@ -142,7 +112,7 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 sm:gap-2">
               <span className="text-[9px] sm:text-[10px] uppercase font-black tracking-wider text-slate-400 truncate">
-                Live Bio-Clock HUD (Right Now)
+                Right now
               </span>
               <span
                 className={`rounded px-1.5 py-0.2 text-[8px] sm:text-[9px] font-mono font-bold uppercase shrink-0 ${
@@ -160,17 +130,12 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
         </div>
 
         <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 border-slate-800/60 pt-1.5 sm:pt-0">
-          <div className="sm:hidden flex items-center gap-2">
-            <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
-              SAFTE {safte}/100
-            </span>
-          </div>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setShowMobileDetails(!showMobileDetails)}
               className="sm:hidden rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-1 text-[10px] font-medium text-slate-300 hover:bg-slate-800"
             >
-              {showMobileDetails ? 'Hide Vitals ▲' : 'Vitals & Phase ▼'}
+              {showMobileDetails ? 'Hide details ▲' : 'Details ▼'}
             </button>
             <button
               onClick={onOpenScienceModal}
@@ -211,32 +176,14 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
             </p>
           </div>
 
-          {/* Center-Right: SAFTE Alertness Gauge, Biological Phase Meter & Next Action */}
+          {/* Center-Right: Body-clock phase & Next Action */}
           <div className="flex flex-col sm:flex-row sm:flex-wrap lg:flex-row items-stretch sm:items-center gap-2.5 shrink-0 border-t lg:border-t-0 lg:border-l border-slate-800 pt-3 lg:pt-0 lg:pl-5">
             {/* 2-Column Gauge Row on Mobile, Flex on Desktop */}
-            <div className="grid grid-cols-2 sm:flex items-center gap-2.5 w-full sm:w-auto">
-              {/* SAFTE Biomathematical Score */}
-              <div className={`rounded-xl border ${safteTheme.border} ${safteTheme.bg} p-2.5 min-w-0 sm:min-w-[135px]`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                    <Activity className="h-3 w-3 text-blue-400" /> SAFTE
-                  </span>
-                  <span className={`font-mono font-black text-sm sm:text-base ${safteTheme.color}`}>
-                    {safte}/100
-                  </span>
-                </div>
-                <p className={`text-[11px] font-bold mt-1 ${safteTheme.color} truncate`}>
-                  {safteTheme.label}
-                </p>
-                <p className="text-[9px] text-slate-400 mt-0.5 leading-tight truncate">
-                  {safteTheme.sub}
-                </p>
-              </div>
-
+            <div className="flex items-center gap-2.5 w-full sm:w-auto">
               {/* Biological Phase Meter */}
               <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5 min-w-0 sm:min-w-[130px]">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate">
-                  Circadian Phase
+                  Body clock
                 </span>
                 <div className="flex items-center gap-1.5 mt-1">
                   {currentStatus.biologicalPhase === 'day' ? (
@@ -248,16 +195,16 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
                   )}
                   <span className="font-bold text-xs text-white truncate">
                     {currentStatus.biologicalPhase === 'day'
-                      ? 'Biological Day'
+                      ? 'Body-clock day'
                       : currentStatus.biologicalPhase === 'night_nadir'
-                      ? 'Core Nadir (WOCL)'
-                      : 'Phase Transition'}
+                      ? 'Body-clock night'
+                      : 'Transition'}
                   </span>
                 </div>
                 <p className="text-[9px] text-slate-400 mt-0.5 truncate">
                   {currentStatus.biologicalPhase === 'day'
-                    ? 'Daytime metabolic state'
-                    : 'Lowest body temp & lag'}
+                    ? 'Usually your most alert hours'
+                    : 'Usually your least alert hours'}
                 </p>
               </div>
             </div>
@@ -286,21 +233,11 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
                 <div className="text-left">
                   <span className="text-[10px] text-purple-400 block font-bold uppercase tracking-wider">Sleep Protocol</span>
                   <span className="font-semibold text-purple-200 text-[11px]">
-                    Dark, cool room (18°C) • Zero blue light
+                    Dark, cool room (about 18–20 °C) • Dim lights
                   </span>
                 </div>
               </div>
-            ) : (
-              <div className="flex items-center justify-center sm:justify-start gap-2 rounded-xl border border-blue-900/50 bg-blue-950/30 px-3 py-2 text-xs transition-colors w-full sm:w-auto">
-                <Bed className="h-4 w-4 text-blue-400 shrink-0" />
-                <div className="text-left">
-                  <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Home Rest Rhythm</span>
-                  <span className="font-bold text-sky-200 text-[11px]">
-                    Aligned with Base {plan.roster.homeBase}
-                  </span>
-                </div>
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

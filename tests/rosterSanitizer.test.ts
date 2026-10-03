@@ -122,3 +122,35 @@ test('payslip: keeps valid figures, rejects empty or negative readings', () => {
   assert.equal(sanitizeParsedPayslip({ currency: 'INR', baseFixedPay: 0, flyingHourlyRate: 0 }), null);
   assert.equal(sanitizeParsedPayslip(null), null);
 });
+
+test('standby periods are kept, bad ones dropped with a warning; positioning is flagged', () => {
+  const roster = sanitizeParsedRoster(
+    {
+      homeBase: 'DEL',
+      flights: [{ ...good, isPositioning: true }],
+      standby: [
+        { type: 'airport', airport: 'DEL', startTimeUtc: '2026-10-02T00:30:00Z', endTimeUtc: '2026-10-02T06:30:00Z' },
+        { type: 'home', startTimeUtc: '2026-10-03T00:30:00Z', endTimeUtc: '2026-10-03T12:30:00Z' },
+        { type: 'home', startTimeUtc: 'nonsense', endTimeUtc: '2026-10-04T12:30:00Z' },
+        { type: 'home', startTimeUtc: '2026-10-05T12:30:00Z', endTimeUtc: '2026-10-05T10:00:00Z' },
+      ],
+    },
+    NOW
+  );
+  assert.ok(roster);
+  assert.equal(roster.flights[0].isPositioning, true);
+  assert.equal(roster.standby.length, 2);
+  assert.equal(roster.standby[0].kind, 'airport');
+  assert.equal(roster.standby[1].kind, 'home');
+  assert.equal(roster.standby[1].airport, 'DEL', 'missing airport falls back to home base');
+  assert.equal(roster.warnings.filter((w) => w.includes('standby')).length, 2);
+});
+
+test('a roster with only standby is still accepted', () => {
+  const roster = sanitizeParsedRoster(
+    { homeBase: 'DEL', flights: [], standby: [{ type: 'home', startTimeUtc: '2026-10-03T00:30:00Z', endTimeUtc: '2026-10-03T12:30:00Z' }] },
+    NOW
+  );
+  assert.equal(roster?.standby.length, 1);
+  assert.equal(roster?.flights.length, 0);
+});

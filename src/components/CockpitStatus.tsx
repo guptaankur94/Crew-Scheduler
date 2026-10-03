@@ -70,6 +70,9 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
   };
 
   const theme = getStatusTheme();
+  // Today's worded outlook (home time)
+  const todayHome = new Date(Date.now() + plan.preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10);
+  const outlook = plan.dailySummaries.find((d) => d.dateStr === todayHome)?.outlook;
   const [showMobileDetails, setShowMobileDetails] = useState<boolean>(false);
   const action = currentStatus.immediateAction;
 
@@ -180,6 +183,26 @@ export const CockpitStatus: React.FC<CockpitStatusProps> = ({ plan, onOpenScienc
           <div className="flex flex-col sm:flex-row sm:flex-wrap lg:flex-row items-stretch sm:items-center gap-2.5 shrink-0 border-t lg:border-t-0 lg:border-l border-slate-800 pt-3 lg:pt-0 lg:pl-5">
             {/* 2-Column Gauge Row on Mobile, Flex on Desktop */}
             <div className="flex items-center gap-2.5 w-full sm:w-auto">
+              {/* Today's outlook in words, with its reasons */}
+              {outlook && (
+                <div
+                  className={`rounded-xl border p-2.5 min-w-0 sm:max-w-[260px] ${
+                    outlook.level === 'harder'
+                      ? 'border-amber-700/60 bg-amber-950/30'
+                      : outlook.level === 'watch'
+                      ? 'border-sky-800/60 bg-sky-950/20'
+                      : 'border-slate-800 bg-slate-950/70'
+                  }`}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Today</span>
+                  <p className="font-bold text-xs text-white mt-1">{outlook.headline}</p>
+                  {outlook.reasons.length > 0 && (
+                    <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">Because of {outlook.reasons.join(' and ')}.</p>
+                  )}
+                  <p className="text-[10px] text-slate-300 mt-1 leading-snug">{outlook.tip}</p>
+                </div>
+              )}
+
               {/* Biological Phase Meter */}
               <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-2.5 min-w-0 sm:min-w-[130px]">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate">

@@ -45,6 +45,14 @@ export function reviveRoster(value: any): RosterData | null {
     ...value,
     airline: typeof value.airline === 'string' ? value.airline : 'Airline',
     layovers: Array.isArray(value.layovers) ? value.layovers : [],
+    ...(Array.isArray(value.standbyDuties)
+      ? {
+          standbyDuties: value.standbyDuties.filter(
+            (sb: any) =>
+              sb && (sb.kind === 'home' || sb.kind === 'airport') && typeof sb.id === 'string' && isValidIso(sb.startUtc) && isValidIso(sb.endUtc)
+          ),
+        }
+      : {}),
     parsedAt: isValidIso(value.parsedAt) ? value.parsedAt : new Date().toISOString(),
   };
   if (typeof roster.sourceDocumentUrl === 'string' && roster.sourceDocumentUrl.startsWith('blob:')) {

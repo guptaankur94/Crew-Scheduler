@@ -251,3 +251,129 @@ test('a London base keeps a 23:00 home bedtime across the October clock change',
   assert.equal(after?.startUtc, '2026-10-26T23:00:00.000Z'); // GMT, UTC+0
   assert.deepEqual(problems(plan), []);
 });
+
+test('chronotype moves the usual bedtime by about 45 minutes', () => {
+  const r = roster([leg('a', 'DEL', 'BOM', '2026-10-10T10:00', '2026-10-10T12:00')]);
+  const bedtime = (chronotype: CrewPreferences['chronotype']) =>
+    generateCircadianPlan(r, { ...prefs, chronotype }).events.find((e) => e.type === 'anchor_sleep' && e.dutyDate === '2026-10-11')!.startHbtStr;
+  assert.equal(bedtime('lark'), '22:15');
+  assert.equal(bedtime('intermediate'), '23:00');
+  assert.equal(bedtime('owl'), '23:45');
+  for (const chronotype of ['lark', 'owl'] as const) {
+    assert.deepEqual(problems(generateCircadianPlan(r, { ...prefs, chronotype })), [], chronotype);
+  }
+});
+
+test('bunk-rest shift places the crew-rest nap in the chosen half, ending before landing', () => {
+  const r = roster([leg('lh', 'DEL', 'LHR', '2026-10-10T02:00', '2026-10-10T11:00', 1)]); // 9-hour sector
+  const nap = (shift?: 'shift1' | 'shift2') =>
+    generateCircadianPlan(r, { ...prefs, bunkShiftAssignments: shift ? { lh: shift } : undefined }).events.find((e) => e.id === 'crew-rest-lh')!;
+  const dep = Date.parse(r.flights[0].departureTimeUtc);
+  const arr = Date.parse(r.flights[0].arrivalTimeUtc);
+  const first = nap('shift1');
+  const second = nap('shift2');
+  assert.ok(Date.parse(first.endUtc) <= dep + (arr - dep) / 2, 'first shift nap in the first half');
+  assert.ok(Date.parse(second.startUtc) >= dep + (arr - dep) / 2, 'second shift nap in the second half');
+  assert.ok(Date.parse(second.endUtc) <= arr - 60 * 60000, 'ends at least an hour before landing');
+  assert.equal(first.durationMinutes, 20);
+});
+
+test('a chosen bunk shift adds a nap on a 5-hour sector; no choice means none', () => {
+  const r = roster([leg('mid', 'DEL', 'SIN', '2026-10-10T09:00', '2026-10-10T14:30', 8)]);
+  assert.equal(generateCircadianPlan(r, prefs).events.some((e) => e.id === 'crew-rest-mid'), false);
+  assert.equal(generateCircadianPlan(r, { ...prefs, bunkShiftAssignments: { mid: 'shift2' } }).events.some((e) => e.id === 'crew-rest-mid'), true);
+});
+
+test('a logged short night moves the next bedtime up to an hour earlier, only while recent', () => {
+  const r = roster([]);
+  const loggedAt = new Date();
+  const withLog = (hours: number, at: Date) =>
+    generateCircadianPlan(r, { ...prefs, actualLastSleepHours: hours, actualLastSleepLoggedAt: at.toISOString() });
+  const nextNight = (p: CircadianPlan) =>
+    p.events.filter((e) => e.type === 'anchor_sleep' && Date.parse(e.startUtc) > loggedAt.getTime()).sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc))[0];
+
+  const normal = nextNight(generateCircadianPlan(r, prefs));
+  const short = nextNight(withLog(5, loggedAt));
+  assert.equal(Date.parse(normal.startUtc) - Date.parse(short.startUtc), 60 * 60000, 'one hour earlier');
+  assert.match(short.subtitle, /short sleep last night/);
+
+  const old = nextNight(withLog(5, new Date(loggedAt.getTime() - 3 * 86400000)));
+  assert.equal(old.startUtc, normal.startUtc, 'a 3-day-old log no longer applies');
+
+  const fine = nextNight(withLog(7.5, loggedAt));
+  assert.equal(fine.startUtc, normal.startUtc, 'a normal night changes nothing');
+  assert.deepEqual(problems(withLog(4, loggedAt)), []);
+});
+
+test('the day outlook is in words with reasons, never a score', () => {
+  const plan = generateCircadianPlan(
+    roster([
+      leg('out', 'DEL', 'DXB', '2026-10-10T23:30', '2026-10-11T02:00', 4),
+      leg('back', 'DXB', 'DEL', '2026-10-11T03:30', '2026-10-11T06:30', 5.5),
+    ]),
+    prefs
+  );
+  const duty = plan.dailySummaries.find((d) => d.dateStr === '2026-10-10')!;
+  assert.equal(duty.outlook?.level, 'watch');
+  assert.ok(duty.outlook!.reasons.some((r) => r.includes('body-clock night')));
+  assert.match(duty.keyGuidance, /^Keep an eye on today\. Because of flying through your body-clock night\./);
+  const later = plan.dailySummaries.find((d) => d.dateStr === '2026-10-12')!;
+  assert.equal(later.outlook?.level, 'steady');
+  assert.equal(later.outlook?.headline, 'A day to rest');
+});
+
+test('airport standby is planned like a duty: no sleep during it, with a wake-up and leave-home time', () => {
+  const plan = generateCircadianPlan(
+    {
+      ...roster([leg('a', 'DEL', 'BOM', '2026-10-10T10:00', '2026-10-10T12:00')]),
+      standbyDuties: [{ id: 's1', kind: 'airport', airport: 'DEL', startUtc: '2026-10-12T00:30:00.000Z', endUtc: '2026-10-12T06:30:00.000Z' }],
+    },
+    prefs
+  );
+  assert.deepEqual(problems(plan), []);
+  const sb = { start: Date.parse('2026-10-12T00:30:00.000Z'), end: Date.parse('2026-10-12T06:30:00.000Z') };
+  const sleeps = plan.events.filter(isSleep);
+  assert.ok(sleeps.every((e) => Date.parse(e.endUtc) <= sb.start || Date.parse(e.startUtc) >= sb.end), 'no sleep during airport standby');
+  const prep = plan.events.find((e) => e.type === 'pre_flight_prep' && e.title.includes('airport standby'));
+  assert.ok(prep, 'getting-ready step for the standby');
+  assert.equal(prep!.endHbtStr, '06:00');
+  const day = plan.dailySummaries.find((d) => d.dateStr === '2026-10-12')!;
+  assert.equal(day.isOffDay, false);
+  assert.equal(day.dutyType, 'standby');
+  assert.equal(plan.monthlyStats.standbyHours, 6);
+});
+
+test('home standby shows a note but does not move sleep; a callout merges with it', () => {
+  const base = roster([leg('a', 'DEL', 'BOM', '2026-10-10T10:00', '2026-10-10T12:00')]);
+  const withHome = generateCircadianPlan(
+    { ...base, standbyDuties: [{ id: 'h', kind: 'home', airport: 'DEL', startUtc: '2026-10-11T00:30:00.000Z', endUtc: '2026-10-11T12:30:00.000Z' }] },
+    prefs
+  );
+  const without = generateCircadianPlan(base, prefs);
+  const sleepTimes = (p: CircadianPlan) => p.events.filter(isSleep).map((e) => e.startUtc).join();
+  assert.equal(sleepTimes(withHome), sleepTimes(without));
+  assert.ok(withHome.events.some((e) => e.type === 'standby' && e.title.includes('Home standby')));
+
+  const callout = generateCircadianPlan(
+    {
+      ...roster([leg('c', 'DEL', 'BOM', '2026-10-12T09:00', '2026-10-12T11:00')]),
+      standbyDuties: [{ id: 's', kind: 'airport', airport: 'DEL', startUtc: '2026-10-12T00:30:00.000Z', endUtc: '2026-10-12T06:30:00.000Z' }],
+    },
+    prefs
+  );
+  assert.equal(callout.events.filter((e) => e.type === 'pre_flight_prep').length, 1, 'standby and callout flight are one duty');
+  assert.deepEqual(problems(callout), []);
+});
+
+test('positioning flights are duty time but not flying hours', () => {
+  const plan = generateCircadianPlan(
+    roster([
+      { ...leg('dh', 'DEL', 'BOM', '2026-10-10T10:00', '2026-10-10T12:00'), isPositioning: true },
+      leg('w', 'BOM', 'DEL', '2026-10-10T13:30', '2026-10-10T15:30'),
+    ]),
+    prefs
+  );
+  assert.equal(plan.monthlyStats.totalFlightHours, 2);
+  assert.match(plan.events.find((e) => e.id === 'flight-dh')!.title, /^Positioning \(as passenger\)/);
+  assert.deepEqual(problems(plan), []);
+});

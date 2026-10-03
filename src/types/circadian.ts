@@ -25,7 +25,17 @@ export interface FlightLeg {
   aircraftType?: string;
   durationMinutes: number;
   isRedEye?: boolean;
+  isPositioning?: boolean; // travelling as a passenger to or from a duty (deadhead); duty time, not flying pay
   bunkShift?: 'shift1' | 'shift2' | 'none'; // In-flight rest split for long-haul
+}
+
+/** A standby period from the roster: at home (on call) or at the airport (ready to fly). */
+export interface StandbyDuty {
+  id: string;
+  kind: 'home' | 'airport';
+  airport: string; // where the standby is held, usually the home base
+  startUtc: string;
+  endUtc: string;
 }
 
 export interface LayoverInfo {
@@ -136,8 +146,8 @@ export interface CrewPreferences {
   payslipUploaded?: boolean;
   payslipFileName?: string;
   // Wearable sleep sync override (Apple Health / Oura / Garmin)
-  actualLastSleepHours?: number;
-  actualSleepEfficiency?: number; // e.g. 85 for 85%
+  actualLastSleepHours?: number; // hours slept last night, as entered by the user
+  actualLastSleepLoggedAt?: string; // ISO time the entry was made; it stops applying after 48 hours
   useMelatoninProtocol?: boolean;
   bunkShiftAssignments?: Record<string, 'shift1' | 'shift2'>;
 }
@@ -176,6 +186,7 @@ export interface RosterData {
   periodEnd?: string;
   totalDays?: number;
   standbyHours?: number;
+  standbyDuties?: StandbyDuty[];
   rawText?: string;
   parsedAt: string;
   sourceDocumentUrl?: string;
@@ -212,6 +223,12 @@ export interface DailyCircadianSummary {
   woclExposureMinutes: number;
   fatigueRiskLevel: 'low' | 'moderate' | 'high';
   keyGuidance: string;
+  outlook?: {
+    level: 'steady' | 'watch' | 'harder';
+    headline: string; // e.g. 'Harder day ahead'
+    reasons: string[]; // plain reasons, e.g. 'an early start (wake 03:30)'
+    tip: string;
+  };
   prepDetails?: PrepDetails;
   layoverStation?: {
     city: string;

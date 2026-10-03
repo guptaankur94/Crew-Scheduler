@@ -264,19 +264,13 @@ export const MasterRosterOverview: React.FC<MasterRosterOverviewProps> = ({
           <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-5 gap-2.5 font-mono text-left">
             {/* 1. Block Hours */}
             <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-2.5">
-              <div className="flex items-center justify-between text-[10px] text-blue-300 font-sans font-bold uppercase">
-                <span>Flight Hours</span>
-                <span className="text-blue-400 font-mono">100h Cap</span>
-              </div>
+              <span className="text-[10px] text-blue-300 font-sans font-bold uppercase block">
+                Flying Hours
+              </span>
               <p className="text-lg font-black text-white mt-0.5">
                 {monthlyStats.totalFlightHours}h
               </p>
-              <div className="mt-1 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-blue-500 h-full rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (monthlyStats.totalFlightHours / 100) * 100)}%` }}
-                />
-              </div>
+              <p className="text-[10px] font-sans text-slate-400 mt-0.5">Departure to arrival</p>
             </div>
 
             {/* 2. Total Sectors */}
@@ -293,23 +287,23 @@ export const MasterRosterOverview: React.FC<MasterRosterOverviewProps> = ({
             {/* 3. Rest Days (WKOFF) */}
             <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-2.5">
               <span className="text-[10px] text-emerald-300 font-sans font-bold uppercase block">
-                Rest / OFF Days
+                Days Without Flights
               </span>
               <p className="text-lg font-black text-emerald-400 mt-0.5">
                 {monthlyStats.offDays} <span className="text-xs font-normal text-slate-400">Days</span>
               </p>
-              <p className="text-[10px] font-sans text-emerald-300/80 mt-0.5">DGCA / FAA Compliant</p>
+              <p className="text-[10px] font-sans text-emerald-300/80 mt-0.5">Days off and standby</p>
             </div>
 
             {/* 4. Night / Red-Eye Sectors */}
             <div className="rounded-xl border border-rose-900/40 bg-rose-950/20 p-2.5">
               <span className="text-[10px] text-rose-300 font-sans font-bold uppercase block">
-                WOCL Night Legs
+                Night Flights
               </span>
               <p className="text-lg font-black text-rose-300 mt-0.5">
                 {monthlyStats.woclNightFlights} <span className="text-xs font-normal text-slate-400">Sectors</span>
               </p>
-              <p className="text-[10px] font-sans text-slate-400 mt-0.5">02:00–06:00 window</p>
+              <p className="text-[10px] font-sans text-slate-400 mt-0.5">Through your body-clock night</p>
             </div>
 
             {/* 5. Verification Audit Progress */}
@@ -513,8 +507,8 @@ export const MasterRosterOverview: React.FC<MasterRosterOverviewProps> = ({
                     ))}
                   </div>
                   <div className="border-t border-slate-300 pt-2 text-[9px] text-slate-500 flex justify-between items-center">
-                    <span>STATUS: RECOGNISED</span>
-                    <span className="text-emerald-700 font-bold">ALL TIMINGS VERIFIED (UTC+{preferences.homeBaseTzOffset})</span>
+                    <span>SAMPLE PREVIEW, NOT YOUR AIRLINE DOCUMENT</span>
+                    <span className="font-bold">Times in home time (UTC+{preferences.homeBaseTzOffset})</span>
                   </div>
                 </div>
               )}
@@ -530,7 +524,7 @@ export const MasterRosterOverview: React.FC<MasterRosterOverviewProps> = ({
                 onClick={verifyAllSectors}
                 className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 underline"
               >
-                Mark All Verified
+                Mark all as checked
               </button>
             </div>
           </div>

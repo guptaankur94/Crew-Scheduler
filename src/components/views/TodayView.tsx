@@ -25,7 +25,6 @@ import {
   ShieldCheck,
   CheckCircle2,
   Calendar,
-  Bed,
   FileText,
 } from 'lucide-react';
 import { CockpitStatus } from '../CockpitStatus';
@@ -190,7 +189,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 </h3>
               </div>
               <p className="text-xs text-slate-400">
-                Calculated backwards from reporting at <strong className="text-white">{prepDetails.reportHbt} HBT</strong>. Eliminates mental calculation.
+                Calculated backwards from reporting at <strong className="text-white">{prepDetails.reportHbt} home time</strong>.
               </p>
             </div>
 
@@ -504,50 +503,6 @@ export const TodayView: React.FC<TodayViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Long-Haul In-Flight Bunk Shift Rest Selector (>= 5h sectors) */}
-                      {flight.durationMinutes >= 300 && onUpdatePreferences && (
-                        <div className="mt-2 pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[11px] font-bold text-indigo-300 flex items-center gap-1.5">
-                            <Bed className="h-3.5 w-3.5 text-indigo-400" /> In-Flight Bunk Shift:
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => {
-                                onUpdatePreferences({
-                                  bunkShiftAssignments: {
-                                    ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift1',
-                                  },
-                                });
-                              }}
-                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                (preferences.bunkShiftAssignments?.[flight.id] || 'shift1') === 'shift1'
-                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
-                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              Shift 1 (Early Bunk)
-                            </button>
-                            <button
-                              onClick={() => {
-                                onUpdatePreferences({
-                                  bunkShiftAssignments: {
-                                    ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift2',
-                                  },
-                                });
-                              }}
-                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                preferences.bunkShiftAssignments?.[flight.id] === 'shift2'
-                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
-                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              Shift 2 (Late Bunk)
-                            </button>
-                          </div>
-                        </div>
-                      )}
 
                       {/* Smart Debrief & Duty Release Marker (Understated mental picture footer) */}
                       <div className="mt-2.5 pt-2 border-t border-slate-900/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -621,7 +576,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
               </h3>
             </div>
             <span className="text-[11px] text-purple-300 font-semibold">
-              NASA Ames Protocol
+              Sleep & naps
             </span>
           </div>
 
@@ -753,7 +708,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </div>
         </div>
 
-        {/* Pillar 3: Chrono-Nutrition (Eating & Gut Rest) */}
+        {/* Pillar 3: Meals */}
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
             <div className="flex items-center gap-2">
@@ -765,7 +720,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
               </h3>
             </div>
             <span className="text-[11px] text-emerald-300 font-semibold">
-              Salk 10h Protocol
+              Meals
             </span>
           </div>
 
@@ -795,11 +750,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     >
                       <HelpCircle className="h-3 w-3 text-emerald-400" />
                       <span className="underline decoration-slate-700 underline-offset-2">
-                        Why: Dr. Satchin Panda Gut Research
+                        Why this timing?
                       </span>
                     </button>
                     <span className="text-[10px] text-emerald-400/80 font-medium">
-                      {event.type === 'eating_window' ? 'Active Digestion' : 'Gut Rest'}
+                      {event.type === 'eating_window' ? 'Meals' : 'Light food'}
                     </span>
                   </div>
                 </div>
@@ -867,7 +822,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       >
                         <HelpCircle className="h-3 w-3 text-slate-400" />
                         <span className="underline decoration-slate-700 underline-offset-2">
-                          Why: Adenosine & Sleep Architecture
+                          Why this timing?
                         </span>
                       </button>
                       <span className={`text-[10px] font-semibold ${isCutoff ? 'text-red-400' : 'text-amber-400'}`}>

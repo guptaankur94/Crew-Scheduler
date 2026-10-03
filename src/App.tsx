@@ -18,7 +18,6 @@ import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
 import { TodayView } from './components/views/TodayView';
 import { RosterView } from './components/views/RosterView';
-import { SalaryView } from './components/views/SalaryView';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
 import { ScienceView } from './components/views/ScienceView';
@@ -27,7 +26,6 @@ import { EventDetailModal } from './components/EventDetailModal';
 import {
   Clock,
   Calendar,
-  DollarSign,
   UploadCloud,
   Sliders,
   FileText,
@@ -191,7 +189,7 @@ export default function App() {
     const updatedHistory = recordRosterAction({
       actionType: 'upload',
       title,
-      description: customDescription || `Extracted ${parsedRoster.flights.length} flight legs via Gemini Aero-OCR`,
+      description: customDescription || `Read ${parsedRoster.flights.length} flights from your roster`,
       airline: parsedRoster.airline || 'Airline',
       homeBase: parsedRoster.homeBase || 'DEL',
       flightsCount: parsedRoster.flights.length,
@@ -503,13 +501,12 @@ export default function App() {
   };
 
   const viewTitles: Record<NavView, string> = {
-    today: "Today's Duty & Runway",
-    roster: 'Monthly Roster & Sectors',
-    mastersheet: 'Master Roster Duty Sheet (AIMS)',
-    salary: 'Salary & Payslip Studio',
-    upload: 'Roster Ingestion Hub',
-    settings: 'Buffers & Circadian Preferences',
-    science: 'Aero-Medical Science Lab',
+    today: "Today",
+    roster: 'Timeline',
+    mastersheet: 'Roster sheet',
+    upload: 'Upload roster',
+    settings: 'Settings',
+    science: 'The science',
   };
 
   return (
@@ -585,13 +582,6 @@ export default function App() {
             />
           )}
 
-          {activeView === 'salary' && (
-            <SalaryView
-              plan={plan}
-              onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
-            />
-          )}
-
           {activeView === 'upload' && (
             <UploadView
               currentRoster={roster}
@@ -630,11 +620,12 @@ export default function App() {
         {/* Footer */}
         <footer className="mt-auto border-t border-slate-900 bg-slate-950 py-5 text-center text-xs text-slate-500">
           <div className="mx-auto max-w-7xl px-4 space-y-1">
-            <p className="font-semibold text-slate-400">
-              CrewCircadian • Cabin Crew Rest & Chrono-Nutrition System
+            <p className="font-semibold text-slate-300">
+              If you feel fatigued, follow your airline's fatigue procedure, whatever this app shows.
             </p>
             <p className="text-[11px] text-slate-500 max-w-2xl mx-auto">
-              Clinical rules based on NASA Ames Fatigue Countermeasures, ICAO Doc 9966, and Salk Institute Chrono-Nutrition research.
+              CrewCircadian gives general wellness guidance. It is not a medical device, does not assess fitness for duty,
+              and is not endorsed by any airline, regulator or research body.
             </p>
           </div>
         </footer>
@@ -646,7 +637,6 @@ export default function App() {
           { id: 'today' as NavView, label: 'Today', icon: <Clock className="h-4 w-4" /> },
           { id: 'roster' as NavView, label: 'Timeline', icon: <Calendar className="h-4 w-4" /> },
           { id: 'mastersheet' as NavView, label: 'Sheet', icon: <FileText className="h-4 w-4" /> },
-          { id: 'salary' as NavView, label: 'Salary', icon: <DollarSign className="h-4 w-4" /> },
           { id: 'upload' as NavView, label: 'Upload', icon: <UploadCloud className="h-4 w-4" /> },
         ].map((tab) => {
           const isActive = activeView === tab.id;

@@ -1185,7 +1185,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                     </div>
                     <div>
                       <p className="text-sm font-bold text-white">
-                        {fileBatch.length} {fileBatch.length === 1 ? 'Roster File' : 'Roster Files'} Verified
+                        {fileBatch.length} {fileBatch.length === 1 ? 'Roster File' : 'Roster Files'} Ready
                       </p>
                       <p className="text-xs text-slate-300 mt-0.5">
                         {currentRoster.flights.length > 0
@@ -1297,7 +1297,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       {activeTab === 'samples' && (
         <div className="space-y-3">
           <p className="text-xs text-slate-400">
-            Pick from realistic pre-configured rosters to immediately preview circadian recommendations, monthly salary estimation, and pre-flight routines:
+            Try a sample roster to see how the plan works before uploading your own:
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {presets.map((preset) => {

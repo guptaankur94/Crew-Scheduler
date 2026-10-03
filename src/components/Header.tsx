@@ -35,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [showBasePicker, setShowBasePicker] = useState(false);
 
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
+    const timer = setInterval(() => setTime(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -46,8 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   const formatClock = (d: Date) => {
     const h = d.getUTCHours().toString().padStart(2, '0');
     const m = d.getUTCMinutes().toString().padStart(2, '0');
-    const s = d.getUTCSeconds().toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
+    return `${h}:${m}`;
   };
 
   const baseAirport = AIRPORTS[roster.homeBase] || {
@@ -163,7 +162,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                   <span className="hidden sm:inline-flex items-center gap-1 text-[8px] font-mono text-cyan-400 font-bold uppercase">
                     <Radio className="h-2.5 w-2.5 text-cyan-400 animate-pulse" />
-                    Live Anchor
+                    Home time
                   </span>
                 </div>
                 <p className="font-mono text-xs sm:text-sm font-black text-white mt-0.5">

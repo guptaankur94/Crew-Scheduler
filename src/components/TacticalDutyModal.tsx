@@ -229,7 +229,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
             )}
 
             <div className="rounded-xl bg-amber-950/20 border border-amber-800/40 p-3 text-[11px] text-amber-200">
-              💡 <strong>Instant Recalculation:</strong> Adding this sector will convert standby hours into flying hours, recalculate your salary breakdown, and schedule immediate pre-flight wake-up alarms.
+              Adding this flight updates your sleep, caffeine and wake-up plan for the day.
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">

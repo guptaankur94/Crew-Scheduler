@@ -23,11 +23,8 @@ import {
   Sun,
   Shield,
   Clock,
-  Bed,
-  DollarSign,
   Car,
   Bell,
-  ChevronDown,
   ChevronUp,
   Briefcase,
   Luggage,
@@ -40,7 +37,6 @@ import {
   GitMerge,
   FileText,
 } from 'lucide-react';
-import { SalarySection } from './SalarySection';
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { FlightLeg } from '../types/circadian';
 import {
@@ -76,11 +72,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onSwitchToMasterSheet,
   initialDate,
 }) => {
-  const { events, dailySummaries, preferences, monthlyStats, salaryBreakdown } = plan;
+  const { events, dailySummaries, preferences, monthlyStats } = plan;
 
   // Selected Week filter: 'all' | 'w1' | 'w2' | 'w3' | 'w4' | 'w5'
   const [activeWeek, setActiveWeek] = useState<string>('w1');
-  const [showSalaryStudio, setShowSalaryStudio] = useState<boolean>(false);
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
 
   // Debrief duration state per flight (default 30 mins)
@@ -170,10 +165,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const isOffDay = activeDaySummary?.isOffDay;
   const prepDetails = activeDaySummary?.prepDetails;
 
-  const formatMoney = (val: number, symbol: string) => {
-    return `${symbol}${val.toLocaleString()}`;
-  };
-
   const handleCopyPrepTimers = () => {
     if (!prepDetails) return;
     const text = `✈️ Pre-Flight Routine (${activeDaySummary.dayLabel}):\n⏰ Wake-Up Alarm: ${prepDetails.wakeUpHbt}\n🚖 Cab Pickup: ${prepDetails.cabPickupHbt}\n🏢 Base Check-In: ${prepDetails.reportHbt}\n🛫 Flight Departure: ${prepDetails.departureHbt}\n🛌 Bedtime the night before: ${prepDetails.targetBedtimeHbt || '--:--'}`;
@@ -184,137 +175,47 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Layer 1: Month Overview Window (Operational Hours & Fatigue Safety Limits) */}
+      {/* Layer 1: Month at a glance (plain counts taken from the roster) */}
       {monthlyStats && (
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/80 to-slate-950 p-4 sm:p-5 shadow-sm space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="flex h-2 w-2 rounded-full bg-blue-400" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
-                  Monthly Operational Hours & Safety Limits
-                </span>
-                <span className="rounded bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-300 border border-blue-500/20">
-                  DGCA & FAA Limits Verified
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Tracking flight block hours against regulatory 100h safety caps, standby reserve readiness, and circadian rest days.
-              </p>
-            </div>
-
-            {/* Dedicated Salary Studio & Master Sheet Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              {onSwitchToMasterSheet && (
-                <button
-                  onClick={onSwitchToMasterSheet}
-                  className="flex items-center gap-2 rounded-xl border border-blue-800/60 bg-blue-950/40 hover:bg-blue-900/50 hover:border-blue-700 px-3.5 py-2.5 text-xs font-bold text-blue-300 transition-all shadow-sm"
-                  title="Open AIMS Master Roster Sheet & Verification Table"
-                >
-                  <FileText className="h-4 w-4 text-blue-400" />
-                  <span>Master Sheet (AIMS)</span>
-                </button>
-              )}
-
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+              This roster at a glance
+            </span>
+            {onSwitchToMasterSheet && (
               <button
-                onClick={() => setShowSalaryStudio(!showSalaryStudio)}
-                className="flex items-center gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/40 hover:bg-emerald-900/50 hover:border-emerald-700 px-4 py-2.5 text-xs font-bold text-emerald-300 transition-all shadow-sm"
+                onClick={onSwitchToMasterSheet}
+                className="flex items-center gap-2 rounded-xl border border-blue-800/60 bg-blue-950/40 hover:bg-blue-900/50 hover:border-blue-700 px-3.5 py-2 text-xs font-bold text-blue-300 transition-all shadow-sm self-start"
               >
-                <DollarSign className="h-4 w-4 text-emerald-400" />
-                <span>
-                  {showSalaryStudio ? 'Close Remuneration Studio' : `Salary Studio (Est. ${formatMoney(salaryBreakdown.totalEarnings, salaryBreakdown.currencySymbol)})`}
-                </span>
-                <ChevronDown className={`h-4 w-4 text-emerald-400 transition-transform ${showSalaryStudio ? 'rotate-180' : ''}`} />
+                <FileText className="h-4 w-4 text-blue-400" />
+                <span>Full roster sheet</span>
               </button>
-            </div>
+            )}
           </div>
 
-          {/* Quick Metrics Bar: Pure Operational Hours */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-left font-mono">
-            {/* Flying Hours */}
-            <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-3 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] uppercase tracking-wider text-blue-300 font-sans font-bold">1. Flying Hours</span>
-                <span className="text-[9px] text-blue-400 font-sans font-bold">100h max</span>
-              </div>
-              <p className="text-base font-extrabold text-blue-300 mt-1">
-                {monthlyStats.totalFlightHours}h
-              </p>
-              <div className="mt-1.5 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-blue-500 h-full rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (monthlyStats.totalFlightHours / 100) * 100)}%` }}
-                />
-              </div>
-              <p className="text-[9px] text-slate-400 font-sans mt-1">Block hours (pushback to gate)</p>
-            </div>
-
-            {/* Standby Hours */}
-            <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-amber-300 font-sans font-bold">2. Standby Reserve</span>
-              <p className="text-base font-extrabold text-amber-300 mt-1">
-                {monthlyStats.standbyHours}h
-              </p>
-              <div className="mt-1.5 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                <div className="bg-amber-500 h-full rounded-full w-2/5" />
-              </div>
-              <p className="text-[9px] text-slate-400 font-sans mt-1">Airport & home standby</p>
-            </div>
-
-            {/* Total Flights */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-left font-mono">
             <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">3. Total Flights</span>
-              <p className="text-base font-extrabold text-white mt-1">
-                {monthlyStats.totalSectors} <span className="text-xs font-normal text-slate-400">Sectors</span>
-              </p>
-              <p className="text-[9px] text-slate-400 font-sans mt-2">Active flight legs</p>
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Flying hours</span>
+              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.totalFlightHours}h</p>
+              <p className="text-[9px] text-slate-400 font-sans mt-1">Departure to arrival</p>
             </div>
-
-            {/* Rest / Off Days */}
-            <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-emerald-300 font-sans font-bold">4. Rest / Off Days</span>
-              <p className="text-base font-extrabold text-emerald-400 mt-1">
-                {monthlyStats.offDays} <span className="text-xs font-normal text-slate-400">Days</span>
-              </p>
-              <p className="text-[9px] text-slate-400 font-sans mt-2">Circadian reset (WKOFF)</p>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Flights</span>
+              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.totalSectors}</p>
+              <p className="text-[9px] text-slate-400 font-sans mt-1">Sectors on this roster</p>
             </div>
-
-            {/* Red-Eye WOCL */}
-            <div className="rounded-xl border border-rose-900/40 bg-rose-950/20 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-rose-300 font-sans font-bold">5. Red-Eye Sectors</span>
-              <p className="text-base font-extrabold text-rose-300 mt-1">
-                {monthlyStats.woclNightFlights} <span className="text-xs font-normal text-slate-400">Night Legs</span>
-              </p>
-              <p className="text-[9px] text-slate-400 font-sans mt-2">02:00–06:00 WOCL window</p>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Days without flights</span>
+              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.offDays}</p>
+              <p className="text-[9px] text-slate-400 font-sans mt-1">Includes days off and standby</p>
             </div>
-          </div>
-
-          {/* Cumulative Sleep Debt & FDP Compliance Strip */}
-          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs">
-            <div className="flex items-center gap-2">
-              <Bed className="h-4 w-4 text-purple-400" />
-              <span className="text-slate-300">
-                Cumulative Sleep Debt: <strong className="font-mono text-purple-300">+{monthlyStats.cumulativeSleepDebtHours}h</strong>
-              </span>
-              <span className="text-[10px] text-slate-500 hidden sm:inline">(Recoverable with scheduled restorative rest blocks)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
-              <span className="text-emerald-300 font-semibold text-[11px]">
-                FAR Part 117 / DGCA FDP Compliant ({monthlyStats.maxFdpHours}h ceiling)
-              </span>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Night flights</span>
+              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.woclNightFlights}</p>
+              <p className="text-[9px] text-slate-400 font-sans mt-1">Flights through your body-clock night</p>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Dedicated Remuneration & Payslip Studio (Separate Section per User Request 1) */}
-      {showSalaryStudio && onUpdatePreferences && (
-        <SalarySection
-          plan={plan}
-          onUpdatePreferences={onUpdatePreferences}
-          onClose={() => setShowSalaryStudio(false)}
-        />
       )}
 
       {/* Layer 2: Consolidated Smart Roster Navigator (Unified Month, Week & Inspection State) */}
@@ -526,7 +427,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 </h4>
               </div>
               <p className="text-[11px] text-slate-300">
-                Zero mental math: reporting at <strong className="text-white font-mono">{prepDetails.reportHbt}</strong>. With your <strong className="text-amber-300 font-mono">{preferences.cabBufferMinutes}m cab transit</strong> and <strong className="text-sky-300 font-mono">{preferences.groomingMinutes}m grooming</strong>, your cab pickup is at <strong className="text-amber-300 font-mono">{prepDetails.cabPickupHbt}</strong> and alarm is at <strong className="text-sky-300 font-mono">{prepDetails.wakeUpHbt}</strong>.
+                Reporting at <strong className="text-white font-mono">{prepDetails.reportHbt}</strong>. With your <strong className="text-amber-300 font-mono">{preferences.cabBufferMinutes}m cab transit</strong> and <strong className="text-sky-300 font-mono">{preferences.groomingMinutes}m grooming</strong>, your cab pickup is at <strong className="text-amber-300 font-mono">{prepDetails.cabPickupHbt}</strong> and alarm is at <strong className="text-sky-300 font-mono">{prepDetails.wakeUpHbt}</strong>.
               </p>
             </div>
 
@@ -764,7 +665,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-center">
               <span className="text-[9px] uppercase font-bold text-slate-400 block">Room Climate</span>
-              <span className="font-bold text-sky-300 text-xs">{activeDaySummary.layoverStation.tempCelsius}°C Optimal</span>
+              <span className="font-bold text-sky-300 text-xs">About 18–20 °C</span>
             </div>
           </div>
         </div>
@@ -899,54 +800,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Long-Haul In-Flight Bunk Shift Rest Selector (>= 5h sectors) */}
-                      {flight.durationMinutes >= 300 && onUpdatePreferences && (
-                        <div className="mt-2 pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[11px] font-bold text-indigo-300 flex items-center gap-1.5">
-                            <Bed className="h-3.5 w-3.5 text-indigo-400" /> In-Flight Bunk Rest Shift:
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => {
-                                onUpdatePreferences({
-                                  bunkShiftAssignments: {
-                                    ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift1',
-                                  },
-                                });
-                              }}
-                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                (preferences.bunkShiftAssignments?.[flight.id] || 'shift1') === 'shift1'
-                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
-                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              Shift 1 (Early Bunk)
-                            </button>
-                            <button
-                              onClick={() => {
-                                onUpdatePreferences({
-                                  bunkShiftAssignments: {
-                                    ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift2',
-                                  },
-                                });
-                              }}
-                              className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                preferences.bunkShiftAssignments?.[flight.id] === 'shift2'
-                                  ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
-                                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              Shift 2 (Late Bunk)
-                            </button>
-                          </div>
-                        </div>
-                      )}
 
                       {/* Tactical Flight Modification Bar (Real-Time UI Adjustments) */}
                       <div className="mt-2.5 pt-2 border-t border-slate-900/90 flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
-                        <span className="text-[10px] text-slate-500 font-medium">Real-Time Tactical Changes:</span>
+                        <span className="text-[10px] text-slate-500 font-medium">Change this flight:</span>
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => handleOpenTactical('delay_sector', flight)}
@@ -1051,7 +908,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </h3>
             </div>
             <span className="text-[11px] text-purple-300 font-semibold">
-              NASA Ames Protocol
+              Sleep & naps
             </span>
           </div>
 
@@ -1186,7 +1043,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
         </div>
 
-        {/* Pillar 3: Chrono-Nutrition (Eating & Gut Rest) */}
+        {/* Pillar 3: Meals */}
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
             <div className="flex items-center gap-2">
@@ -1198,7 +1055,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </h3>
             </div>
             <span className="text-[11px] text-emerald-300 font-semibold">
-              Salk 10h Protocol
+              Meals
             </span>
           </div>
 
@@ -1232,11 +1089,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     >
                       <HelpCircle className="h-3 w-3 text-emerald-400" />
                       <span className="underline decoration-slate-700 underline-offset-2">
-                        Why: Dr. Satchin Panda Gut Research
+                        Why this timing?
                       </span>
                     </button>
                     <span className="text-[10px] text-emerald-400/80 font-medium">
-                      {event.type === 'eating_window' ? 'Active Digestion' : 'Gut Rest'}
+                      {event.type === 'eating_window' ? 'Meals' : 'Light food'}
                     </span>
                   </div>
                 </div>
@@ -1304,7 +1161,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       >
                         <HelpCircle className="h-3 w-3 text-slate-400" />
                         <span className="underline decoration-slate-700 underline-offset-2">
-                          Why: Adenosine & Sleep Architecture
+                          Why this timing?
                         </span>
                       </button>
                       <span className={`text-[10px] font-semibold ${isCutoff ? 'text-red-400' : 'text-amber-400'}`}>
@@ -1326,7 +1183,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             <Sun className="h-4 w-4 text-amber-400 shrink-0" />
             <div>
               <strong className="text-amber-200">Morning Phototherapy Tip: </strong>
-              <span className="text-slate-300">Get 20–30 mins outdoor sunlight this morning to lock your suprachiasmatic nucleus (SCN) master clock to home time.</span>
+              <span className="text-slate-300">Some time in daylight this morning helps keep your body clock on home time.</span>
             </div>
           </div>
           <button
@@ -1344,8 +1201,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           <div className="flex items-center gap-2.5">
             <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
             <div>
-              <strong className="text-rose-200">Aero-Medical WOCL Notice: </strong>
-              <span className="text-slate-300">Flight duty operates through the biological Window of Circadian Low (02:00–06:00). Follow the NASA 26m nap protocol.</span>
+              <strong className="text-rose-200">Night duty: </strong>
+              <span className="text-slate-300">This duty runs through your body-clock night (roughly 02:00–06:00 home time), when alertness is usually lowest. A nap before the duty helps.</span>
             </div>
           </div>
           <button

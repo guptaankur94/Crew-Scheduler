@@ -34,11 +34,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         <div className="space-y-1 pr-8">
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400 border border-blue-500/20">
-              {scientificCitation.organization} Study
+              Source: {scientificCitation.organization}
             </span>
             {event.priority === 'critical' && (
               <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-semibold text-red-400 border border-red-500/20">
-                Critical Safety Window
+                Important
               </span>
             )}
           </div>
@@ -67,11 +67,21 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             <p className="mt-1.5 text-xs leading-relaxed text-slate-200">
               {scientificCitation.keyFinding}
             </p>
+            {scientificCitation.sourceUrl && (
+              <a
+                href={scientificCitation.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-[11px] text-blue-400 underline underline-offset-2 hover:text-blue-300"
+              >
+                Read the source
+              </a>
+            )}
           </div>
 
           <div className="space-y-1 text-xs text-slate-300">
             <strong className="text-slate-400 uppercase tracking-wider text-[10px]">
-              The Biological Mechanism:
+              Why it matters:
             </strong>
             <p className="leading-relaxed text-slate-300">{scientificCitation.explanation}</p>
           </div>
@@ -80,7 +90,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           <div className="flex items-start gap-2 rounded-xl border border-amber-900/30 bg-amber-950/20 p-3 text-xs text-amber-200">
             <Lightbulb className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
             <div>
-              <strong className="text-amber-300">Cabin Crew Action: </strong>
+              <strong className="text-amber-300">What to do: </strong>
               <span>{scientificCitation.actionableTip}</span>
             </div>
           </div>

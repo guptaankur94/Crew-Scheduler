@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
+import { createBackupFromDevice, deleteAllLocalData, parseBackup, writeRestoredData } from '../../services/backup';
 import { CrewPreferences, RosterData } from '../../types/circadian';
-import { AIRPORTS } from '../../data/airports';
+import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
 import {
   Sliders,
   Moon,
@@ -23,6 +24,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdatePreferences,
   onChangeHomeBase,
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dataMessage, setDataMessage] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleExport = () => {
+    const blob = new Blob([createBackupFromDevice()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `crewcircadian-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setDataMessage({ text: 'Backup saved. Keep the file somewhere safe, such as your files app or email.', tone: 'ok' });
+  };
+
+  const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const result = parseBackup(await file.text(), preferences);
+    if ('error' in result) {
+      setDataMessage({ text: result.error, tone: 'error' });
+      return;
+    }
+    writeRestoredData(result);
+    window.location.reload();
+  };
+
+  const handleDeleteAll = () => {
+    deleteAllLocalData();
+    window.location.reload();
+  };
+
   const quickBases = [
     { iata: 'DEL', name: 'Delhi', tzOffset: 5.5 },
     { iata: 'BOM', name: 'Mumbai', tzOffset: 5.5 },
@@ -211,7 +245,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               return (
                 <button
                   key={b.iata}
-                  onClick={() => onChangeHomeBase(b.iata, b.tzOffset)}
+                  onClick={() => onChangeHomeBase(b.iata, getAirportTzOffset(b.iata, new Date()) ?? b.tzOffset)}
                   className={`rounded-xl border p-2 text-center transition-all ${
                     isCurrent
                       ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300 font-bold ring-1 ring-emerald-500'
@@ -226,6 +260,55 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+      </div>
+
+      {/* 4. Your data */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+        <div className="border-b border-slate-800 pb-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">4. Your data</h3>
+        </div>
+        <p className="text-xs text-slate-400">
+          Your roster and settings are stored only on this device. Nothing is shared with your airline. Save a backup so
+          you can restore them if this browser's data is cleared or you switch devices.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleExport}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500"
+          >
+            Save a backup
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800"
+          >
+            Restore from a backup
+          </button>
+          <input ref={fileInputRef} type="file" accept="application/json,.json" onChange={handleRestore} className="hidden" />
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="rounded-xl border border-rose-900 px-4 py-2 text-xs font-bold text-rose-300 hover:bg-rose-950"
+            >
+              Delete all my data
+            </button>
+          ) : (
+            <span className="flex items-center gap-2 text-xs text-rose-200">
+              Delete your roster, settings and history from this device?
+              <button onClick={handleDeleteAll} className="rounded-lg bg-rose-700 px-3 py-1.5 font-bold text-white hover:bg-rose-600">
+                Yes, delete
+              </button>
+              <button onClick={() => setConfirmDelete(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 font-bold text-slate-300">
+                Cancel
+              </button>
+            </span>
+          )}
+        </div>
+        {dataMessage && (
+          <p role="status" className={`text-xs ${dataMessage.tone === 'ok' ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {dataMessage.text}
+          </p>
+        )}
       </div>
     </div>
   );

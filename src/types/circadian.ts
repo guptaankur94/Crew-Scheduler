@@ -85,6 +85,8 @@ export interface PrepDetails {
   debriefMinutes?: number;
   debriefStartHbt?: string;
   debriefEndHbt?: string;
+  isAwayFromBase?: boolean; // duty starts at an outstation (hotel), not at home
+  pickupLabel?: string; // e.g. 'Leave home' or 'Hotel pickup'
 }
 
 export interface CircadianEvent {

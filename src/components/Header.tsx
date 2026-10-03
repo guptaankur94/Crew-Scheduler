@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CircadianPlan } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { AIRPORTS, getAirportTzOffset } from '../data/airports';
 import {
   Compass,
   MapPin,
@@ -56,9 +56,12 @@ export const Header: React.FC<HeaderProps> = ({
     tzOffset: hbtOffset,
   };
 
-  // Determine current active location from upcoming/current flight if away from home
-  const activeFlight = roster.flights[0];
-  const isAway = activeFlight && activeFlight.destination !== roster.homeBase;
+  // Current location: the destination of the last flight that has already landed
+  const nowMs = time.getTime();
+  const activeFlight = [...roster.flights]
+  .filter((f) => Date.parse(f.arrivalTimeUtc) <= nowMs)
+  .sort((a, b) => Date.parse(b.arrivalTimeUtc) - Date.parse(a.arrivalTimeUtc))[0];
+  const isAway = !!activeFlight && activeFlight.destination !== roster.homeBase;
   const localAirport = isAway
     ? AIRPORTS[activeFlight.destination] || {
         city: activeFlight.destinationCity || activeFlight.destination,
@@ -208,7 +211,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <button
                         key={code}
                         onClick={() => {
-                          onChangeHomeBase(code, ap?.tzOffset || 5.5);
+                          onChangeHomeBase(code, getAirportTzOffset(code, new Date()) ?? ap?.tzOffset ?? 5.5);
                           setShowBasePicker(false);
                         }}
                         className={`rounded-lg px-2 py-1 text-xs font-semibold transition-colors ${

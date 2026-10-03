@@ -57,31 +57,52 @@ export function reviveRoster(value: any): RosterData | null {
  * Loads the saved roster, preferences and adjustments.
  * Returns null when nothing is saved or the saved data is unusable, so the app falls back to defaults.
  */
+/**
+ * Checks a parsed object really is saved app state the app can use, filling in defaults for any
+ * preference added since it was saved. Returns null when it is unusable.
+ */
+export function reviveAppState(parsed: any, defaultPreferences: CrewPreferences): PersistedAppState | null {
+  const roster = reviveRoster(parsed?.roster);
+  if (!roster) return null;
+
+  const savedPrefs = parsed.preferences && typeof parsed.preferences === 'object' ? parsed.preferences : {};
+  const nudges: Record<string, number> = {};
+  if (parsed.customNudges && typeof parsed.customNudges === 'object') {
+    for (const [key, minutes] of Object.entries(parsed.customNudges)) {
+      if (typeof minutes === 'number' && isFinite(minutes)) nudges[key] = minutes;
+    }
+  }
+
+  return {
+    roster,
+    // Defaults first so a preference added in a later version is never undefined
+    preferences: { ...defaultPreferences, ...savedPrefs },
+    customNudges: nudges,
+    activePresetId: typeof parsed.activePresetId === 'string' ? parsed.activePresetId : 'custom-upload',
+  };
+}
+
+/**
+ * Loads the saved roster, preferences and adjustments.
+ * Returns null when nothing is saved or the saved data is unusable, so the app falls back to defaults.
+ */
 export function loadAppState(defaultPreferences: CrewPreferences): PersistedAppState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const roster = reviveRoster(parsed?.roster);
-    if (!roster) return null;
-
-    const savedPrefs = parsed.preferences && typeof parsed.preferences === 'object' ? parsed.preferences : {};
-    const nudges: Record<string, number> = {};
-    if (parsed.customNudges && typeof parsed.customNudges === 'object') {
-      for (const [key, minutes] of Object.entries(parsed.customNudges)) {
-        if (typeof minutes === 'number' && isFinite(minutes)) nudges[key] = minutes;
-      }
-    }
-
-    return {
-      roster,
-      // Defaults first so a preference added in a later version is never undefined
-      preferences: { ...defaultPreferences, ...savedPrefs },
-      customNudges: nudges,
-      activePresetId: typeof parsed.activePresetId === 'string' ? parsed.activePresetId : 'custom-upload',
-    };
+    return reviveAppState(JSON.parse(raw), defaultPreferences);
   } catch (err) {
     console.warn('Failed to load saved app state', err);
+    return null;
+  }
+}
+
+/** The saved state exactly as stored, for backups. */
+export function loadRawAppState(): unknown {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
     return null;
   }
 }

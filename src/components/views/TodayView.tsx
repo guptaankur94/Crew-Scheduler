@@ -55,7 +55,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
 }) => {
   const { events, dailySummaries, preferences, roster } = plan;
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
-  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(() => {
+    const todayHome = new Date(Date.now() + preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10);
+    const index = dailySummaries.findIndex((d) => d.dateStr === todayHome);
+    return index >= 0 ? index : 0;
+  });
 
   // Debrief duration state per flight (default 30 mins, adjustable to 15, 30, 45, or +/- 5m)
   const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
@@ -81,7 +85,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const handleCopyPrepTimers = () => {
     if (!prepDetails) return;
-    const text = `✈️ Pre-Flight Routine (${activeSummary.dayLabel}):\n⏰ Wake-Up Alarm: ${prepDetails.wakeUpHbt}\n🚖 Cab Pickup: ${prepDetails.cabPickupHbt}\n🏢 Base Check-In: ${prepDetails.reportHbt}\n🛫 Flight Departure: ${prepDetails.departureHbt}\n🛌 Bedtime the night before: ${prepDetails.targetBedtimeHbt || '--:--'}`;
+    const text = `✈️ Pre-Flight Routine (${activeSummary.dayLabel}):\n⏰ Wake-Up Alarm: ${prepDetails.wakeUpHbt}\n🚖 ${prepDetails.pickupLabel || 'Leave home'}: ${prepDetails.cabPickupHbt}\n🏢 Base Check-In: ${prepDetails.reportHbt}\n🛫 Flight Departure: ${prepDetails.departureHbt}\n🛌 Bedtime the night before: ${prepDetails.targetBedtimeHbt || '--:--'}`;
     navigator.clipboard.writeText(text);
     setCopiedTimers(true);
     setTimeout(() => setCopiedTimers(false), 2500);
@@ -276,10 +280,10 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <div className="flex flex-col justify-between rounded-xl border border-amber-800/60 bg-slate-950 p-3.5 relative shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1 text-[11px] font-bold text-amber-400 uppercase">
-                  <Car className="h-3.5 w-3.5 text-amber-400" /> Step 2: Cab Pickup
+                  <Car className="h-3.5 w-3.5 text-amber-400" /> Step 2: {prepDetails.pickupLabel || 'Leave home'}
                 </span>
                 <span className="text-[10px] font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50">
-                  {preferences.cabBufferMinutes}m drive
+                  {prepDetails.cabBufferMinutes}m travel
                 </span>
               </div>
               <div className="my-2.5">
@@ -287,7 +291,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   {prepDetails.cabPickupHbt} <span className="text-xs font-normal text-slate-400">HBT</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Airline crew car arrives at your door & city transit to airport terminal
+                  {prepDetails.isAwayFromBase ? 'Hotel transport to the airport' : 'Travel from home to the airport'}
                 </p>
               </div>
               <div className="pt-2 border-t border-slate-900 text-[10px] text-amber-400/80 font-medium flex items-center justify-between">

@@ -91,7 +91,7 @@ test('delays saved by earlier versions inside the roster are put back to rostere
   assert.equal(fixed.flights[0].reportTimeUtc, rostered.reportTimeUtc);
   assert.equal(fixed.flights[0].userChange, undefined);
   assert.equal(updates.length, 1);
-  assert.equal(updates[0].minutes, 45);
+  assert.equal(updates[0].kind === 'delay' && updates[0].minutes, 45);
   assert.deepEqual(migrateLegacyDelays(fixed, updates), { roster: fixed, updates }, 'runs once');
 });
 
@@ -103,4 +103,109 @@ test('"I\'m delayed" is offered for the next flight within 24 hours, or the one 
   const u: UserUpdate[] = setDelay(r, [], r.flights[0].id, 60);
   assert.equal(delayCandidate(r, u, at('2026-10-02T19:30'))?.flightNumber, '6E 408', 'still in the air because of the delay');
   assert.equal(delayCandidate(r, [], at('2026-09-30T10:00')), undefined, 'nothing within 24 hours');
+});
+
+// ── Standby ──
+
+import { addCallout, allFlights, clearStandbyUpdate, keyOfStandby, releaseStandby, removeCalloutFlight, setStandbyTimes, standbyCandidate } from '../src/services/userUpdates';
+import { computePeriodStats } from '../src/services/periodStats';
+import type { StandbyDuty } from '../src/types/circadian';
+
+const ist = (s: string) => new Date(Date.parse(`${s}:00+05:30`)).toISOString();
+const standbyRoster = (): RosterData => ({
+  ...roster([leg('6E 9', 'BLR', 'MAA', '2026-10-05T08:00', 60)]),
+  standbyDuties: [{ id: 's1', kind: 'home', airport: 'BLR', startUtc: ist('2026-10-03T05:00'), endUtc: ist('2026-10-03T13:00') } as StandbyDuty],
+});
+
+test('standby times changed: the plan uses the new times; the roster keeps the rostered ones', () => {
+  const r = standbyRoster();
+  const key = keyOfStandby(r, 's1')!;
+  const u = setStandbyTimes([], key, ist('2026-10-03T09:00'), ist('2026-10-03T17:00'));
+  const sb = effectiveRoster(r, u).standbyDuties![0];
+  assert.equal(sb.startUtc, ist('2026-10-03T09:00'));
+  assert.equal(sb.endUtc, ist('2026-10-03T17:00'));
+  assert.equal(r.standbyDuties![0].startUtc, ist('2026-10-03T05:00'));
+  assert.deepEqual(clearStandbyUpdate(u, key), [], 'back to rostered');
+});
+
+test('released early ends the standby; released at or before its start means it was cancelled', () => {
+  const r = standbyRoster();
+  const key = keyOfStandby(r, 's1')!;
+  assert.equal(effectiveRoster(r, releaseStandby([], key, ist('2026-10-03T09:30'))).standbyDuties![0].endUtc, ist('2026-10-03T09:30'));
+  assert.equal(effectiveRoster(r, releaseStandby([], key, ist('2026-10-03T05:00'))).standbyDuties!.length, 0);
+});
+
+test('called out to two sectors: the standby ends at the callout report, the flights count, nothing is counted twice', () => {
+  const r = standbyRoster();
+  const key = keyOfStandby(r, 's1')!;
+  const out = leg('6E 123', 'BLR', 'DEL', '2026-10-03T09:00', 160);
+  const back = leg('6E 124', 'DEL', 'BLR', '2026-10-03T12:30', 160);
+  const u = addCallout([], [out, back], key);
+  const eff = effectiveRoster(r, u);
+  assert.equal(eff.standbyDuties![0].endUtc, out.reportTimeUtc, 'standby ends when you report for the callout');
+  assert.deepEqual(eff.flights.map((f) => f.flightNumber), ['6E 123', '6E 124', '6E 9']);
+  assert.equal(r.flights.length, 1, 'the roster itself is unchanged');
+  const stats = computePeriodStats(generateCircadianPlan(eff, prefs), { start: '2026-10-01', end: '2026-10-31' });
+  assert.equal(stats.sectors, 3);
+  assert.equal(stats.standbyHours, 3, 'only 05:00–08:00 counts as standby');
+  // A callout flight can be delayed and removed like any other
+  const delayed = setDelay(r, u, out.id, 30);
+  assert.equal(delayFor(delayed, keyOfFlight(r, out.id, delayed)), 30);
+  assert.deepEqual(allFlights(r, removeCalloutFlight(u, back.id)).map((f) => f.flightNumber), ['6E 9', '6E 123']);
+});
+
+test('a newer roster that shows the callout flights confirms (retires) the callout; standby changes follow their standby', () => {
+  const r = standbyRoster();
+  const key = keyOfStandby(r, 's1')!;
+  const out = leg('6E 123', 'BLR', 'DEL', '2026-10-03T09:00', 160);
+  const u = [...addCallout([], [out], key)];
+  const newer: RosterData = { ...roster([leg('6E 123', 'BLR', 'DEL', '2026-10-03T09:00', 160)]), standbyDuties: [] };
+  const result = retainUpdates(newer, u);
+  assert.equal(result.confirmed.length, 1);
+  assert.equal(result.kept.length, 0);
+  const notYet = retainUpdates(standbyRoster(), u);
+  assert.equal(notYet.kept.length, 1, 'kept while the roster does not show it yet');
+  const moved = setStandbyTimes([], key, ist('2026-10-03T09:00'), ist('2026-10-03T17:00'));
+  assert.equal(retainUpdates(roster([]), moved).dropped.length, 1, 'standby gone from the roster: change dropped');
+});
+
+test('legacy callout flights saved inside the roster become a callout on that day\'s standby', () => {
+  const r: RosterData = { ...standbyRoster(), flights: [...standbyRoster().flights, leg('6E 123', 'BLR', 'DEL', '2026-10-03T09:00', 160, { userChange: 'callout' })] };
+  const { roster: fixed, updates } = migrateLegacyDelays(r, []);
+  assert.deepEqual(fixed.flights.map((f) => f.flightNumber), ['6E 9']);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].kind, 'callout');
+});
+
+test('standby quick edits are offered for a standby within 24 hours or in progress', () => {
+  const r = standbyRoster();
+  assert.equal(standbyCandidate(r, Date.parse(ist('2026-10-02T12:00')))?.id, 's1');
+  assert.equal(standbyCandidate(r, Date.parse(ist('2026-10-03T10:00')))?.id, 's1');
+  assert.equal(standbyCandidate(r, Date.parse(ist('2026-10-03T14:00'))), undefined);
+});
+
+test('a delay carries through the rest of the duty, even past midnight, but not into the next duty', () => {
+  const r = roster([
+    leg('6E 408', 'BLR', 'PNQ', '2026-10-03T22:00', 90),
+    leg('6E 391', 'PNQ', 'BLR', '2026-10-04T00:10', 100), // same duty, after midnight
+    leg('6E 9', 'BLR', 'MAA', '2026-10-04T15:00', 60), // next duty (long gap)
+  ]);
+  const eff = effectiveRoster(r, setDelay(r, [], r.flights[0].id, 90));
+  assert.deepEqual(eff.flights.map((f) => f.operationalDelay?.minutes ?? 0), [90, 90, 0]);
+});
+
+test('a cancelled flight stays in the roster, leaves the plan, and can be reinstated', async () => {
+  const { cancelFlight, cancelledFlights, reinstateFlight } = await import('../src/services/userUpdates');
+  const r = day();
+  const before = JSON.stringify(r);
+  let u = setDelay(r, [], r.flights[1].id, 30);
+  u = cancelFlight(r, u, r.flights[1].id);
+  assert.equal(u.filter((x) => x.kind === 'delay').length, 0, "its delay no longer matters");
+  assert.deepEqual(effectiveRoster(r, u).flights.map((f) => f.flightNumber), ['6E 408', '6E 9']);
+  assert.equal(JSON.stringify(r), before, 'roster unchanged');
+  assert.deepEqual(cancelledFlights(r, u).map((c) => c.flight.flightNumber), ['6E 391']);
+  assert.equal(delayCandidate(r, u, Date.parse('2026-10-02T19:30:00+05:30'))?.flightNumber, '6E 9', 'not offered for delay');
+  assert.equal(retainUpdates(day(), u).kept.length, 1, 'kept while the flight is on the roster');
+  u = reinstateFlight(u, cancelledFlights(r, u)[0].sectorKey);
+  assert.equal(effectiveRoster(r, u).flights.length, 3);
 });

@@ -1,6 +1,31 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { CircadianEvent, CrewPreferences, RosterData, RosterHistoryEntry, FlightLeg, HistoryDayChange, UserUpdate } from './types/circadian';
-import { effectiveRoster, expectedDutyRelease, keyOfFlight, delayCandidate, delayFor, migrateLegacyDelays, retainUpdates, setDelay } from './services/userUpdates';
+import {
+  addCallout,
+  allFlights,
+  cancelFlight,
+  cancelledFlights,
+  reinstateFlight,
+  clearStandbyUpdate,
+  delayCandidate,
+  delayFor,
+  effectiveRoster,
+  expectedDutyRelease,
+  keyOfFlight,
+  keyOfStandby,
+  migrateLegacyDelays,
+  releaseStandby,
+  removeCalloutFlight,
+  retainUpdates,
+  setDelay,
+  setStandbyTimes,
+  standbyCandidate,
+  standbyForFlight,
+  standbyUpdate,
+} from './services/userUpdates';
+import { StandbyCard } from './components/StandbyCard';
+import { PlanChangedCard, PlanChangeNotice } from './components/PlanChangedCard';
+import { comparePlans } from './services/planChanges';
 import { DelayCard } from './components/DelayCard';
 import { getPresets, RosterPreset } from './data/rosterPresets';
 import { generateCircadianPlan } from './services/circadianCalculator';
@@ -147,6 +172,34 @@ export default function App() {
     return generateCircadianPlan(effectiveRoster(roster, userUpdates), preferences, customNudges);
   }, [roster, userUpdates, preferences, customNudges]);
 
+  // "Your plan changed": after an update, compare the plan before and after and keep what moved,
+  // shown on Today until dismissed (remembered on this device only)
+  const planBeforeUpdate = useRef<{ plan: typeof plan; title: string } | null>(null);
+  const [planNotice, setPlanNotice] = useState<PlanChangeNotice | null>(() => {
+    try {
+      const raw = localStorage.getItem('crew_plan_notice_v1');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const showPlanNotice = (notice: PlanChangeNotice | null) => {
+    setPlanNotice(notice);
+    try {
+      if (notice) localStorage.setItem('crew_plan_notice_v1', JSON.stringify(notice));
+      else localStorage.removeItem('crew_plan_notice_v1');
+    } catch {
+      // Not remembered: the notice simply disappears on reload
+    }
+  };
+  useEffect(() => {
+    const pending = planBeforeUpdate.current;
+    if (!pending) return;
+    planBeforeUpdate.current = null;
+    const days = comparePlans(pending.plan, plan, Date.now());
+    showPlanNotice(days.length ? { title: pending.title, at: new Date().toISOString(), days } : null);
+  }, [plan]);
+
   // Keep the latest roster, preferences and adjustments so a reload restores them
   useEffect(() => {
     saveAppState({ roster, preferences, customNudges, activePresetId, userUpdates });
@@ -172,14 +225,18 @@ export default function App() {
     let description = entry.description;
     // When the roster changes, the person's delays follow their flights; a delay whose flight is gone is dropped
     if (next.roster && !next.updates) {
-      const { kept, dropped } = retainUpdates(nextRoster, nextUpdates);
+      const { kept, dropped, confirmed } = retainUpdates(nextRoster, nextUpdates);
       nextUpdates = kept;
       if (dropped.length) {
-        description = `${description ?? ''} Your delay on ${dropped.length === 1 ? 'a flight' : `${dropped.length} flights`} no longer applies: that flight is not on the roster any more.`.trim();
+        description = `${description ?? ''} ${dropped.length === 1 ? 'One of your updates' : `${dropped.length} of your updates`} no longer applies: what it referred to is not on the roster any more.`.trim();
+      }
+      if (confirmed.length) {
+        description = `${description ?? ''} The roster now shows your callout${confirmed.length === 1 ? '' : 's'}, so ${confirmed.length === 1 ? 'it is' : 'they are'} part of the roster.`.trim();
       }
     }
     if (next.roster) setRoster(nextRoster);
     setUserUpdates(nextUpdates);
+    planBeforeUpdate.current = { plan, title: entry.title };
     const updatedHistory = recordRosterAction({
       ...entry,
       description,
@@ -367,38 +424,31 @@ export default function App() {
     }
   };
 
-  // Tactical Duty Action 1: Cancel Sector
-  const handleCancelSector = (flightId: string, convertToLayover: boolean) => {
+  // Tactical Duty Action 1: Cancel Sector. The person's update: the roster keeps the flight as published,
+  // the plan leaves it out, and where you rest follows from your remaining duties (home or outstation).
+  const handleCancelSector = (flightId: string) => {
     const cancelledFlight = roster.flights.find((f) => f.id === flightId);
-    if (!cancelledFlight) return;
-    markEdited();
-
-    const newFlights = roster.flights.filter((f) => f.id !== flightId);
-    const newLayovers = [...(roster.layovers || [])];
-    if (convertToLayover) {
-      const stationIata = cancelledFlight.origin;
-      const depMs = new Date(cancelledFlight.departureTimeUtc).getTime();
-      newLayovers.push({
-        id: `layover-cancelled-${Date.now()}`,
-        airport: stationIata,
-        city: cancelledFlight.originCity || stationIata,
-        tzOffset: cancelledFlight.originTzOffset,
-        startUtc: cancelledFlight.departureTimeUtc,
-        endUtc: new Date(depMs + 24 * 3600000).toISOString(),
-        durationHours: 24,
-        strategy: 'transition',
-      });
+    if (!cancelledFlight) {
+      const callout = allFlights(roster, userUpdates).find((f) => f.id === flightId);
+      if (callout) commitChange({ updates: removeCalloutFlight(userUpdates, flightId) }, { actionType: 'manual_edit', title: `Callout cancelled: ${callout.flightNumber}` });
+      return;
     }
-
-    commitRoster(
-      { ...roster, flights: newFlights, layovers: newLayovers, parsedAt: new Date().toISOString() },
+    markEdited();
+    commitChange(
+      { updates: cancelFlight(roster, userUpdates, flightId) },
       {
         actionType: 'manual_edit',
-        title: `Sector Cancelled: ${cancelledFlight.flightNumber}`,
-        description: convertToLayover
-          ? `Cancelled ${cancelledFlight.flightNumber} and converted to Station Layover at ${cancelledFlight.origin}. Continuous timeline recalculated.`
-          : `Cancelled ${cancelledFlight.flightNumber} (${cancelledFlight.origin} ➔ ${cancelledFlight.destination}). Returned to base rest rhythm.`,
+        title: `Cancelled: ${cancelledFlight.flightNumber}`,
+        description: `You marked ${cancelledFlight.flightNumber} (${cancelledFlight.origin} ➔ ${cancelledFlight.destination}) as cancelled. The roster keeps it; your plan leaves it out.`,
       }
+    );
+  };
+
+  const handleReinstateFlight = (sectorKey: string) => {
+    const item = cancelledFlights(roster, userUpdates).find((c) => c.sectorKey === sectorKey);
+    commitChange(
+      { updates: reinstateFlight(userUpdates, sectorKey) },
+      { actionType: 'manual_edit', title: `Reinstated: ${item?.flight.flightNumber ?? 'flight'}`, description: 'The flight is back in your plan as rostered.' }
     );
   };
 
@@ -407,7 +457,7 @@ export default function App() {
    * airline published them, and the plan uses the delayed departure, arrival and release on top.
    */
   const handleSetDelay = (flightId: string, minutes: number) => {
-    const flight = roster.flights.find((f) => f.id === flightId);
+    const flight = allFlights(roster, userUpdates).find((f) => f.id === flightId);
     if (!flight) return;
     const next = setDelay(roster, userUpdates, flightId, minutes);
     commitChange(
@@ -422,35 +472,65 @@ export default function App() {
     );
   };
 
+  // The standby quick edits apply to: one starting within 24 hours, or in progress
+  const todayStandby = standbyCandidate(roster, Date.now());
+
   // The flight "I'm delayed" applies to: the next one within 24 hours, or the one in progress
   const delayFlight = delayCandidate(roster, userUpdates, Date.now());
 
   // Tactical Duty Action 2: Delay Sector (adds to any delay already reported)
   const handleDelaySector = (flightId: string, delayMinutes: number) => {
-    handleSetDelay(flightId, delayFor(userUpdates, keyOfFlight(roster, flightId)) + delayMinutes);
+    handleSetDelay(flightId, delayFor(userUpdates, keyOfFlight(roster, flightId, userUpdates)) + delayMinutes);
   };
 
-  // Tactical Duty Action 3: Add Standby Callout Flight
+  // Tactical Duty Action 3: Standby callout. It is the person's update, linked to that day's standby,
+  // which then ends at the callout's report time. Without a standby that day it is still kept as a callout.
   const handleAddStandbyFlight = (calledOut: FlightLeg) => {
     markEdited();
-    const newFlight: FlightLeg = { ...calledOut, userChange: 'callout' };
-    const newFlights = [...roster.flights, newFlight].sort(
-      (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
-    );
-    commitRoster(
-      { ...roster, flights: newFlights, parsedAt: new Date().toISOString() },
+    const sb = standbyForFlight(roster, calledOut);
+    const key = sb ? keyOfStandby(roster, sb.id) : undefined;
+    const existing = key ? standbyUpdate(userUpdates, key) : undefined;
+    const flights = existing?.kind === 'callout' ? [...existing.flights, calledOut] : [calledOut];
+    commitChange(
+      { updates: addCallout(userUpdates, flights, key) },
       {
         actionType: 'manual_edit',
-        title: `Standby Callout: ${newFlight.flightNumber}`,
-        description: `Called out for flight ${newFlight.flightNumber} (${newFlight.origin} ➔ ${newFlight.destination}) on ${newFlight.departureTimeUtc.slice(0, 10)}. Flying pay and rest buffers updated.`,
+        title: `Called out: ${calledOut.flightNumber}`,
+        description: `Called out${sb ? ' from standby' : ''} for ${calledOut.flightNumber} (${calledOut.origin} ➔ ${calledOut.destination}). Your rostered standby is kept; the plan uses the callout.`,
       }
     );
+  };
+
+  /** Standby quick edits from Today: times changed, released early (or cancelled), called out, or undo your change. */
+  const handleStandbyChange = (
+    standbyId: string,
+    change: { kind: 'times'; startUtc: string; endUtc: string } | { kind: 'released'; atUtc: string } | { kind: 'callout'; flights: FlightLeg[] } | { kind: 'clear' }
+  ) => {
+    const key = keyOfStandby(roster, standbyId);
+    if (!key) return;
+    if (change.kind === 'times') {
+      commitChange({ updates: setStandbyTimes(userUpdates, key, change.startUtc, change.endUtc) }, { actionType: 'manual_edit', title: 'Standby times changed', description: 'You changed your standby times. Your rostered standby is kept as published.' });
+    } else if (change.kind === 'released') {
+      commitChange({ updates: releaseStandby(userUpdates, key, change.atUtc) }, { actionType: 'manual_edit', title: 'Released from standby', description: 'You were released from standby early.' });
+    } else if (change.kind === 'callout') {
+      markEdited();
+      commitChange(
+        { updates: addCallout(userUpdates, change.flights, key) },
+        { actionType: 'manual_edit', title: `Called out: ${change.flights.map((f) => f.flightNumber).join(', ')}`, description: 'Called out from standby. Your rostered standby is kept; the plan uses the callout.' }
+      );
+    } else {
+      commitChange({ updates: clearStandbyUpdate(userUpdates, key) }, { actionType: 'manual_edit', title: 'Standby back to rostered', description: 'Your change to this standby was removed.' });
+    }
   };
 
   // Tactical Duty Action 4: Delete Sector
   const handleDeleteSector = (flightId: string) => {
     const flight = roster.flights.find((f) => f.id === flightId);
-    if (!flight) return;
+    if (!flight) {
+      const callout = allFlights(roster, userUpdates).find((f) => f.id === flightId);
+      if (callout) commitChange({ updates: removeCalloutFlight(userUpdates, flightId) }, { actionType: 'manual_edit', title: `Callout removed: ${callout.flightNumber}` });
+      return;
+    }
     markEdited();
     const newFlights = roster.flights.filter((f) => f.id !== flightId);
     commitRoster(
@@ -532,10 +612,24 @@ export default function App() {
             </div>
           )}
 
+          {/* What moved in the plan after the latest update (both Today versions) */}
+          {activeView === 'today' && planNotice && (
+            <div className="mb-4">
+              <PlanChangedCard notice={planNotice} onDismiss={() => showPlanNotice(null)} />
+            </div>
+          )}
+
+          {/* Quick standby edits for a standby today or in the next 24 hours (both Today versions) */}
+          {activeView === 'today' && todayStandby && (
+            <div className="mb-4">
+              <StandbyCard roster={roster} standby={todayStandby} update={standbyUpdate(userUpdates, keyOfStandby(roster, todayStandby.id))} onChange={handleStandbyChange} />
+            </div>
+          )}
+
           {/* One-tap "I'm delayed" for the next flight (both Today versions) */}
           {activeView === 'today' && delayFlight && (
             <div className="mb-4">
-              <DelayCard roster={roster} flight={delayFlight} delayMinutes={delayFor(userUpdates, keyOfFlight(roster, delayFlight.id))} expectedReleaseUtc={expectedDutyRelease(roster, userUpdates, delayFlight.id)} onSetDelay={handleSetDelay} />
+              <DelayCard roster={roster} flight={delayFlight} delayMinutes={delayFor(userUpdates, keyOfFlight(roster, delayFlight.id, userUpdates))} expectedReleaseUtc={expectedDutyRelease(roster, userUpdates, delayFlight.id)} onSetDelay={handleSetDelay} />
             </div>
           )}
 
@@ -571,6 +665,8 @@ export default function App() {
               onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
               customNudges={customNudges}
               onCancelSector={handleCancelSector}
+              cancelledFlights={cancelledFlights(roster, userUpdates)}
+              onReinstateFlight={handleReinstateFlight}
               onDelaySector={handleDelaySector}
               onDeleteSector={handleDeleteSector}
               onAddStandbyFlight={handleAddStandbyFlight}

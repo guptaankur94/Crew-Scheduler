@@ -8,7 +8,9 @@ interface RosterViewProps {
   onNudgeEvent: (eventId: string, minutes: number) => void;
   onUpdatePreferences: (updated: Partial<CrewPreferences>) => void;
   customNudges: Record<string, number>;
-  onCancelSector?: (flightId: string, convertToLayover: boolean) => void;
+  onCancelSector?: (flightId: string) => void;
+  cancelledFlights?: { flight: FlightLeg; sectorKey: string }[];
+  onReinstateFlight?: (sectorKey: string) => void;
   onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
@@ -29,6 +31,8 @@ export const RosterView: React.FC<RosterViewProps> = ({
   onUpdatePreferences,
   customNudges,
   onCancelSector,
+  cancelledFlights,
+  onReinstateFlight,
   onDelaySector,
   onDeleteSector,
   onAddStandbyFlight,
@@ -42,6 +46,8 @@ export const RosterView: React.FC<RosterViewProps> = ({
     onUpdatePreferences={onUpdatePreferences}
     customNudges={customNudges}
     onCancelSector={onCancelSector}
+    cancelledFlights={cancelledFlights}
+    onReinstateFlight={onReinstateFlight}
     onDelaySector={onDelaySector}
     onDeleteSector={onDeleteSector}
     onAddStandbyFlight={onAddStandbyFlight}

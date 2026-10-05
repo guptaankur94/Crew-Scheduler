@@ -27,6 +27,25 @@ const isValidFlight = (f: any): f is FlightLeg =>
   typeof f.destTzOffset === 'number' &&
   typeof f.durationMinutes === 'number';
 
+/** Checks one saved update (delay, standby change or callout) before it is used. */
+function isValidUpdate(u: any): u is UserUpdate {
+  if (!u || typeof u !== 'object' || typeof u.id !== 'string') return false;
+  switch (u.kind) {
+    case 'delay':
+      return typeof u.sectorKey === 'string' && typeof u.minutes === 'number' && isFinite(u.minutes) && u.minutes > 0;
+    case 'standby_times':
+      return typeof u.standbyKey === 'string' && isValidIso(u.startUtc) && isValidIso(u.endUtc) && u.startUtc < u.endUtc;
+    case 'standby_released':
+      return typeof u.standbyKey === 'string' && isValidIso(u.atUtc);
+    case 'callout':
+      return Array.isArray(u.flights) && u.flights.length > 0 && u.flights.every(isValidFlight);
+    case 'cancelled':
+      return typeof u.sectorKey === 'string';
+    default:
+      return false;
+  }
+}
+
 /**
  * Checks that a value read from storage really is a roster the app can render.
  * Blob preview links are dropped because they stop working once the page reloads.
@@ -107,12 +126,7 @@ export function reviveAppState(parsed: any, defaultPreferences: CrewPreferences)
     preferences: { ...defaultPreferences, ...savedPrefs },
     customNudges: nudges,
     activePresetId: typeof parsed.activePresetId === 'string' ? parsed.activePresetId : 'custom-upload',
-    userUpdates: Array.isArray(parsed.userUpdates)
-      ? parsed.userUpdates.filter(
-          (u: any) =>
-            u && u.kind === 'delay' && typeof u.id === 'string' && typeof u.sectorKey === 'string' && typeof u.minutes === 'number' && isFinite(u.minutes) && u.minutes > 0
-        )
-      : [],
+    userUpdates: Array.isArray(parsed.userUpdates) ? parsed.userUpdates.filter(isValidUpdate) : [],
   };
 }
 

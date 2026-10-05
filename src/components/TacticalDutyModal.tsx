@@ -7,9 +7,7 @@ import {
   X,
   PlusCircle,
   AlertTriangle,
-  Hotel,
   Clock,
-  Trash2,
   Calendar,
   Sparkles,
   CheckCircle2,
@@ -23,7 +21,7 @@ interface TacticalDutyModalProps {
   defaultDate?: string;
   homeBase?: string;
   onAddStandbyFlight: (newFlight: FlightLeg) => void;
-  onCancelSector: (flightId: string, convertToLayover: boolean) => void;
+  onCancelSector: (flightId: string) => void;
   onDelaySector: (flightId: string, delayMinutes: number) => void;
   onClose: () => void;
 }
@@ -49,9 +47,6 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
   
   // Delay form state
   const [delayMinutes, setDelayMinutes] = useState(60);
-
-  // Cancel form state
-  const [convertToLayover, setConvertToLayover] = useState(true);
 
   const handleStandbySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +79,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
 
   const handleCancelSubmit = () => {
     if (!flight) return;
-    onCancelSector(flight.id, convertToLayover);
+    onCancelSector(flight.id);
     onClose();
   };
 
@@ -117,7 +112,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
               </h3>
               <p className="text-xs text-slate-400">
                 {type === 'standby_callout' && 'Crew dispatch called you out for a flight. Add it to update sleep & pay.'}
-                {type === 'cancel_sector' && 'Sector got cancelled or crew timed out? Convert to layover or return.'}
+                {type === 'cancel_sector' && 'Flight cancelled? Your plan will leave it out.'}
                 {type === 'delay_sector' && 'Recalculate rest and fatigue limits based on new departure time.'}
               </p>
             </div>
@@ -254,42 +249,14 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
               </span>
             </div>
 
-            <div className="space-y-2">
-              <label className="font-bold text-slate-200 block">Where are you resting?</label>
-              
-              <div
-                onClick={() => setConvertToLayover(true)}
-                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                  convertToLayover
-                    ? 'border-indigo-500 bg-indigo-950/30 ring-1 ring-indigo-500'
-                    : 'border-slate-800 bg-slate-900/60'
-                }`}
-              >
-                <div className="flex items-center gap-2 font-bold text-white">
-                  <Hotel className="h-4 w-4 text-indigo-400" />
-                  <span>Convert to Hotel Layover at {flight.origin}</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Flight got cancelled at the outstation. Automatically triggers hotel blackout guidance, local recovery sleep, and station rest per diem.
-                </p>
-              </div>
-
-              <div
-                onClick={() => setConvertToLayover(false)}
-                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                  !convertToLayover
-                    ? 'border-blue-500 bg-blue-950/30 ring-1 ring-blue-500'
-                    : 'border-slate-800 bg-slate-900/60'
-                }`}
-              >
-                <div className="flex items-center gap-2 font-bold text-white">
-                  <Trash2 className="h-4 w-4 text-rose-400" />
-                  <span>Just Remove Sector (Resting at Base)</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Flight was dropped in advance; return to baseline home rest schedule.
-                </p>
-              </div>
+            {/* What cancelling does: the plan leaves the flight out; where you rest follows from your other duties */}
+            <div className="space-y-1 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-[11px] text-slate-300">
+              <p className="text-xs font-bold text-white">What happens</p>
+              <p>
+                Your plan leaves this flight out. You'll be planned as resting{' '}
+                {flight.origin === homeBase ? 'at home' : `at ${flight.origin} (outstation)`} until your next duty.
+              </p>
+              <p className="text-slate-500">Your roster keeps the flight as published, so you can reinstate it on the Timeline or with Undo.</p>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">

@@ -47,14 +47,18 @@ export interface StandbyDuty {
 /**
  * Something the person told the app happened, kept separate from the roster (what the airline published).
  * The plan uses the roster with these applied; the roster itself is never changed by them.
+ *   delay             a flight leaves late: departure, arrival and release move; the rostered report does not
+ *   standby_times     a standby's times were changed by crew control
+ *   standby_released  released from standby early (at or before its start means it was cancelled)
+ *   callout           called out from standby (or ad hoc) to one or more flights
+ *   cancelled         a rostered flight did not operate (the roster keeps it, the plan leaves it out)
  */
-export interface UserUpdate {
-  id: string;
-  kind: 'delay';
-  sectorKey: string; // stable key of the rostered flight (see rosterKeys)
-  minutes: number; // later than rostered; departure, arrival and release move, the rostered report time does not
-  createdAt: string; // ISO
-}
+export type UserUpdate =
+  | { id: string; kind: 'delay'; sectorKey: string; minutes: number; createdAt: string }
+  | { id: string; kind: 'standby_times'; standbyKey: string; startUtc: string; endUtc: string; createdAt: string }
+  | { id: string; kind: 'standby_released'; standbyKey: string; atUtc: string; createdAt: string }
+  | { id: string; kind: 'callout'; standbyKey?: string; flights: FlightLeg[]; createdAt: string }
+  | { id: string; kind: 'cancelled'; sectorKey: string; createdAt: string };
 
 /** Which upload an item came from (shown as its source). */
 export interface ImportSource {

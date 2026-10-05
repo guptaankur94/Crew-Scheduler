@@ -40,6 +40,7 @@ import {
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { StandbyNotice } from './StandbyNotice';
 import { flightSource } from '../services/provenance';
+import { rosterClock } from '../services/rosterKeys';
 import { DateNavigator } from './DateNavigator';
 import { FlightLeg } from '../types/circadian';
 import {
@@ -54,7 +55,10 @@ interface TimelineViewProps {
   onNudgeEvent: (eventId: string, minutes: number) => void;
   onUpdatePreferences?: (updated: Partial<CrewPreferences>) => void;
   customNudges: Record<string, number>;
-  onCancelSector?: (flightId: string, convertToLayover: boolean) => void;
+  onCancelSector?: (flightId: string) => void;
+  /** Rostered flights the person marked as cancelled, so they can be reinstated. */
+  cancelledFlights?: { flight: FlightLeg; sectorKey: string }[];
+  onReinstateFlight?: (sectorKey: string) => void;
   onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
@@ -70,6 +74,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onUpdatePreferences,
   customNudges,
   onCancelSector,
+  cancelledFlights = [],
+  onReinstateFlight,
   onDelaySector,
   onDeleteSector,
   onAddStandbyFlight,
@@ -182,6 +188,25 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
       {/* Standby periods on the selected day */}
       <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} roster={plan.roster} />
+
+      {/* Flights the person marked as cancelled on this day: kept in the roster, left out of the plan */}
+      {cancelledFlights
+        .filter((c) => rosterClock(plan.roster).date(Date.parse(c.flight.departureTimeUtc)) === selectedDate)
+        .map((c) => (
+          <div key={c.sectorKey} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-xs">
+            <span className="text-slate-300">
+              <span className="font-mono text-slate-500 line-through">
+                {c.flight.flightNumber} {c.flight.origin}→{c.flight.destination} {rosterClock(plan.roster).time(Date.parse(c.flight.departureTimeUtc))}
+              </span>{' '}
+              Cancelled (you) · left out of your plan
+            </span>
+            {onReinstateFlight && (
+              <button onClick={() => onReinstateFlight(c.sectorKey)} className="rounded-lg border border-slate-700 px-2.5 py-1 font-semibold text-slate-200 hover:border-slate-500">
+                Reinstate
+              </button>
+            )}
+          </div>
+        ))}
 
       {/* The selected day's outlook in words, when there is something to watch */}
       {activeDaySummary?.outlook && activeDaySummary.outlook.level !== 'steady' && (
@@ -649,7 +674,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           <button
                             onClick={() => handleOpenTactical('cancel_sector', flight)}
                             className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-rose-950/60 text-rose-300 border border-slate-800 hover:border-rose-500/40 text-[10px] font-semibold transition-colors flex items-center gap-1"
-                            title="Cancel sector or convert to hotel layover"
+                            title="Mark this flight as cancelled"
                           >
                             <AlertTriangle className="h-2.5 w-2.5 text-rose-400" />
                             <span>Cancel / Layover</span>
@@ -1057,8 +1082,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             if (onAddStandbyFlight) onAddStandbyFlight(newFlight);
             setTacticalModal(null);
           }}
-          onCancelSector={(flightId, convertToLayover) => {
-            if (onCancelSector) onCancelSector(flightId, convertToLayover);
+          onCancelSector={(flightId) => {
+            if (onCancelSector) onCancelSector(flightId);
             setTacticalModal(null);
           }}
           onDelaySector={(flightId, delayMinutes) => {

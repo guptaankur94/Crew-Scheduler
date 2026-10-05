@@ -1,4 +1,4 @@
-import { AIRPORTS, getAirportTzOffset } from '../src/data/airports';
+import { getAirportTzOffset, lookupAirport } from '../src/data/airports';
 import type { FlightLeg, StandbyDuty } from '../src/types/circadian';
 
 export interface SanitizedRoster {
@@ -87,7 +87,10 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
         ? release
         : new Date(arr.getTime() + DEFAULT_RELEASE_LAG_MINUTES * 60000);
 
-    // Known airports use the real (daylight-saving-aware) offset; otherwise trust a plausible model value
+    // Verified airports always use the reference time zone on that date. For an unknown airport the AI's
+    // offset is kept only so the review screen can show the row, and the flight is marked unverified,
+    // which blocks saving until the user corrects the airport code.
+    const tzUnverified = !lookupAirport(origin) || !lookupAirport(destination);
     const originTzOffset =
       getAirportTzOffset(origin, dep) ?? (isPlausibleOffset(fl.originTzOffset) ? fl.originTzOffset : undefined);
     const destTzOffset =
@@ -100,10 +103,10 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       id: `flight-${batchStamp}-${i}`,
       flightNumber,
       origin,
-      originCity: (typeof fl.originCity === 'string' && fl.originCity.trim()) || AIRPORTS[origin]?.city || origin,
+      originCity: lookupAirport(origin)?.city || origin,
       destination,
       destinationCity:
-        (typeof fl.destinationCity === 'string' && fl.destinationCity.trim()) || AIRPORTS[destination]?.city || destination,
+        lookupAirport(destination)?.city || destination,
       departureTimeUtc: dep.toISOString(),
       arrivalTimeUtc: arr.toISOString(),
       reportTimeUtc: reportTime.toISOString(),
@@ -113,6 +116,7 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       aircraftType: typeof fl.aircraftType === 'string' && fl.aircraftType.trim() ? fl.aircraftType.trim() : undefined,
       durationMinutes,
       isPositioning: fl.isPositioning === true ? true : undefined,
+      tzUnverified: tzUnverified ? true : undefined,
     });
   });
 
@@ -127,11 +131,15 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       return;
     }
     if (Math.abs(start.getTime() - now.getTime()) > PLAUSIBLE_WINDOW_MS) return;
-    const airport = cleanCode(sb.airport);
+    const airport = cleanCode(sb.airport) || declaredHomeBase;
+    if (airport && !lookupAirport(airport)) {
+      warnings.push(`Skipped a standby period at ${airport}: not a recognised airport code.`);
+      return;
+    }
     standby.push({
       id: `standby-${batchStamp}-${i}`,
       kind: sb.type === 'airport' ? 'airport' : 'home',
-      airport: IATA_RE.test(airport) ? airport : declaredHomeBase || '',
+      airport: IATA_RE.test(airport) ? airport : '',
       startUtc: start.toISOString(),
       endUtc: end.toISOString(),
     });

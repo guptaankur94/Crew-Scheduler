@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CircadianPlan } from '../types/circadian';
-import { AIRPORTS, getAirportTzOffset } from '../data/airports';
+import { AIRPORTS, getAirportTzOffset, lookupAirport } from '../data/airports';
 import {
   Compass,
   MapPin,
@@ -49,11 +49,9 @@ export const Header: React.FC<HeaderProps> = ({
     return `${h}:${m}`;
   };
 
-  const baseAirport = AIRPORTS[roster.homeBase] || {
-    city: roster.homeBase,
-    name: 'Home Base',
+  const baseAirport = {
+    city: lookupAirport(roster.homeBase)?.city || roster.homeBase,
     iata: roster.homeBase,
-    tzOffset: hbtOffset,
   };
 
   // Current location: the destination of the last flight that has already landed
@@ -63,10 +61,11 @@ export const Header: React.FC<HeaderProps> = ({
   .sort((a, b) => Date.parse(b.arrivalTimeUtc) - Date.parse(a.arrivalTimeUtc))[0];
   const isAway = !!activeFlight && activeFlight.destination !== roster.homeBase;
   const localAirport = isAway
-    ? AIRPORTS[activeFlight.destination] || {
-        city: activeFlight.destinationCity || activeFlight.destination,
+    ? {
+        city: lookupAirport(activeFlight.destination)?.city || activeFlight.destinationCity || activeFlight.destination,
         iata: activeFlight.destination,
-        tzOffset: activeFlight.destTzOffset,
+        // Today's offset at that airport (daylight saving included); the flight's own verified offset otherwise
+        tzOffset: getAirportTzOffset(activeFlight.destination, time) ?? activeFlight.destTzOffset,
       }
     : null;
 

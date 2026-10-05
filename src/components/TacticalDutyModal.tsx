@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
+import { TimeInput24 } from './TimeInput24';
 import { FlightLeg } from '../types/circadian';
-import { getAirportTzOffset } from '../data/airports';
 import { buildManualFlight } from '../services/manualFlight';
 import {
   Plane,
@@ -65,7 +65,6 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
       depTime,
       arrTime,
       reportLeadMinutes: 60,
-      fallbackTzOffset: getAirportTzOffset(homeBase, new Date()) ?? 5.5,
     });
 
     if ('error' in result) {
@@ -197,28 +196,16 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                  Departure Time (Local at Origin)
+                  Departure Time (24h, local at origin)
                 </label>
-                <input
-                  type="time"
-                  value={depTime}
-                  onChange={(e) => setDepTime(e.target.value)}
-                  required
-                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-white font-mono focus:border-blue-500 focus:outline-none"
-                />
+                <TimeInput24 value={depTime} onChange={setDepTime} ariaLabel="Departure time, 24-hour" required className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-white font-mono focus:border-blue-500 focus:outline-none" />
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                  Arrival Time (Local at Destination)
+                  Arrival Time (24h, local at destination)
                 </label>
-                <input
-                  type="time"
-                  value={arrTime}
-                  onChange={(e) => setArrTime(e.target.value)}
-                  required
-                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-white font-mono focus:border-blue-500 focus:outline-none"
-                />
+                <TimeInput24 value={arrTime} onChange={setArrTime} ariaLabel="Arrival time, 24-hour" required className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-white font-mono focus:border-blue-500 focus:outline-none" />
               </div>
             </div>
 

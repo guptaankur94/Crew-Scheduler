@@ -7,13 +7,15 @@ import { fileURLToPath } from 'url';
 import { sanitizeParsedRoster, sanitizeParsedPayslip } from './server/rosterSanitizer';
 import type { SanitizedRoster } from './server/rosterSanitizer';
 import { normalizeUpload, extractJsonFromText } from './server/upload';
-import { createRateLimiter } from './server/rateLimit';
+import { createDailyLimit, createRateLimiter } from './server/rateLimit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
+// Only this computer can reach the server unless HOST is set deliberately (e.g. when hosting it online)
+const HOST = process.env.HOST || '127.0.0.1';
 const MAX_RAW_TEXT_CHARS = 100_000;
 
 // Generous body limit for high-resolution roster screenshots
@@ -84,8 +86,10 @@ function describeFailure(lastError: any, notFoundMessage: string): { status: num
 }
 
 const apiLimiter = createRateLimiter(30, 60_000);
+// Hard daily cap on AI calls, so a bug or misuse cannot run up a large bill. Override with GEMINI_DAILY_LIMIT.
+const dailyAiLimit = createDailyLimit(Number(process.env.GEMINI_DAILY_LIMIT) || 200);
 
-app.use('/api', apiLimiter.middleware, (_req: Request, res: Response, next: NextFunction) => {
+app.use('/api', apiLimiter.middleware, dailyAiLimit.middleware, (_req: Request, res: Response, next: NextFunction) => {
   if (!ai) {
     return res.status(503).json({
       success: false,
@@ -410,7 +414,7 @@ async function startServer() {
     });
   });
 
-  app.listen(PORT, () => {
+  app.listen(PORT, HOST, () => {
     console.log(`CrewCircadian server running on http://localhost:${PORT}`);
     if (!ai) {
       console.warn('GEMINI_API_KEY is not set: roster and payslip upload are disabled. Add it to .env and restart.');

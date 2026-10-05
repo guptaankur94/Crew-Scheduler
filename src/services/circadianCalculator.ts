@@ -9,7 +9,7 @@ import {
   SalaryCurrency,
   ScientificCitation,
 } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { lookupAirport } from '../data/airports';
 import { buildPlanEvents, flightInBodyNight, groupDuties, HomeClock, planRange, shortSleepCatchUpMs } from './planEngine';
 
 // Format helper for UTC ISO string to time string with timezone offset
@@ -234,7 +234,7 @@ export function generateCircadianPlan(
   const events: CircadianEvent[] = [];
   const hbtOffset = preferences.homeBaseTzOffset;
   // Home time follows the home airport's real time zone (daylight saving included) when it is known
-  const clock = new HomeClock(hbtOffset, AIRPORTS[roster.homeBase]?.timeZone);
+  const clock = new HomeClock(hbtOffset, lookupAirport(roster.homeBase)?.timeZone);
   const duties = groupDuties(roster.flights, roster.homeBase, roster.standbyDuties ?? []);
   // Every flight belongs to the home-time date its duty starts on, so a duty that crosses midnight stays together
   const dutyDateByFlight = new Map<string, string>();
@@ -446,12 +446,9 @@ export function generateCircadianPlan(
     const rosterFlightsOnDay = roster.flights.filter((f) => dutyDateByFlight.get(f.id) === dateStr);
     const lastDayFlight = rosterFlightsOnDay[rosterFlightsOnDay.length - 1];
     if (lastDayFlight && lastDayFlight.destination !== roster.homeBase) {
-      const destAirport = AIRPORTS[lastDayFlight.destination] || {
-        city: lastDayFlight.destinationCity || lastDayFlight.destination,
+      const destAirport = {
         iata: lastDayFlight.destination,
-        name: lastDayFlight.destination,
-        country: '',
-        tzOffset: lastDayFlight.destTzOffset,
+        city: lookupAirport(lastDayFlight.destination)?.city || lastDayFlight.destinationCity || lastDayFlight.destination,
       };
       const tzDiff = lastDayFlight.destTzOffset - clock.offsetAt(Date.parse(lastDayFlight.arrivalTimeUtc));
       const tzDiffStr = tzDiff === 0 ? 'Same as HBT' : `${tzDiff > 0 ? '+' : ''}${tzDiff}h vs Home`;

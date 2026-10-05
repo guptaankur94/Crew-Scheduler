@@ -11,7 +11,6 @@ const base = {
   depTime: '06:30',
   arrTime: '08:45',
   reportLeadMinutes: 75,
-  fallbackTzOffset: 5.5,
 };
 
 test('builds a domestic sector from local times', () => {
@@ -47,4 +46,12 @@ test('rejects bad airport codes, missing numbers and impossible durations', () =
   assert.ok('error' in buildManualFlight({ ...base, depTime: '' }));
   // DEL 06:30 -> DEL 04:30 next day = 22h, longer than any real sector
   assert.ok('error' in buildManualFlight({ ...base, destination: 'DEL', arrTime: '04:30' }));
+});
+
+test('manual entry refuses unknown airports and accepts any verified one', () => {
+  const unknown = buildManualFlight({ ...base, destination: 'QQQ' });
+  assert.ok('error' in unknown && /QQQ isn't a recognised airport code/.test(unknown.error));
+  const indore = buildManualFlight({ ...base, destination: 'IDR' });
+  assert.ok('flight' in indore);
+  assert.equal(indore.flight.destinationCity, 'Indore');
 });

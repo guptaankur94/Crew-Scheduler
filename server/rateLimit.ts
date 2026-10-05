@@ -38,3 +38,32 @@ export function createRateLimiter(maxRequests: number, windowMs: number, now: ()
 
   return { middleware, isAllowed };
 }
+
+/**
+ * A cap on total requests per calendar day (UTC), across all clients.
+ * It protects the API key's budget even if the per-client limit is bypassed.
+ */
+export function createDailyLimit(maxPerDay: number, now: () => number = Date.now) {
+  let day = '';
+  let count = 0;
+
+  const isAllowed = (): boolean => {
+    const today = new Date(now()).toISOString().slice(0, 10);
+    if (today !== day) {
+      day = today;
+      count = 0;
+    }
+    count++;
+    return count <= maxPerDay;
+  };
+
+  const middleware = (_req: Request, res: Response, next: NextFunction) => {
+    if (isAllowed()) return next();
+    return res.status(429).json({
+      success: false,
+      error: 'The daily limit for AI reading has been reached. Please try again tomorrow.',
+    });
+  };
+
+  return { middleware, isAllowed };
+}

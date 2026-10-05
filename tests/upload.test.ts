@@ -33,3 +33,15 @@ test('rate limiter blocks after the limit and recovers in the next window', () =
   t = 1000;
   assert.equal(limiter.isAllowed('a'), true);
 });
+
+import { createDailyLimit } from '../server/rateLimit';
+
+test('daily limit blocks after the cap and resets the next day', () => {
+  let t = Date.parse('2026-10-03T10:00:00Z');
+  const limit = createDailyLimit(2, () => t);
+  assert.equal(limit.isAllowed(), true);
+  assert.equal(limit.isAllowed(), true);
+  assert.equal(limit.isAllowed(), false);
+  t = Date.parse('2026-10-04T00:01:00Z');
+  assert.equal(limit.isAllowed(), true);
+});

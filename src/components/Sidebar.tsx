@@ -16,7 +16,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { CircadianPlan } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { lookupAirport } from '../data/airports';
 
 export type NavView = 'today' | 'roster' | 'mastersheet' | 'salary' | 'upload' | 'settings' | 'science';
 
@@ -94,8 +94,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  const baseAirport = AIRPORTS[roster.homeBase] || {
-    city: roster.homeBase,
+  const baseAirport = {
+    city: lookupAirport(roster.homeBase)?.city || roster.homeBase,
     iata: roster.homeBase,
   };
 

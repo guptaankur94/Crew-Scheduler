@@ -26,6 +26,7 @@ export interface FlightLeg {
   durationMinutes: number;
   isRedEye?: boolean;
   isPositioning?: boolean; // travelling as a passenger to or from a duty (deadhead); duty time, not flying pay
+  tzUnverified?: boolean; // an airport's time zone could not be verified from the reference list; must be checked before saving
   bunkShift?: 'shift1' | 'shift2' | 'none'; // In-flight rest split for long-haul
 }
 

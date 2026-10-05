@@ -69,6 +69,7 @@ test('known airports override the model offset; unknown ones need a plausible va
 
   const unknownOk = sanitizeParsedRoster({ flights: [{ ...good, destination: 'ZZZ', destTzOffset: 2 }] }, NOW);
   assert.equal(unknownOk?.flights[0].destTzOffset, 2);
+  assert.equal(unknownOk?.flights[0].tzUnverified, true, 'kept only for review, flagged as unverified');
 
   assert.equal(sanitizeParsedRoster({ flights: [{ ...good, destination: 'ZZZ' }] }, NOW), null);
   assert.equal(sanitizeParsedRoster({ flights: [{ ...good, destination: 'ZZZ', destTzOffset: 99 }] }, NOW), null);
@@ -153,4 +154,23 @@ test('a roster with only standby is still accepted', () => {
   );
   assert.equal(roster?.standby.length, 1);
   assert.equal(roster?.flights.length, 0);
+});
+
+test('verified airports outside the curated list use the reference time zone and city, not the AI', () => {
+  const roster = sanitizeParsedRoster(
+    { flights: [{ ...good, destination: 'IDR', destTzOffset: 3, destinationCity: 'Wrong City' }] },
+    NOW
+  );
+  assert.equal(roster?.flights[0].destTzOffset, 5.5);
+  assert.equal(roster?.flights[0].destinationCity, 'Indore');
+  assert.equal(roster?.flights[0].tzUnverified, undefined);
+});
+
+test('standby at an unknown airport is skipped with a warning, never given an assumed zone', () => {
+  const roster = sanitizeParsedRoster(
+    { homeBase: 'DEL', flights: [good], standby: [{ type: 'airport', airport: 'QQQ', startTimeUtc: '2026-10-02T00:30:00Z', endTimeUtc: '2026-10-02T06:30:00Z' }] },
+    NOW
+  );
+  assert.equal(roster?.standby.length, 0);
+  assert.ok(roster?.warnings.some((w) => w.includes('QQQ')));
 });

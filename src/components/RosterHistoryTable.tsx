@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { TimeInput24 } from './TimeInput24';
 import { RosterData, RosterHistoryEntry, FlightLeg } from '../types/circadian';
 import { buildManualFlight } from '../services/manualFlight';
 import {
@@ -157,7 +158,6 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
       depTime: manualDepTime,
       arrTime: manualArrTime,
       reportLeadMinutes: 75,
-      fallbackTzOffset: currentRoster.homeBaseTzOffset,
     });
 
     if ('error' in result) {
@@ -863,27 +863,15 @@ export const RosterHistoryTable: React.FC<RosterHistoryTableProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                    Departure (Local at Origin)
+                    Departure (24h, local at origin)
                   </label>
-                  <input
-                    type="time"
-                    required
-                    value={manualDepTime}
-                    onChange={(e) => setManualDepTime(e.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900 p-2.5 font-mono text-white focus:border-blue-500 focus:outline-none"
-                  />
+                  <TimeInput24 value={manualDepTime} onChange={setManualDepTime} ariaLabel="Departure time, 24-hour" required className="w-full rounded-xl border border-slate-800 bg-slate-900 p-2.5 font-mono text-white focus:border-blue-500 focus:outline-none" />
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                    Arrival (Local at Destination)
+                    Arrival (24h, local at destination)
                   </label>
-                  <input
-                    type="time"
-                    required
-                    value={manualArrTime}
-                    onChange={(e) => setManualArrTime(e.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900 p-2.5 font-mono text-white focus:border-blue-500 focus:outline-none"
-                  />
+                  <TimeInput24 value={manualArrTime} onChange={setManualArrTime} ariaLabel="Arrival time, 24-hour" required className="w-full rounded-xl border border-slate-800 bg-slate-900 p-2.5 font-mono text-white focus:border-blue-500 focus:outline-none" />
                 </div>
               </div>
 

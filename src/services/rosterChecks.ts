@@ -1,5 +1,5 @@
 import { FlightLeg } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { lookupAirport } from '../data/airports';
 
 /**
  * Automatic checks on flights read from a roster, so the review screen can point at rows that need a
@@ -35,8 +35,13 @@ export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssu
     } else {
       if (f.origin === f.destination) add(f.id, 'check', 'Departs and arrives at the same airport');
       for (const code of [f.origin, f.destination]) {
-        if (!AIRPORTS[code]) add(f.id, 'check', `${code} is not in the app's airport list: check its local times`);
+        if (!lookupAirport(code)) add(f.id, 'problem', `${code} isn't a recognised airport code: correct it or remove this flight`);
       }
+    }
+
+    const hasUnknownCode = (issues.get(f.id) ?? []).some((i) => i.message.includes('recognised'));
+    if (f.tzUnverified && !hasUnknownCode) {
+      add(f.id, 'problem', "An airport's time zone could not be verified: check the airport codes");
     }
 
     if (!Number.isFinite(dep) || !Number.isFinite(arr)) {

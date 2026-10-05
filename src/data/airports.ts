@@ -1,3 +1,4 @@
+import airportDb from './airportDb.json';
 import { AirportInfo } from '../types/circadian';
 
 export const AIRPORTS: Record<string, AirportInfo> = {
@@ -46,18 +47,30 @@ export const AIRPORTS: Record<string, AirportInfo> = {
   SYD: { iata: 'SYD', name: 'Sydney Kingsford Smith', city: 'Sydney', country: 'Australia', tzOffset: 10, timeZone: 'Australia/Sydney' },
 };
 
-export function getAirport(iata: string): AirportInfo {
+export interface AirportRecord {
+  iata: string;
+  city: string;
+  country: string;
+  timeZone: string; // IANA zone, e.g. 'Asia/Kolkata'
+}
+
+const REFERENCE: Record<string, string[]> = airportDb.airports;
+
+/**
+ * The airport reference layer. Every airport with an IATA code in the offline dataset (airportsdata,
+ * MIT licence) resolves to a verified record. Unknown codes return undefined: nothing is ever guessed.
+ */
+export function lookupAirport(iata: string): AirportRecord | undefined {
   const code = iata.trim().toUpperCase();
-  if (AIRPORTS[code]) {
-    return AIRPORTS[code];
-  }
-  return {
-    iata: code,
-    name: `${code} Airport`,
-    city: code,
-    country: 'International',
-    tzOffset: 0,
-  };
+  const curated = AIRPORTS[code];
+  if (curated?.timeZone) return { iata: code, city: curated.city, country: curated.country, timeZone: curated.timeZone };
+  const row = REFERENCE[code];
+  if (!row) return undefined;
+  return { iata: code, timeZone: row[0], city: row[1] || code, country: row[2] };
+}
+
+export function isKnownAirport(iata: string): boolean {
+  return lookupAirport(iata) !== undefined;
 }
 
 /**
@@ -82,36 +95,35 @@ export function tzOffsetHoursAt(timeZone: string, at: Date): number {
 }
 
 /**
- * UTC offset (in hours) of a known airport at a specific instant, or undefined
- * when the airport is not in the dictionary or the instant is invalid.
+ * UTC offset (in hours) of a verified airport at a specific instant, including daylight saving.
+ * Returns undefined for an unknown airport or an invalid instant, so callers can never assume one.
  */
 export function getAirportTzOffset(iata: string, at: Date | string): number | undefined {
-  const airport = AIRPORTS[iata.trim().toUpperCase()];
+  const airport = lookupAirport(iata);
   if (!airport) return undefined;
   const instant = typeof at === 'string' ? new Date(at) : at;
-  if (isNaN(instant.getTime())) return airport.tzOffset;
-  if (!airport.timeZone) return airport.tzOffset;
+  if (isNaN(instant.getTime())) return undefined;
   try {
     return tzOffsetHoursAt(airport.timeZone, instant);
   } catch {
-    return airport.tzOffset;
+    return undefined;
   }
 }
 
 /**
- * Converts a wall-clock time at an airport (e.g. '2026-10-01', '06:30' at LHR) into a UTC Date.
- * Unknown airports use `fallbackOffset`. Returns null for unparseable input.
+ * Converts a wall-clock time at an airport (e.g. '2026-10-01', '06:30' at LHR) into a UTC Date,
+ * using the airport's offset on that date. For an unknown airport an explicit `knownOffset` must be
+ * supplied (for example one the user has already confirmed); otherwise the result is null.
  */
-export function airportLocalToUtc(
-  dateStr: string,
-  timeStr: string,
-  iata: string,
-  fallbackOffset: number
-): Date | null {
+export function airportLocalToUtc(dateStr: string, timeStr: string, iata: string, knownOffset?: number): Date | null {
+  if (!/^\d{2}:\d{2}$/.test(timeStr)) return null;
   const naiveMs = Date.parse(`${dateStr}T${timeStr}:00Z`);
   if (isNaN(naiveMs)) return null;
-  // First guess with the offset at the naive instant, then refine once so times near a DST switch settle
-  let offset = getAirportTzOffset(iata, new Date(naiveMs)) ?? fallbackOffset;
-  offset = getAirportTzOffset(iata, new Date(naiveMs - offset * 3600000)) ?? fallbackOffset;
+  if (!isKnownAirport(iata)) {
+    return knownOffset === undefined ? null : new Date(naiveMs - knownOffset * 3600000);
+  }
+  // First guess with the offset at the naive instant, then refine once so times near a clock change settle
+  let offset = getAirportTzOffset(iata, new Date(naiveMs))!;
+  offset = getAirportTzOffset(iata, new Date(naiveMs - offset * 3600000))!;
   return new Date(naiveMs - offset * 3600000);
 }

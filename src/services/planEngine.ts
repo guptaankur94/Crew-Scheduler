@@ -215,7 +215,8 @@ export function groupDuties(flights: FlightLeg[], homeBase: string, standby: Sta
       overlapping.endMs = Math.max(overlapping.endMs, end);
       continue;
     }
-    const away = sb.airport !== homeBase;
+    const localOffset = getAirportTzOffset(sb.airport, new Date(end));
+    const away = sb.airport !== homeBase && localOffset !== undefined;
     duties.push({
       index: 0,
       flights: [],
@@ -226,7 +227,7 @@ export function groupDuties(flights: FlightLeg[], homeBase: string, standby: Sta
       endAirport: sb.airport,
       awayAtStart: away,
       awayAtEnd: away,
-      endLocalOffset: getAirportTzOffset(sb.airport, new Date(end)) ?? 0,
+      endLocalOffset: localOffset ?? 0, // only read when `away`, i.e. when the offset is verified
     });
   }
   duties.sort((x, y) => x.startMs - y.startMs);

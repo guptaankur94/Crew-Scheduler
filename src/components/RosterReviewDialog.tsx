@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { FlightLeg } from '../types/circadian';
-import { airportLocalToUtc, getAirportTzOffset } from '../data/airports';
+import { airportLocalToUtc, getAirportTzOffset, isKnownAirport } from '../data/airports';
 import { checkRosterFlights, hasBlockingProblems, RosterIssue } from '../services/rosterChecks';
 import { AlertTriangle, CheckCircle2, Trash2, X } from 'lucide-react';
+import { TimeInput24 } from './TimeInput24';
 
 const MIN = 60_000;
 
@@ -37,8 +38,10 @@ export function toDraft(f: FlightLeg): Draft {
 export function fromDraft(d: Draft): FlightLeg | null {
   const origin = d.origin.trim().toUpperCase();
   const destination = d.destination.trim().toUpperCase();
-  const dep = airportLocalToUtc(d.date, d.dep, origin, d.original.originTzOffset);
-  let arr = airportLocalToUtc(d.date, d.arr, destination, d.original.destTzOffset);
+  // An unknown airport only keeps the offset it arrived with (already flagged as unverified); a newly typed
+  // unknown code gets no time zone at all, so the row cannot be saved until it is corrected
+  const dep = airportLocalToUtc(d.date, d.dep, origin, origin === d.original.origin ? d.original.originTzOffset : undefined);
+  let arr = airportLocalToUtc(d.date, d.arr, destination, destination === d.original.destination ? d.original.destTzOffset : undefined);
   if (!dep || !arr) return null;
   for (let i = 0; i < 2 && arr.getTime() <= dep.getTime(); i++) arr = new Date(arr.getTime() + 24 * 3600000);
 
@@ -57,6 +60,7 @@ export function fromDraft(d: Draft): FlightLeg | null {
     originTzOffset: getAirportTzOffset(origin, dep) ?? o.originTzOffset,
     destTzOffset: getAirportTzOffset(destination, arr) ?? o.destTzOffset,
     durationMinutes: Math.round((arr.getTime() - dep.getTime()) / MIN),
+    tzUnverified: !isKnownAirport(origin) || !isKnownAirport(destination) ? true : undefined,
   };
 }
 
@@ -69,7 +73,7 @@ interface RosterReviewDialogProps {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-white focus:border-blue-500 focus:outline-none';
+  'block rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-white focus:border-blue-500 focus:outline-none';
 
 const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previews, serverWarnings, onConfirm, onCancel }) => {
   const [drafts, setDrafts] = useState<Draft[]>(() =>
@@ -160,34 +164,34 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
                     isProblem ? 'border-rose-700/70 bg-rose-950/20' : isCheck ? 'border-amber-700/60 bg-amber-950/10' : 'border-slate-800 bg-slate-950/60'
                   }`}
                 >
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-7 sm:items-end">
-                    <label className="col-span-2 sm:col-span-1 text-[10px] text-slate-400">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="text-[10px] text-slate-400">
                       Flight
-                      <input className={inputClass} value={d.flightNumber} onChange={(e) => update(d.key, 'flightNumber', e.target.value)} />
+                      <input className={`${inputClass} w-28`} value={d.flightNumber} onChange={(e) => update(d.key, 'flightNumber', e.target.value)} />
                     </label>
                     <label className="text-[10px] text-slate-400">
                       From
-                      <input className={inputClass} maxLength={3} value={d.origin} onChange={(e) => update(d.key, 'origin', e.target.value.toUpperCase())} />
+                      <input className={`${inputClass} w-[4.5rem] uppercase`} maxLength={3} value={d.origin} onChange={(e) => update(d.key, 'origin', e.target.value.toUpperCase())} />
                     </label>
                     <label className="text-[10px] text-slate-400">
                       To
-                      <input className={inputClass} maxLength={3} value={d.destination} onChange={(e) => update(d.key, 'destination', e.target.value.toUpperCase())} />
+                      <input className={`${inputClass} w-[4.5rem] uppercase`} maxLength={3} value={d.destination} onChange={(e) => update(d.key, 'destination', e.target.value.toUpperCase())} />
                     </label>
-                    <label className="col-span-2 sm:col-span-1 text-[10px] text-slate-400">
+                    <label className="text-[10px] text-slate-400">
                       Date
-                      <input type="date" className={inputClass} value={d.date} onChange={(e) => update(d.key, 'date', e.target.value)} />
+                      <input type="date" className={`${inputClass} w-[10.5rem]`} value={d.date} onChange={(e) => update(d.key, 'date', e.target.value)} />
                     </label>
                     <label className="text-[10px] text-slate-400">
-                      Departs (local)
-                      <input type="time" className={inputClass} value={d.dep} onChange={(e) => update(d.key, 'dep', e.target.value)} />
+                      Departs (24h, local)
+                      <TimeInput24 className={inputClass} ariaLabel="Departure time, 24-hour, local" value={d.dep} onChange={(v) => update(d.key, 'dep', v)} />
                     </label>
                     <label className="text-[10px] text-slate-400">
-                      Arrives (local)
-                      <input type="time" className={inputClass} value={d.arr} onChange={(e) => update(d.key, 'arr', e.target.value)} />
+                      Arrives (24h, local)
+                      <TimeInput24 className={inputClass} ariaLabel="Arrival time, 24-hour, local" value={d.arr} onChange={(v) => update(d.key, 'arr', v)} />
                     </label>
                     <button
                       onClick={() => remove(d.key)}
-                      className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:border-rose-700 hover:text-rose-300"
+                      className="ml-auto flex items-center justify-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:border-rose-700 hover:text-rose-300"
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Remove
                     </button>

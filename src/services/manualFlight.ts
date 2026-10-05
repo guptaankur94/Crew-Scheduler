@@ -1,5 +1,5 @@
 import { FlightLeg } from '../types/circadian';
-import { AIRPORTS, airportLocalToUtc, getAirportTzOffset } from '../data/airports';
+import { airportLocalToUtc, getAirportTzOffset, lookupAirport } from '../data/airports';
 
 export interface ManualFlightInput {
   id: string;
@@ -11,7 +11,6 @@ export interface ManualFlightInput {
   arrTime: string; // HH:mm, local time at the destination airport
   reportLeadMinutes: number;
   releaseLagMinutes?: number;
-  fallbackTzOffset: number; // used for airports missing from the dictionary
 }
 
 const MAX_SECTOR_MINUTES = 20 * 60;
@@ -29,9 +28,12 @@ export function buildManualFlight(input: ManualFlightInput): { flight: FlightLeg
   if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
     return { error: 'Origin and destination must be 3-letter airport codes (e.g. DEL, BOM).' };
   }
+  for (const code of [origin, destination]) {
+    if (!lookupAirport(code)) return { error: `${code} isn't a recognised airport code. Please check it.` };
+  }
 
-  const dep = airportLocalToUtc(input.dateStr, input.depTime, origin, input.fallbackTzOffset);
-  let arr = airportLocalToUtc(input.dateStr, input.arrTime, destination, input.fallbackTzOffset);
+  const dep = airportLocalToUtc(input.dateStr, input.depTime, origin);
+  let arr = airportLocalToUtc(input.dateStr, input.arrTime, destination);
   if (!dep || !arr) return { error: 'Enter a valid date, departure time and arrival time.' };
 
   // Arrival is typed as a clock time only, so roll it forward a day at a time until it follows departure
@@ -54,15 +56,15 @@ export function buildManualFlight(input: ManualFlightInput): { flight: FlightLeg
       id: input.id,
       flightNumber,
       origin,
-      originCity: AIRPORTS[origin]?.city || origin,
+      originCity: lookupAirport(origin)!.city,
       destination,
-      destinationCity: AIRPORTS[destination]?.city || destination,
+      destinationCity: lookupAirport(destination)!.city,
       departureTimeUtc: depUtc,
       arrivalTimeUtc: arrUtc,
       reportTimeUtc: new Date(dep.getTime() - input.reportLeadMinutes * 60000).toISOString(),
       releaseTimeUtc: new Date(arr.getTime() + (input.releaseLagMinutes ?? 30) * 60000).toISOString(),
-      originTzOffset: getAirportTzOffset(origin, dep) ?? input.fallbackTzOffset,
-      destTzOffset: getAirportTzOffset(destination, arr) ?? input.fallbackTzOffset,
+      originTzOffset: getAirportTzOffset(origin, dep)!,
+      destTzOffset: getAirportTzOffset(destination, arr)!,
       durationMinutes,
       isRedEye: false,
     },

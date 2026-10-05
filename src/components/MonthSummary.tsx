@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 
 /**
  * Monthly roster summary: "What kind of month is this going to be for me?"
- * Leads with one factual sentence, then flying hours and the duties that disrupt sleep, then days off,
+ * Leads with one factual sentence, then flying hours and days off, then the duties that disrupt sleep,
  * duty days and standby. Everything else is behind "See details".
  */
 
@@ -16,13 +16,62 @@ interface MonthSummaryProps {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-const Tile: React.FC<{ title: string; value: React.ReactNode; note?: React.ReactNode; large?: boolean }> = ({ title, value, note, large }) => (
-  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5">
-    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</span>
-    <p className={`mt-1 font-bold text-white ${large ? 'text-2xl' : 'text-lg'}`}>{value}</p>
-    {note && <div className="mt-1 text-xs text-slate-400">{note}</div>}
-  </div>
-);
+/** Layovers in a line: international ones named, as they matter most for domestic-heavy crew. */
+function layoverLine(l: PeriodStats['layovers']): string {
+  if (l.total === 0) return 'No layovers';
+  const names = (stations: string[]) => (stations.length ? ` (${stations.join(', ')})` : '');
+  const unverified = l.unverified ? `, ${l.unverified} not verified` : '';
+  if (l.international === l.total) return `${plural(l.total, 'layover')}, all international${names(l.internationalStations)}`;
+  if (l.domestic === l.total) return `${plural(l.total, 'layover')}, all domestic${names(l.domesticStations)}`;
+  const parts = [
+    l.international && `${l.international} international${names(l.internationalStations)}`,
+    l.domestic && `${l.domestic} domestic${names(l.domesticStations)}`,
+  ].filter(Boolean);
+  return `${plural(l.total, 'layover')}: ${parts.join(', ')}${unverified}`;
+}
+
+/** A line under a tile's number. Muted lines give context (what was counted) rather than a figure. */
+type Line = string | { text: string; muted: true } | false | 0 | undefined;
+const muted = (text: string): Line => ({ text, muted: true });
+
+/**
+ * One summary tile. Under the number, every fact is its own bulleted line (the bullet hangs, so a wrapped
+ * line stays aligned with its text); " · " only splits a breakdown of the tile's own number
+ * (e.g. "2 early · 3 overnight"). Context lines (what was counted) come last, dimmer and without a bullet,
+ * so they read as a footnote rather than another figure.
+ */
+const Tile: React.FC<{ title: string; value: React.ReactNode; lines?: Line[]; large?: boolean; className?: string }> = ({
+  title,
+  value,
+  lines = [],
+  large,
+  className = '',
+}) => {
+  const shown = lines.filter(Boolean) as (string | { text: string; muted: true })[];
+  const facts = shown.filter((l): l is string => typeof l === 'string');
+  const context = shown.filter((l): l is { text: string; muted: true } => typeof l !== 'string');
+  return (
+    <div className={`rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 ${className}`}>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</span>
+      <p className={`mt-1 font-bold text-white ${large ? 'text-2xl' : 'text-lg'}`}>{value}</p>
+      {facts.length > 0 && (
+        <ul className="mt-1.5 space-y-1 text-xs leading-snug text-slate-300">
+          {facts.map((line) => (
+            <li key={line} className="flex gap-2">
+              <span aria-hidden className="mt-[0.35rem] h-1 w-1 shrink-0 rounded-full bg-slate-500" />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {context.map((line) => (
+        <p key={line.text} className="mt-2 text-[11px] leading-snug text-slate-500">
+          {line.text}
+        </p>
+      ))}
+    </div>
+  );
+};
 
 export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) => {
   const [showDetails, setShowDetails] = useState(false);
@@ -50,41 +99,77 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) 
 
       {hasRoster && (
         <>
-          {/* Top row: flying hours, and how much of the month cuts into sleep */}
+          {/* Top row: flying hours and days off */}
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <Tile large title="Flying hours" value={`${stats.flyingHours}h`} note={flightRangeNote(stats)} />
             <Tile
               large
+              title="Flying hours"
+              value={`${stats.flyingHours}h`}
+              lines={[`Total duty hours ${stats.dutyHours}h (report to release)`, muted(flightRangeNote(stats))]}
+            />
+            <Tile
+              large
+              title="Days off"
+              value={plural(stats.daysOff, 'day')}
+              lines={[
+                stats.longestBreak.days >= 2
+                  ? `Longest break ${stats.longestBreak.days} days (${shortRange(stats.longestBreak.from!, stats.longestBreak.to!)})`
+                  : stats.daysOff > 0
+                  ? 'Single days only'
+                  : 'None on your roster',
+                stats.daysOff > 0 && `${stats.weekendDaysOff} on a weekend`,
+                notCounted.length > 0 && muted(`Not counted: ${notCounted.join(', ')}`),
+              ]}
+            />
+          </div>
+
+          {/* Second row: duties that disrupt sleep, duty days, standby (and time zones when relevant) */}
+          {/* On phones the duty-days tile, which has the most to say, takes the full width */}
+          <div className={`grid grid-flow-row-dense grid-cols-2 gap-2.5 ${stats.timeZoneTrips > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+            <Tile
               title="Duties that disrupt sleep"
               value={
                 <>
                   {d.total} <span className="text-base font-medium text-slate-400">of {plural(d.ofDuties, 'duty', 'duties')}</span>
                 </>
               }
-              note={breakdown.length ? breakdown.join(' · ') : 'None cut into normal night sleep'}
+              lines={[breakdown.length ? breakdown.join(' · ') : 'None cut into normal night sleep']}
             />
-          </div>
-
-          {/* Second row: days off, duty days, standby (and time zones when relevant) */}
-          <div className={`grid grid-cols-2 gap-2.5 ${stats.timeZoneTrips > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             <Tile
-              title="Days off"
-              value={plural(stats.daysOff, 'day')}
-              note={
+              className="col-span-2 sm:col-span-1"
+              title="Duty days"
+              value={
                 <>
-                  {stats.longestBreak.days >= 2
-                    ? `Longest break ${stats.longestBreak.days} days (${shortRange(stats.longestBreak.from!, stats.longestBreak.to!)})`
-                    : stats.daysOff > 0
-                    ? 'Single days only'
-                    : 'None on your roster'}
-                  {notCounted.length > 0 && <span className="block text-slate-500">Not counted: {notCounted.join(', ')}</span>}
+                  {plural(stats.dutyDays, 'day')}{' '}
+                  <span className="text-base font-medium text-slate-400">· {plural(stats.sectors, 'sector')}</span>
                 </>
               }
+              lines={[
+                layoverLine(stats.layovers),
+                stats.longestRun.days >= 2 &&
+                  `Longest run ${stats.longestRun.days} days (${shortRange(stats.longestRun.from!, stats.longestRun.to!)})`,
+                stats.positioningSectors > 0 && muted(`Plus ${stats.positioningSectors} positioning (as passenger)`),
+              ]}
             />
-            <Tile title="Duty days" value={stats.dutyDays} note={plural(stats.sectors, 'flight')} />
-            <Tile title="Standby" value={plural(stats.standbyDays, 'day')} note={`${stats.standbyHours}h`} />
+            <Tile
+              title="Standby"
+              value={stats.standbyDays ? plural(stats.standbyDays, 'day') : 'None'}
+              lines={
+                stats.standbyDays
+                  ? [
+                      [
+                        stats.standbyDaysByKind.home && `${stats.standbyDaysByKind.home} home`,
+                        stats.standbyDaysByKind.airport && `${stats.standbyDaysByKind.airport} airport`,
+                      ]
+                        .filter(Boolean)
+                        .join(' · '),
+                      `${stats.standbyHours}h in total`,
+                    ]
+                  : ['No standby this month']
+              }
+            />
             {stats.timeZoneTrips > 0 && (
-              <Tile title="Time zones" value={plural(stats.timeZoneTrips, 'trip')} note="3+ hours from home time" />
+              <Tile title="Time zones" value={plural(stats.timeZoneTrips, 'trip')} lines={[muted('3+ hours from home time')]} />
             )}
           </div>
 

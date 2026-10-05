@@ -1,4 +1,6 @@
-import { FlightLeg, RosterData } from '../types/circadian';
+import { FlightLeg, OtherDuty, RosterData, StandbyDuty } from '../types/circadian';
+import { lookupAirport } from '../data/airports';
+import { HomeClock } from './planEngine';
 
 export interface RosterConflict {
   id: string;
@@ -187,3 +189,74 @@ export function resolveAndMergeFlights(
     (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
   );
 }
+
+/*
+ * NEWER ROSTER WINS FOR THE DAYS IT COVERS
+ *
+ * A newer roster upload is the airline's latest plan for its dates. Anything the saved roster has on those
+ * dates (flights, standby, days off) is replaced, not combined. Matching flight by flight is not enough:
+ * when a day is re-planned the new flights usually don't overlap the old ones in time, and a day that
+ * became free has no new flight at all, so the old flights would silently stay and inflate the totals.
+ * (This happened with a September roster that showed 1–2 Oct and a later October roster: October showed
+ * 59.9h instead of 49.9h.) The person always sees what will be replaced before anything is saved.
+ */
+
+/** The home-base dates an upload covers. `stated` is true when the dates come from the roster itself. */
+export interface UploadCoverage {
+  start: string; // YYYY-MM-DD, inclusive
+  end: string;
+  stated: boolean;
+}
+
+export interface UploadContent {
+  flights: FlightLeg[];
+  standby?: StandbyDuty[];
+  otherDuties?: OtherDuty[];
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+export interface RosterItems {
+  flights: FlightLeg[];
+  standby: StandbyDuty[];
+  otherDuties: OtherDuty[];
+}
+
+const isDate = (d?: string): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+
+export function rosterClock(roster: Pick<RosterData, 'homeBase' | 'homeBaseTzOffset'>): HomeClock {
+  return new HomeClock(roster.homeBaseTzOffset, lookupAirport(roster.homeBase)?.timeZone);
+}
+
+/**
+ * The dates a new upload covers: from the earlier of the roster's stated start and its first item, to the
+ * later of its stated end and its last item. Without stated dates, the first to the last item found.
+ */
+export function uploadCoverage(upload: UploadContent, clock: HomeClock): UploadCoverage | null {
+  const dates = [
+    ...upload.flights.map((f) => clock.date(Date.parse(f.departureTimeUtc))),
+    ...(upload.standby ?? []).map((sb) => clock.date(Date.parse(sb.startUtc))),
+    ...(upload.otherDuties ?? []).map((d) => d.date),
+  ]
+    .filter(isDate)
+    .sort();
+  const stated = isDate(upload.periodStart) && isDate(upload.periodEnd) && upload.periodStart <= upload.periodEnd;
+  const starts = [dates[0], stated ? upload.periodStart : undefined].filter(isDate).sort();
+  const ends = [dates[dates.length - 1], stated ? upload.periodEnd : undefined].filter(isDate).sort();
+  if (!starts.length || !ends.length) return null;
+  return { start: starts[0], end: ends[ends.length - 1], stated };
+}
+
+/** Splits the saved roster into what stays and what the new upload replaces (items dated within its coverage). */
+export function splitByCoverage(roster: RosterData, coverage: UploadCoverage | null, clock: HomeClock): { kept: RosterItems; replaced: RosterItems } {
+  const inside = (date: string) => !!coverage && date >= coverage.start && date <= coverage.end;
+  const kept: RosterItems = { flights: [], standby: [], otherDuties: [] };
+  const replaced: RosterItems = { flights: [], standby: [], otherDuties: [] };
+  for (const f of roster.flights) (inside(clock.date(Date.parse(f.departureTimeUtc))) ? replaced : kept).flights.push(f);
+  for (const sb of roster.standbyDuties ?? []) (inside(clock.date(Date.parse(sb.startUtc))) ? replaced : kept).standby.push(sb);
+  for (const d of roster.otherDuties ?? []) (inside(d.date) ? replaced : kept).otherDuties.push(d);
+  return { kept, replaced };
+}
+
+/** True when the saved roster has anything that a new upload would replace. */
+export const hasReplacedItems = (r: RosterItems) => r.flights.length + r.standby.length + r.otherDuties.length > 0;

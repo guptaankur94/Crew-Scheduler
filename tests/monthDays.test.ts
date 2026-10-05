@@ -74,3 +74,33 @@ test('summary notes say which days and flights the figures come from', () => {
   assert.equal(coverageNote(empty), 'No roster for this month');
   assert.equal(flightRangeNote(empty), 'No flights this month');
 });
+
+test('layovers are split into international and domestic by country; unknown airports are not guessed', () => {
+  const r = roster([
+    leg('D1', 'DEL', 'BOM', '2026-10-03T10:00', '2026-10-03T12:00'),
+    leg('D2', 'BOM', 'DEL', '2026-10-04T10:00', '2026-10-04T12:00'),
+    leg('I1', 'DEL', 'SIN', '2026-10-06T10:00', '2026-10-06T16:00', { destTzOffset: 8 }),
+    leg('I2', 'SIN', 'DEL', '2026-10-07T18:00', '2026-10-07T21:30', { originTzOffset: 8 }),
+    leg('U1', 'DEL', 'ZZZ', '2026-10-10T10:00', '2026-10-10T12:00'),
+    leg('U2', 'ZZZ', 'DEL', '2026-10-11T10:00', '2026-10-11T12:00'),
+  ], {
+    standbyDuties: [
+      { id: 'h1', kind: 'home', airport: 'DEL', startUtc: '2026-10-15T00:30:00.000Z', endUtc: '2026-10-15T08:30:00.000Z' },
+      { id: 'a1', kind: 'airport', airport: 'DEL', startUtc: '2026-10-16T00:30:00.000Z', endUtc: '2026-10-16T04:30:00.000Z' },
+    ],
+  });
+  const stats = computePeriodStats(generateCircadianPlan(r, prefs), OCT);
+  assert.deepEqual(
+    { ...stats.layovers },
+    { total: 3, international: 1, domestic: 1, unverified: 1, internationalStations: ['SIN'], domesticStations: ['BOM'] }
+  );
+  assert.deepEqual(stats.standbyDaysByKind, { home: 1, airport: 1 });
+  assert.equal(stats.standbyDays, 2);
+});
+
+test('a layover at an airport from the larger database is still domestic (country codes, not names)', () => {
+  const r = roster([leg('R1', 'DEL', 'RDP', '2026-10-03T10:00', '2026-10-03T12:00'), leg('R2', 'RDP', 'DEL', '2026-10-04T10:00', '2026-10-04T12:00')]);
+  const stats = computePeriodStats(generateCircadianPlan(r, prefs), OCT);
+  assert.equal(stats.layovers.domestic, 1);
+  assert.equal(stats.layovers.international, 0);
+});

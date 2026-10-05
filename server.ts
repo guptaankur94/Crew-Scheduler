@@ -142,6 +142,7 @@ CRITICAL EXTRACTION RULES:
 - NEVER GUESS: If a flight's date, time or airport cannot be read, leave that field as an empty string rather than inventing a value.
 - TIMESTAMPS IN UTC:
   * Timings on rosters are usually in local station time or Indian Standard Time (IST/UTC+5.5).
+  * MIXED TIME ZONES: many rosters print each time in the local time of that airport (departure in the origin's local time, arrival in the destination's local time). Unless the roster clearly states that all times are in one zone (e.g. "All times IST" or "UTC"/"Z"), convert each time using that airport's own UTC offset (e.g. Singapore is UTC+8, Dubai UTC+4). Check: an outbound flight and its return should take a similar time.
   * Convert all departure and arrival times into valid ISO 8601 UTC date-time strings: "YYYY-MM-DDTHH:mm:ssZ".
   * If Report Time (Check-In) is not stated on the roster, set it to 75 minutes before departure.
   * Release Time is the debrief / sign-off / check-out time when the roster shows one (for a multi-sector day, it belongs to the last flight of the day). If it is not stated, set it to 30 minutes after arrival.

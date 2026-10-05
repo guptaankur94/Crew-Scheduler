@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CircadianEvent, CircadianPlan, CrewPreferences } from '../../types/circadian';
 import { getNowNext, hasLocalTime, nextLine, nowLine, plainTitle } from '../../services/nowNext';
 import { StandbyNotice } from '../StandbyNotice';
+import { TodayGlance } from '../TodayGlance';
 import { bunkChoiceForEvent, sectorKeyForEvent } from '../../services/rosterKeys';
 import { formatAviationDate } from '../../utils/dateUtils';
 import {
@@ -250,6 +251,9 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
           </div>
         )}
       </section>
+
+      {/* Today at a glance: duty, next sleep, wake-up, caffeine */}
+      <TodayGlance plan={plan} todayStr={todayStr} nowMs={nowMs} />
 
       {/* Standby, only when there is some today */}
       <StandbyNotice events={events.filter((e) => e.dutyDate === todayStr)} onSelectEvent={onSelectEvent} roster={roster} />

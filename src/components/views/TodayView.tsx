@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { bunkChoiceForEvent, sectorKeyForEvent } from '../../services/rosterKeys';
 import { NowNextCard } from '../NowNextCard';
 import { StandbyNotice } from '../StandbyNotice';
 import {
@@ -100,7 +101,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
       <NowNextCard plan={plan} onSelectEvent={onSelectEvent} />
 
       {/* Standby periods on the selected day */}
-      <StandbyNotice events={todayEvents} onSelectEvent={onSelectEvent} />
+      <StandbyNotice events={todayEvents} onSelectEvent={onSelectEvent} roster={roster} />
 
       {/* 0. Banner when roster has been cleared */}
       {roster.flights.length === 0 && (
@@ -527,12 +528,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
                                 onUpdatePreferences({
                                   bunkShiftAssignments: {
                                     ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift1',
+                                    [sectorKeyForEvent(flight.id, roster) ?? flight.id]: 'shift1',
                                   },
                                 });
                               }}
                               className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                (preferences.bunkShiftAssignments?.[flight.id] || 'shift1') === 'shift1'
+                                (bunkChoiceForEvent(preferences, flight.id, roster) || 'shift1') === 'shift1'
                                   ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
                                   : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                               }`}
@@ -544,12 +545,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
                                 onUpdatePreferences({
                                   bunkShiftAssignments: {
                                     ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift2',
+                                    [sectorKeyForEvent(flight.id, roster) ?? flight.id]: 'shift2',
                                   },
                                 });
                               }}
                               className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                preferences.bunkShiftAssignments?.[flight.id] === 'shift2'
+                                bunkChoiceForEvent(preferences, flight.id, roster) === 'shift2'
                                   ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
                                   : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                               }`}

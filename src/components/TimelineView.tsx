@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { bunkChoiceForEvent, sectorKeyForEvent } from '../services/rosterKeys';
 import {
   CircadianEvent,
   CircadianPlan,
@@ -38,6 +39,7 @@ import {
 } from 'lucide-react';
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { StandbyNotice } from './StandbyNotice';
+import { flightSource } from '../services/provenance';
 import { DateNavigator } from './DateNavigator';
 import { FlightLeg } from '../types/circadian';
 import {
@@ -179,7 +181,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       )}
 
       {/* Standby periods on the selected day */}
-      <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} />
+      <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} roster={plan.roster} />
 
       {/* The selected day's outlook in words, when there is something to watch */}
       {activeDaySummary?.outlook && activeDaySummary.outlook.level !== 'steady' && (
@@ -580,6 +582,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           </p>
                         </div>
                       </div>
+                      {/* Why the app believes this flight exists */}
+                      {(() => {
+                        const leg = getFlightLeg(flight);
+                        const source = leg && flightSource(leg);
+                        return source ? <p className="text-[10px] text-slate-500">Source: {source}</p> : null;
+                      })()}
                       {/* Long-Haul In-Flight Bunk Shift Rest Selector (>= 5h sectors) */}
                       {flight.durationMinutes >= 300 && onUpdatePreferences && (
                         <div className="mt-2 pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2">
@@ -592,12 +600,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                                 onUpdatePreferences({
                                   bunkShiftAssignments: {
                                     ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift1',
+                                    [sectorKeyForEvent(flight.id, plan.roster) ?? flight.id]: 'shift1',
                                   },
                                 });
                               }}
                               className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                (preferences.bunkShiftAssignments?.[flight.id] || 'shift1') === 'shift1'
+                                (bunkChoiceForEvent(preferences, flight.id, plan.roster) || 'shift1') === 'shift1'
                                   ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
                                   : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                               }`}
@@ -609,12 +617,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                                 onUpdatePreferences({
                                   bunkShiftAssignments: {
                                     ...(preferences.bunkShiftAssignments || {}),
-                                    [flight.id]: 'shift2',
+                                    [sectorKeyForEvent(flight.id, plan.roster) ?? flight.id]: 'shift2',
                                   },
                                 });
                               }}
                               className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${
-                                preferences.bunkShiftAssignments?.[flight.id] === 'shift2'
+                                bunkChoiceForEvent(preferences, flight.id, plan.roster) === 'shift2'
                                   ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
                                   : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                               }`}

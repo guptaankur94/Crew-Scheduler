@@ -15,6 +15,8 @@ export interface SanitizedRoster {
   /** The dates the roster says it covers, e.g. "01/10/2026 - 21/10/2026", when shown. */
   periodStart?: string;
   periodEnd?: string;
+  /** Every date that has its own row or cell in the document (including blank and OFF days). */
+  visibleDates?: string[];
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -181,6 +183,14 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
   const periodEndRaw = typeof parsed.rosterPeriod?.end === 'string' && DATE_RE.test(parsed.rosterPeriod.end) ? parsed.rosterPeriod.end : undefined;
   const periodEnd = periodStart && periodEndRaw && periodEndRaw >= periodStart ? periodEndRaw : undefined;
   const period = periodStart && periodEnd ? { periodStart, periodEnd } : {};
+  // Dates shown in the document: sensible dates only, at most a few months' worth
+  const visibleDates = Array.isArray(parsed.visibleDates)
+    ? [...new Set((parsed.visibleDates as unknown[]).filter((d): d is string => typeof d === 'string' && DATE_RE.test(d)))]
+        .filter((d) => Math.abs(Date.parse(`${d}T12:00:00Z`) - now.getTime()) <= 2 * 365 * 24 * 3600000)
+        .sort()
+        .slice(0, 400)
+    : [];
+  if (visibleDates.length) Object.assign(period, { visibleDates });
 
   if (flights.length === 0 && standby.length === 0) return null;
   if (flights.length === 0) {

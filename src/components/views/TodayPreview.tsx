@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CircadianEvent, CircadianPlan, CrewPreferences } from '../../types/circadian';
 import { getNowNext, hasLocalTime, nextLine, nowLine, plainTitle } from '../../services/nowNext';
 import { StandbyNotice } from '../StandbyNotice';
+import { bunkChoiceForEvent, sectorKeyForEvent } from '../../services/rosterKeys';
 import { formatAviationDate } from '../../utils/dateUtils';
 import {
   ArrowRight,
@@ -251,7 +252,7 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
       </section>
 
       {/* Standby, only when there is some today */}
-      <StandbyNotice events={events.filter((e) => e.dutyDate === todayStr)} onSelectEvent={onSelectEvent} />
+      <StandbyNotice events={events.filter((e) => e.dutyDate === todayStr)} onSelectEvent={onSelectEvent} roster={roster} />
 
       {/* 2. Next duty: full runway within 24 hours, otherwise a one-line heads-up */}
       {showRunway && prep?.prepDetails ? (
@@ -353,14 +354,14 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
                         <Bed className="h-3.5 w-3.5 text-indigo-400" /> Crew rest:
                       </span>
                       {(['shift1', 'shift2'] as const).map((shift) => {
-                        const flightId = f.id.replace(/^flight-/, '');
-                        const selected = (preferences.bunkShiftAssignments?.[flightId] || 'shift1') === shift;
+                        const flightKey = sectorKeyForEvent(f.id, roster) ?? f.id.replace(/^flight-/, '');
+                        const selected = (bunkChoiceForEvent(preferences, f.id, roster) || 'shift1') === shift;
                         return (
                           <button
                             key={shift}
                             onClick={() =>
                               onUpdatePreferences({
-                                bunkShiftAssignments: { ...(preferences.bunkShiftAssignments || {}), [flightId]: shift },
+                                bunkShiftAssignments: { ...(preferences.bunkShiftAssignments || {}), [flightKey]: shift },
                               })
                             }
                             className={`rounded px-2.5 py-1 text-[10px] font-bold transition-all ${

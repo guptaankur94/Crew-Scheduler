@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { CircadianEvent, CrewPreferences, RosterData, RosterHistoryEntry, FlightLeg } from './types/circadian';
+import { CircadianEvent, CrewPreferences, RosterData, RosterHistoryEntry, FlightLeg, HistoryDayChange, UserUpdate } from './types/circadian';
+import { effectiveRoster, expectedDutyRelease, keyOfFlight, delayCandidate, delayFor, migrateLegacyDelays, retainUpdates, setDelay } from './services/userUpdates';
+import { DelayCard } from './components/DelayCard';
 import { getPresets, RosterPreset } from './data/rosterPresets';
 import { generateCircadianPlan } from './services/circadianCalculator';
 import {
@@ -11,8 +13,10 @@ import {
   createEmptyRoster,
   computeRosterDateRange,
   setActiveHistoryItem,
+  undoableEntry,
 } from './services/rosterHistoryService';
 import { analyzeRosterMerge } from './services/rosterMerger';
+import { keepNudgesOutside, RosterUpdateInfo } from './services/rosterDiff';
 import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
@@ -64,10 +68,14 @@ export default function App() {
   // Default to 30-day full monthly roster
   const [activePresetId, setActivePresetId] = useState<string>(savedState?.activePresetId ?? presets[0].id);
 
-  const [roster, setRoster] = useState<RosterData>(() => {
-    if (savedPreset) return savedPreset.roster;
-    return savedState?.roster ?? presets[0].roster;
-  });
+  // The roster as the airline published it, and the person's own updates (delays) kept apart from it.
+  // Delays saved by earlier versions inside the roster are converted once here.
+  const initial = useMemo(
+    () => migrateLegacyDelays(savedPreset ? savedPreset.roster : savedState?.roster ?? presets[0].roster, savedState?.userUpdates ?? []),
+    []
+  );
+  const [roster, setRoster] = useState<RosterData>(initial.roster);
+  const [userUpdates, setUserUpdates] = useState<UserUpdate[]>(initial.updates);
 
   // Roster Upload & Audit History State
   const [history, setHistory] = useState<RosterHistoryEntry[]>(() => {
@@ -135,18 +143,59 @@ export default function App() {
 
   // Generate reactive Circadian Plan whenever roster, preferences, or nudges change
   const plan = useMemo(() => {
-    return generateCircadianPlan(roster, preferences, customNudges);
-  }, [roster, preferences, customNudges]);
+    // Planned on the roster with the person's updates applied; the saved roster itself is unchanged
+    return generateCircadianPlan(effectiveRoster(roster, userUpdates), preferences, customNudges);
+  }, [roster, userUpdates, preferences, customNudges]);
 
   // Keep the latest roster, preferences and adjustments so a reload restores them
   useEffect(() => {
-    saveAppState({ roster, preferences, customNudges, activePresetId });
-  }, [roster, preferences, customNudges, activePresetId]);
+    saveAppState({ roster, preferences, customNudges, activePresetId, userUpdates });
+  }, [roster, preferences, customNudges, activePresetId, userUpdates]);
 
   // A sample roster that has been edited is the user's own data from then on
   const markEdited = () => {
     setActivePresetId((id) => (presets.some((p) => p.id === id) ? 'custom-edit' : id));
   };
+
+  /**
+   * Every change to the saved roster goes through here: it is saved, logged once in history (outside any
+   * state updater, so it can never be recorded twice), and the roster from just before is kept with the
+   * newest entry so the change can be undone.
+   */
+  const commitChange = (
+    next: { roster?: RosterData; updates?: UserUpdate[] },
+    entry: { actionType: RosterHistoryEntry['actionType']; title: string; description?: string; changes?: HistoryDayChange[] },
+    options: { undoable?: boolean } = {}
+  ) => {
+    const nextRoster = next.roster ?? roster;
+    let nextUpdates = next.updates ?? userUpdates;
+    let description = entry.description;
+    // When the roster changes, the person's delays follow their flights; a delay whose flight is gone is dropped
+    if (next.roster && !next.updates) {
+      const { kept, dropped } = retainUpdates(nextRoster, nextUpdates);
+      nextUpdates = kept;
+      if (dropped.length) {
+        description = `${description ?? ''} Your delay on ${dropped.length === 1 ? 'a flight' : `${dropped.length} flights`} no longer applies: that flight is not on the roster any more.`.trim();
+      }
+    }
+    if (next.roster) setRoster(nextRoster);
+    setUserUpdates(nextUpdates);
+    const updatedHistory = recordRosterAction({
+      ...entry,
+      description,
+      airline: nextRoster.airline || 'Airline',
+      homeBase: nextRoster.homeBase,
+      flightsCount: nextRoster.flights.length,
+      dateRange: nextRoster.flights.length ? computeRosterDateRange(nextRoster) : 'No flights (Resting)',
+      isActive: true,
+      rosterSnapshot: nextRoster,
+      updatesSnapshot: nextUpdates,
+      ...(options.undoable === false ? {} : { previousSnapshot: roster, previousUpdates: userUpdates }),
+    });
+    setHistory(updatedHistory);
+  };
+  const commitRoster = (next: RosterData, entry: Parameters<typeof commitChange>[1], options: { undoable?: boolean } = {}) =>
+    commitChange({ roster: next }, entry, options);
 
   // Handle Home Base Change
   const handleChangeHomeBase = (iata: string, tzOffset: number) => {
@@ -156,82 +205,48 @@ export default function App() {
       homeBaseTzOffset: tzOffset,
     }));
     markEdited();
-    setRoster((prev) => {
-      const updated = {
-        ...prev,
-        homeBase: iata,
-        homeBaseTzOffset: tzOffset,
-      };
-      // Record manual home base adjustment in history if flights exist
-      if (prev.flights.length > 0) {
-        const updatedHist = recordRosterAction({
-          actionType: 'manual_edit',
-          title: `Home Base Changed to ${iata}`,
-          description: `Updated crew anchor base to ${iata} (UTC${tzOffset >= 0 ? '+' : ''}${tzOffset})`,
-          airline: prev.airline,
-          homeBase: iata,
-          flightsCount: prev.flights.length,
-          dateRange: computeRosterDateRange(prev),
-          isActive: true,
-          rosterSnapshot: updated,
-        });
-        setHistory(updatedHist);
-      }
-      return updated;
-    });
+    const updated = { ...roster, homeBase: iata, homeBaseTzOffset: tzOffset };
+    // Record manual home base adjustment in history if flights exist
+    if (roster.flights.length > 0) {
+      commitRoster(updated, {
+        actionType: 'manual_edit',
+        title: `Home Base Changed to ${iata}`,
+        description: `Updated crew anchor base to ${iata} (UTC${tzOffset >= 0 ? '+' : ''}${tzOffset})`,
+      });
+    } else {
+      setRoster(updated);
+    }
   };
 
   // Handle Preset Change
   const handleSelectPreset = (preset: RosterPreset) => {
     setActivePresetId(preset.id);
-    setRoster(preset.roster);
     setPreferences((prev) => ({
       ...prev,
       homeBaseIata: preset.roster.homeBase,
       homeBaseTzOffset: preset.roster.homeBaseTzOffset,
     }));
     setCustomNudges({});
-
-    // Record preset action in audit history
-    const updatedHistory = recordRosterAction({
-      actionType: 'preset',
-      title: preset.name,
-      description: preset.description,
-      airline: preset.roster.airline,
-      homeBase: preset.roster.homeBase,
-      flightsCount: preset.roster.flights.length,
-      dateRange: computeRosterDateRange(preset.roster),
-      isActive: true,
-      rosterSnapshot: preset.roster,
-    });
-    setHistory(updatedHistory);
+    commitRoster(preset.roster, { actionType: 'preset', title: preset.name, description: preset.description });
   };
 
   // Handle Roster Parsed from Gemini OCR or Text Ingestion
-  const handleRosterParsed = (parsedRoster: RosterData, sourceTitle?: string, customDescription?: string) => {
-    setRoster(parsedRoster);
+  const handleRosterParsed = (parsedRoster: RosterData, sourceTitle?: string, customDescription?: string, update?: RosterUpdateInfo) => {
     setActivePresetId('custom-upload');
     setPreferences((prev) => ({
       ...prev,
       homeBaseIata: parsedRoster.homeBase,
       homeBaseTzOffset: parsedRoster.homeBaseTzOffset,
     }));
-    setCustomNudges({});
+    // A new roster starts fresh; an update keeps the person's adjustments away from the changed days
+    setCustomNudges((prev) => (update ? keepNudgesOutside(prev, update.changedDates) : {}));
 
-    // Record upload action in audit history
-    const title = sourceTitle || `Uploaded Roster (${parsedRoster.airline})`;
-    const updatedHistory = recordRosterAction({
+    commitRoster(parsedRoster, {
       actionType: 'upload',
-      title,
+      title: sourceTitle || `Uploaded Roster (${parsedRoster.airline})`,
       description: customDescription || `Read ${parsedRoster.flights.length} flights from your roster`,
-      airline: parsedRoster.airline || 'Airline',
-      homeBase: parsedRoster.homeBase || 'DEL',
-      flightsCount: parsedRoster.flights.length,
-      dateRange: computeRosterDateRange(parsedRoster),
-      isActive: true,
-      rosterSnapshot: parsedRoster,
+      changes: update?.changes,
     });
-    setHistory(updatedHistory);
   };
 
   // Handle Clearing Active Roster
@@ -244,29 +259,20 @@ export default function App() {
       : 'Active Schedule';
 
     const clearedRoster = createEmptyRoster(roster.homeBase, roster.homeBaseTzOffset);
-    setRoster(clearedRoster);
     setActivePresetId('cleared');
     setCustomNudges({});
-
-    // Record clear action in audit history
-    const updatedHistory = recordRosterAction({
+    commitRoster(clearedRoster, {
       actionType: 'cleared',
       title: 'Active Roster Cleared',
       description: `Cleared ${previousFlightCount} flights (${previousTitle}). Showing baseline circadian rest rhythm.`,
-      airline: roster.airline || 'None',
-      homeBase: roster.homeBase,
-      flightsCount: 0,
-      dateRange: 'No flights (Resting)',
-      isActive: true,
-      rosterSnapshot: clearedRoster,
     });
-    setHistory(updatedHistory);
   };
 
   // Handle Restoring Roster from History Snapshot
   const handleRestoreRoster = (entry: RosterHistoryEntry) => {
     if (!entry.rosterSnapshot) return;
     setRoster(entry.rosterSnapshot);
+    setUserUpdates((prev) => retainUpdates(entry.rosterSnapshot!, prev).kept);
     setActivePresetId(`restored-${entry.id}`);
     setPreferences((prev) => ({
       ...prev,
@@ -279,34 +285,40 @@ export default function App() {
     setHistory(updated);
   };
 
-  // Handle Adding a Manual Sector
-  const handleAddManualSector = (flight: FlightLeg) => {
-    markEdited();
-    setRoster((prev) => {
-      const newFlights = [...prev.flights, flight].sort(
-        (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
-      );
-      const updatedRoster: RosterData = {
-        ...prev,
-        flights: newFlights,
-        parsedAt: new Date().toISOString(),
-      };
+  /** Undo the newest change, while the saved roster is still exactly what that change produced. */
+  const undoEntry = undoableEntry(history, roster, userUpdates);
+  const handleUndoLatest = () => {
+    if (!undoEntry?.previousSnapshot) return;
+    const previous = undoEntry.previousSnapshot;
+    setPreferences((prev) => ({ ...prev, homeBaseIata: previous.homeBase, homeBaseTzOffset: previous.homeBaseTzOffset }));
+    commitChange(
+      { roster: previous, updates: undoEntry.previousUpdates ?? retainUpdates(previous, userUpdates).kept },
+      {
+        actionType: 'undo',
+        title: `Undone: ${undoEntry.title}`,
+        description: undoEntry.changes?.length
+          ? `Put back ${undoEntry.changes.length} ${undoEntry.changes.length === 1 ? 'day' : 'days'} as they were before.`
+          : 'Put the roster back as it was before.',
+      },
+      { undoable: false }
+    );
+  };
 
-      const updatedHistory = recordRosterAction({
+  // Handle Adding a Manual Sector
+  const handleAddManualSector = (added: FlightLeg) => {
+    markEdited();
+    const flight: FlightLeg = { ...added, userChange: 'added' };
+    const newFlights = [...roster.flights, flight].sort(
+      (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
+    );
+    commitRoster(
+      { ...roster, flights: newFlights, parsedAt: new Date().toISOString() },
+      {
         actionType: 'manual_edit',
         title: `Manual Sector Added: ${flight.flightNumber}`,
         description: `${flight.flightNumber} (${flight.origin} ➔ ${flight.destination}) on ${flight.departureTimeUtc.slice(0, 10)}. Total: ${newFlights.length} sectors.`,
-        airline: prev.airline,
-        homeBase: prev.homeBase,
-        flightsCount: newFlights.length,
-        dateRange: computeRosterDateRange(updatedRoster),
-        isActive: true,
-        rosterSnapshot: updatedRoster,
-      });
-      setHistory(updatedHistory);
-
-      return updatedRoster;
-    });
+      }
+    );
   };
 
   // Handle Deleting an Individual History Item
@@ -343,187 +355,112 @@ export default function App() {
     const mergeAnalysis = analyzeRosterMerge(roster.flights, snapshot.flights);
     if (!mergeAnalysis.hasConflicts) {
       const mergedFlights = mergeAnalysis.nonConflictingMergedFlights;
-      const updatedRoster: RosterData = {
-        ...roster,
-        flights: mergedFlights,
-        parsedAt: new Date().toISOString(),
-      };
       markEdited();
-      setRoster(updatedRoster);
-
-      const updatedHistory = recordRosterAction({
-        actionType: 'upload',
-        title: `Merged "${title}"`,
-        description: `Extended continuous timeline to ${mergedFlights.length} sectors (${mergeAnalysis.identicalCount} overlapping sectors verified, ${mergeAnalysis.newSectorsCount} new sectors added).`,
-        airline: roster.airline,
-        homeBase: roster.homeBase,
-        flightsCount: mergedFlights.length,
-        dateRange: computeRosterDateRange(updatedRoster),
-        isActive: true,
-        rosterSnapshot: updatedRoster,
-      });
-      setHistory(updatedHistory);
+      commitRoster(
+        { ...roster, flights: mergedFlights, parsedAt: new Date().toISOString() },
+        {
+          actionType: 'upload',
+          title: `Merged "${title}"`,
+          description: `Extended continuous timeline to ${mergedFlights.length} sectors (${mergeAnalysis.identicalCount} overlapping sectors verified, ${mergeAnalysis.newSectorsCount} new sectors added).`,
+        }
+      );
     }
   };
 
   // Tactical Duty Action 1: Cancel Sector
   const handleCancelSector = (flightId: string, convertToLayover: boolean) => {
+    const cancelledFlight = roster.flights.find((f) => f.id === flightId);
+    if (!cancelledFlight) return;
     markEdited();
-    setRoster((prev) => {
-      const cancelledFlight = prev.flights.find((f) => f.id === flightId);
-      if (!cancelledFlight) return prev;
 
-      const newFlights = prev.flights.filter((f) => f.id !== flightId);
-      const newLayovers = [...(prev.layovers || [])];
+    const newFlights = roster.flights.filter((f) => f.id !== flightId);
+    const newLayovers = [...(roster.layovers || [])];
+    if (convertToLayover) {
+      const stationIata = cancelledFlight.origin;
+      const depMs = new Date(cancelledFlight.departureTimeUtc).getTime();
+      newLayovers.push({
+        id: `layover-cancelled-${Date.now()}`,
+        airport: stationIata,
+        city: cancelledFlight.originCity || stationIata,
+        tzOffset: cancelledFlight.originTzOffset,
+        startUtc: cancelledFlight.departureTimeUtc,
+        endUtc: new Date(depMs + 24 * 3600000).toISOString(),
+        durationHours: 24,
+        strategy: 'transition',
+      });
+    }
 
-      if (convertToLayover) {
-        const stationIata = cancelledFlight.origin;
-        const depMs = new Date(cancelledFlight.departureTimeUtc).getTime();
-        newLayovers.push({
-          id: `layover-cancelled-${Date.now()}`,
-          airport: stationIata,
-          city: cancelledFlight.originCity || stationIata,
-          tzOffset: cancelledFlight.originTzOffset,
-          startUtc: cancelledFlight.departureTimeUtc,
-          endUtc: new Date(depMs + 24 * 3600000).toISOString(),
-          durationHours: 24,
-          strategy: 'transition',
-        });
-      }
-
-      const updatedRoster: RosterData = {
-        ...prev,
-        flights: newFlights,
-        layovers: newLayovers,
-        parsedAt: new Date().toISOString(),
-      };
-
-      const updatedHistory = recordRosterAction({
+    commitRoster(
+      { ...roster, flights: newFlights, layovers: newLayovers, parsedAt: new Date().toISOString() },
+      {
         actionType: 'manual_edit',
         title: `Sector Cancelled: ${cancelledFlight.flightNumber}`,
         description: convertToLayover
           ? `Cancelled ${cancelledFlight.flightNumber} and converted to Station Layover at ${cancelledFlight.origin}. Continuous timeline recalculated.`
           : `Cancelled ${cancelledFlight.flightNumber} (${cancelledFlight.origin} ➔ ${cancelledFlight.destination}). Returned to base rest rhythm.`,
-        airline: prev.airline,
-        homeBase: prev.homeBase,
-        flightsCount: newFlights.length,
-        dateRange: computeRosterDateRange(updatedRoster),
-        isActive: true,
-        rosterSnapshot: updatedRoster,
-      });
-      setHistory(updatedHistory);
-
-      return updatedRoster;
-    });
+      }
+    );
   };
 
-  // Tactical Duty Action 2: Delay Sector
+  /**
+   * Delays are the person's update, not a roster change: the rostered times (including report) stay as the
+   * airline published them, and the plan uses the delayed departure, arrival and release on top.
+   */
+  const handleSetDelay = (flightId: string, minutes: number) => {
+    const flight = roster.flights.find((f) => f.id === flightId);
+    if (!flight) return;
+    const next = setDelay(roster, userUpdates, flightId, minutes);
+    commitChange(
+      { updates: next },
+      minutes > 0
+        ? {
+            actionType: 'manual_edit',
+            title: `Delayed: ${flight.flightNumber} +${minutes} min`,
+            description: `You reported ${flight.flightNumber} ${flight.origin} ➔ ${flight.destination} running ${minutes} min late. Your rostered report time is unchanged.`,
+          }
+        : { actionType: 'manual_edit', title: `Delay removed: ${flight.flightNumber}`, description: `${flight.flightNumber} is back on its rostered times.` }
+    );
+  };
+
+  // The flight "I'm delayed" applies to: the next one within 24 hours, or the one in progress
+  const delayFlight = delayCandidate(roster, userUpdates, Date.now());
+
+  // Tactical Duty Action 2: Delay Sector (adds to any delay already reported)
   const handleDelaySector = (flightId: string, delayMinutes: number) => {
-    markEdited();
-    setRoster((prev) => {
-      const flight = prev.flights.find((f) => f.id === flightId);
-      if (!flight) return prev;
-
-      const delayMs = delayMinutes * 60000;
-      const newDepUtc = new Date(new Date(flight.departureTimeUtc).getTime() + delayMs).toISOString();
-      const newArrUtc = new Date(new Date(flight.arrivalTimeUtc).getTime() + delayMs).toISOString();
-      const newRepUtc = new Date(new Date(flight.reportTimeUtc).getTime() + delayMs).toISOString();
-      const newRelUtc = new Date(new Date(flight.releaseTimeUtc).getTime() + delayMs).toISOString();
-
-      const newFlights = prev.flights.map((f) =>
-        f.id === flightId
-          ? {
-              ...f,
-              departureTimeUtc: newDepUtc,
-              arrivalTimeUtc: newArrUtc,
-              reportTimeUtc: newRepUtc,
-              releaseTimeUtc: newRelUtc,
-            }
-          : f
-      );
-
-      const updatedRoster: RosterData = {
-        ...prev,
-        flights: newFlights,
-        parsedAt: new Date().toISOString(),
-      };
-
-      const updatedHistory = recordRosterAction({
-        actionType: 'manual_edit',
-        title: `Delayed Sector: ${flight.flightNumber} (+${delayMinutes}m)`,
-        description: `Adjusted departure to ${new Date(newDepUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Sleep buffers and circadian limits updated.`,
-        airline: prev.airline,
-        homeBase: prev.homeBase,
-        flightsCount: newFlights.length,
-        dateRange: computeRosterDateRange(updatedRoster),
-        isActive: true,
-        rosterSnapshot: updatedRoster,
-      });
-      setHistory(updatedHistory);
-
-      return updatedRoster;
-    });
+    handleSetDelay(flightId, delayFor(userUpdates, keyOfFlight(roster, flightId)) + delayMinutes);
   };
 
   // Tactical Duty Action 3: Add Standby Callout Flight
-  const handleAddStandbyFlight = (newFlight: FlightLeg) => {
+  const handleAddStandbyFlight = (calledOut: FlightLeg) => {
     markEdited();
-    setRoster((prev) => {
-      const newFlights = [...prev.flights, newFlight].sort(
-        (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
-      );
-      const updatedRoster: RosterData = {
-        ...prev,
-        flights: newFlights,
-        parsedAt: new Date().toISOString(),
-      };
-
-      const updatedHistory = recordRosterAction({
+    const newFlight: FlightLeg = { ...calledOut, userChange: 'callout' };
+    const newFlights = [...roster.flights, newFlight].sort(
+      (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
+    );
+    commitRoster(
+      { ...roster, flights: newFlights, parsedAt: new Date().toISOString() },
+      {
         actionType: 'manual_edit',
         title: `Standby Callout: ${newFlight.flightNumber}`,
         description: `Called out for flight ${newFlight.flightNumber} (${newFlight.origin} ➔ ${newFlight.destination}) on ${newFlight.departureTimeUtc.slice(0, 10)}. Flying pay and rest buffers updated.`,
-        airline: prev.airline,
-        homeBase: prev.homeBase,
-        flightsCount: newFlights.length,
-        dateRange: computeRosterDateRange(updatedRoster),
-        isActive: true,
-        rosterSnapshot: updatedRoster,
-      });
-      setHistory(updatedHistory);
-
-      return updatedRoster;
-    });
+      }
+    );
   };
 
   // Tactical Duty Action 4: Delete Sector
   const handleDeleteSector = (flightId: string) => {
+    const flight = roster.flights.find((f) => f.id === flightId);
+    if (!flight) return;
     markEdited();
-    setRoster((prev) => {
-      const flight = prev.flights.find((f) => f.id === flightId);
-      if (!flight) return prev;
-
-      const newFlights = prev.flights.filter((f) => f.id !== flightId);
-      const updatedRoster: RosterData = {
-        ...prev,
-        flights: newFlights,
-        parsedAt: new Date().toISOString(),
-      };
-
-      const updatedHistory = recordRosterAction({
+    const newFlights = roster.flights.filter((f) => f.id !== flightId);
+    commitRoster(
+      { ...roster, flights: newFlights, parsedAt: new Date().toISOString() },
+      {
         actionType: 'manual_edit',
         title: `Sector Removed: ${flight.flightNumber}`,
         description: `Removed ${flight.flightNumber} from continuous schedule. Total: ${newFlights.length} sectors.`,
-        airline: prev.airline,
-        homeBase: prev.homeBase,
-        flightsCount: newFlights.length,
-        dateRange: computeRosterDateRange(updatedRoster),
-        isActive: true,
-        rosterSnapshot: updatedRoster,
-      });
-      setHistory(updatedHistory);
-
-      return updatedRoster;
-    });
+      }
+    );
   };
 
   // Handle Nudging Event
@@ -592,6 +529,13 @@ export default function App() {
               >
                 {todayVersion === 'preview' ? 'Back to classic' : 'Try the new Today (preview)'}
               </button>
+            </div>
+          )}
+
+          {/* One-tap "I'm delayed" for the next flight (both Today versions) */}
+          {activeView === 'today' && delayFlight && (
+            <div className="mb-4">
+              <DelayCard roster={roster} flight={delayFlight} delayMinutes={delayFor(userUpdates, keyOfFlight(roster, delayFlight.id))} expectedReleaseUtc={expectedDutyRelease(roster, userUpdates, delayFlight.id)} onSetDelay={handleSetDelay} />
             </div>
           )}
 
@@ -676,6 +620,7 @@ export default function App() {
               onClearAllHistory={handleClearAllHistory}
               onAddManualSector={handleAddManualSector}
               onMergeRosterSnapshot={handleMergeRosterSnapshot}
+              onUndoLatest={undoEntry ? handleUndoLatest : undefined}
             />
           )}
 

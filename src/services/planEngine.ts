@@ -1,4 +1,5 @@
 import { getAirportTzOffset } from '../data/airports';
+import { bunkChoice, sectorKeys } from './rosterKeys';
 import { CircadianEvent, CrewPreferences, EventType, FlightLeg, PrepDetails, RosterData, ScientificCitation, StandbyDuty } from '../types/circadian';
 
 /**
@@ -838,9 +839,12 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
   }
 
   // 6. Optional nap during in-flight crew rest: in the chosen half of the flight, ending well before landing
+  const flightKeys = sectorKeys(roster.flights, clock);
+  const keyOfFlight = new Map(roster.flights.map((f, i) => [f.id, flightKeys[i]]));
   for (const duty of duties) {
     for (const flight of duty.flights) {
-      const shift = preferences.bunkShiftAssignments?.[flight.id];
+      // Saved under the flight's stable key, so the choice survives re-uploads
+      const shift = bunkChoice(preferences, keyOfFlight.get(flight.id) ?? flight.id, flight.id);
       const eligible = shift ? flight.durationMinutes >= BUNK_CHOICE_SECTOR_MINUTES : flight.durationMinutes >= CREW_REST_SECTOR_MINUTES;
       if (!eligible) continue;
       const dep = Date.parse(flight.departureTimeUtc);

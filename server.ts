@@ -136,6 +136,7 @@ CRITICAL EXTRACTION RULES:
 - POSITIONING: Flights travelled as a passenger to or from a duty (marked DH, DHD, POS, PAX, "deadhead" or "positioning") ARE returned in "flights" with "isPositioning": true. Normal working flights have "isPositioning": false.
 - OTHER DAYS: Days without flying are NOT flights. Return each one in the "otherDuties" array with its date (the roster's local date, "YYYY-MM-DD") and the code as printed. Use "off" for days off (OFF, D/O, DO, G/D, "Golden Day Off", RD), "leave" for leave or holiday (AL, CL, PL, LV, "leave"), "sick" for sick days (SCK, SL, S/L, "sick"), "training" for training or simulator days (SIM, TRG, G/S, CRM, "training"), and "other" for anything else that is not a flight or standby. Hotel / layover lines (HOTEL, L/O, REST) are not returned.
 - ROSTER PERIOD: If the document states the dates it covers (e.g. "01/10/2026 - 21/10/2026"), return them as "rosterPeriod" with "start" and "end" dates ("YYYY-MM-DD").
+- VISIBLE DATES: Return "visibleDates": every calendar date that has its own row, cell or line in this document, including days that are blank, OFF, leave or rest ("YYYY-MM-DD"). Only dates actually shown, never the whole month just because a header names it. This tells the app which days this screenshot really covers.
 - AIRPORTS: Extract 3-letter IATA codes (e.g. DEL, BOM, DXB, LHR, JFK). If city names or 4-letter ICAO codes are shown, convert them to 3-letter IATA codes.
 - MISSING YEAR: Today's date is ${today}. If the year is omitted from the document (e.g. only "01 OCT" or "Mon 14" is visible), choose the year that places the date closest to today.
 - NEVER GUESS: If a flight's date, time or airport cannot be read, leave that field as an empty string rather than inventing a value.
@@ -178,6 +179,7 @@ CRITICAL EXTRACTION RULES:
     { "type": "off", "date": "YYYY-MM-DD", "code": "OFF" }
   ],
   "rosterPeriod": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" },
+  "visibleDates": ["YYYY-MM-DD"],
   "notes": "string"
 }
 `;

@@ -1,4 +1,4 @@
-import { RosterData, RosterHistoryEntry } from '../types/circadian';
+import { RosterData, RosterHistoryEntry, UserUpdate } from '../types/circadian';
 
 const STORAGE_KEY = 'crew_roster_history_v1';
 
@@ -60,8 +60,9 @@ export function recordRosterAction(
 ): RosterHistoryEntry[] {
   const current = loadRosterHistory();
   
-  // Mark previous entries as not active if the new one is active
-  const updatedCurrent = current.map((item) => ({
+  // Mark previous entries as not active if the new one is active. Only the newest entry keeps the
+  // roster from before its change (for Undo), so storage stays small.
+  const updatedCurrent = current.map(({ previousSnapshot: _dropped, previousUpdates: _droppedUpdates, ...item }) => ({
     ...item,
     isActive: entry.isActive ? false : item.isActive,
   }));
@@ -102,4 +103,16 @@ export function setActiveHistoryItem(id: string): RosterHistoryEntry[] {
   }));
   saveRosterHistory(updated);
   return updated;
+}
+
+/**
+ * The newest change can be undone while the saved roster is still exactly what that change produced.
+ * Returns that entry, or undefined when there is nothing safe to undo.
+ */
+export function undoableEntry(history: RosterHistoryEntry[], current: RosterData, currentUpdates: UserUpdate[] = []): RosterHistoryEntry | undefined {
+  const latest = history[0];
+  if (!latest?.previousSnapshot || !latest.rosterSnapshot || latest.actionType === 'undo') return undefined;
+  if (JSON.stringify(latest.rosterSnapshot) !== JSON.stringify(current)) return undefined;
+  if (latest.updatesSnapshot && JSON.stringify(latest.updatesSnapshot) !== JSON.stringify(currentUpdates)) return undefined;
+  return latest;
 }

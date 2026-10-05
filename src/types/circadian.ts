@@ -28,6 +28,10 @@ export interface FlightLeg {
   isPositioning?: boolean; // travelling as a passenger to or from a duty (deadhead); duty time, not flying pay
   tzUnverified?: boolean; // an airport's time zone could not be verified from the reference list; must be checked before saving
   bunkShift?: 'shift1' | 'shift2' | 'none'; // In-flight rest split for long-haul
+  userChange?: 'added' | 'callout' | 'delayed'; // set when the person added or changed this flight themselves, not a roster upload
+  userDelayMinutes?: number; // total delay the person entered for this flight
+  importedFrom?: ImportSource; // the upload this flight came from, so the app can say why it believes it
+  operationalDelay?: { minutes: number; rosteredDepartureUtc: string; rosteredArrivalUtc: string; rosteredReleaseUtc: string }; // set only on the plan's working copy when the person reported a delay; never saved in the roster
 }
 
 /** A standby period from the roster: at home (on call) or at the airport (ready to fly). */
@@ -37,6 +41,25 @@ export interface StandbyDuty {
   airport: string; // where the standby is held, usually the home base
   startUtc: string;
   endUtc: string;
+  importedFrom?: ImportSource;
+}
+
+/**
+ * Something the person told the app happened, kept separate from the roster (what the airline published).
+ * The plan uses the roster with these applied; the roster itself is never changed by them.
+ */
+export interface UserUpdate {
+  id: string;
+  kind: 'delay';
+  sectorKey: string; // stable key of the rostered flight (see rosterKeys)
+  minutes: number; // later than rostered; departure, arrival and release move, the rostered report time does not
+  createdAt: string; // ISO
+}
+
+/** Which upload an item came from (shown as its source). */
+export interface ImportSource {
+  title: string; // file name or 'Pasted text'
+  at: string; // ISO time of the upload
 }
 
 /** A non-flying day listed on the roster. Dates are as printed on the roster (home-base dates). */
@@ -207,7 +230,14 @@ export interface RosterData {
   sourceDocumentName?: string;
 }
 
-export type HistoryActionType = 'upload' | 'preset' | 'manual_edit' | 'cleared';
+export type HistoryActionType = 'upload' | 'preset' | 'manual_edit' | 'cleared' | 'undo';
+
+/** One day's changes in a history entry, in plain words. */
+export interface HistoryDayChange {
+  date: string; // YYYY-MM-DD
+  label: string; // e.g. 'Now free', 'Changed'
+  lines: string[]; // e.g. '6E 408 BLR→PNQ 04:30 → 04:12'
+}
 
 export interface RosterHistoryEntry {
   id: string;
@@ -221,6 +251,10 @@ export interface RosterHistoryEntry {
   dateRange?: string; // e.g. "Oct 01 - Oct 30, 2026"
   isActive: boolean;
   rosterSnapshot?: RosterData; // Snapshot to enable instant restore
+  previousSnapshot?: RosterData; // the roster just before this change; kept on the newest entry only, for Undo
+  changes?: HistoryDayChange[]; // what changed, day by day (roster updates)
+  updatesSnapshot?: UserUpdate[]; // the person's updates after this change
+  previousUpdates?: UserUpdate[]; // the person's updates just before this change; newest entry only, for Undo
   sourceDocumentUrl?: string;
   sourceDocumentName?: string;
 }

@@ -1,4 +1,4 @@
-import { CrewPreferences, FlightLeg, RosterData } from '../types/circadian';
+import { CrewPreferences, FlightLeg, RosterData, UserUpdate } from '../types/circadian';
 
 const STORAGE_KEY = 'crew_app_state_v1';
 
@@ -7,6 +7,8 @@ export interface PersistedAppState {
   preferences: CrewPreferences;
   customNudges: Record<string, number>;
   activePresetId: string;
+  /** What the person reported happened (delays), kept apart from the roster. */
+  userUpdates?: UserUpdate[];
 }
 
 const isValidIso = (value: unknown): value is string => typeof value === 'string' && !isNaN(Date.parse(value));
@@ -105,6 +107,12 @@ export function reviveAppState(parsed: any, defaultPreferences: CrewPreferences)
     preferences: { ...defaultPreferences, ...savedPrefs },
     customNudges: nudges,
     activePresetId: typeof parsed.activePresetId === 'string' ? parsed.activePresetId : 'custom-upload',
+    userUpdates: Array.isArray(parsed.userUpdates)
+      ? parsed.userUpdates.filter(
+          (u: any) =>
+            u && u.kind === 'delay' && typeof u.id === 'string' && typeof u.sectorKey === 'string' && typeof u.minutes === 'number' && isFinite(u.minutes) && u.minutes > 0
+        )
+      : [],
   };
 }
 

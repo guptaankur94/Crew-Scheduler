@@ -47,7 +47,15 @@ The sample roster and all planning screens work straight away. To read your own 
 
 ### Rules that keep the numbers right
 
-- **A newer roster wins for the days it covers.** When a roster is uploaded on top of a saved one, everything saved on the new roster's dates (flights, standby, days off) is replaced, not combined. The dates are the period printed on the roster, widened to the first and last entries found. The person sees exactly what will be replaced before saving and can keep the older entries. Matching flight by flight is not enough: a re-planned day rarely overlaps the old one in time, so old flights would stay and inflate monthly totals. Code: `uploadCoverage` and `splitByCoverage` in `src/services/rosterMerger.ts`; regression tests in `tests/rosterReplace.test.ts`.
+- **An upload is a new version of the schedule, reconciled day by day** (`src/services/rosterDiff.ts`, tests in `tests/rosterDiff.test.ts`):
+  - *Identity* comes from content, never row position: a flight is home departure date + flight number + route (`src/services/rosterKeys.ts`). Times are not part of identity; they are what changes.
+  - *Scope*: an upload only changes the dates it visibly shows (the reader returns `visibleDates`). A partial screenshot with a whole-month header updates only its own dates unless the person chooses otherwise; a saved day the upload says nothing about is asked about, never assumed free.
+  - *Newer roster wins* on in-scope dates: matching flight by flight is not enough, because a re-planned day rarely overlaps the old one in time (this once made October show 59.9h instead of 49.9h).
+  - *Idempotent*: the same roster uploaded again finds no changes and saves nothing; an already-imported file is recognised before it is sent to the AI (`src/services/importFingerprints.ts`).
+  - *Conservative*: differences that look like reading errors (≤5 min, one character) keep the saved value; flights the person added are kept unless they remove them; sleep adjustments are kept except next to changed days.
+  - Duties, the plan and all totals are recalculated from the saved items, never stored, so they cannot be duplicated.
+- **The roster is never edited by what the person reports.** A delay is stored as a separate update keyed to the flight (`src/services/userUpdates.ts`) and applied on top only when planning: departure, arrival and release move, the rostered report time does not. Re-uploading the same roster therefore finds no changes; a newer roster keeps the delay while that flight is still on it.
+- **Every roster change is recorded once and the newest can be undone** (`commitChange` in `src/App.tsx`, `undoableEntry` in `src/services/rosterHistoryService.ts`); each uploaded item records its source so the app can say why it believes a duty exists (`src/services/provenance.ts`).
 - **Totals count flights by their home-time departure date**, and positioning flights are not flying hours or sectors (`src/services/periodStats.ts`).
 - **Countries are compared by ISO code from the airport database**, never by name (`airportCountryCode` in `src/data/airports.ts`).
 

@@ -1,10 +1,12 @@
 import React from 'react';
-import { CircadianEvent } from '../types/circadian';
+import { CircadianEvent, RosterData } from '../types/circadian';
+import { standbySource } from '../services/provenance';
 
 /** Shows the standby periods for a day, if any. */
-export const StandbyNotice: React.FC<{ events: CircadianEvent[]; onSelectEvent: (e: CircadianEvent) => void }> = ({
+export const StandbyNotice: React.FC<{ events: CircadianEvent[]; onSelectEvent: (e: CircadianEvent) => void; roster?: RosterData }> = ({
   events,
   onSelectEvent,
+  roster,
 }) => {
   const standby = events.filter((e) => e.type === 'standby');
   if (standby.length === 0) return null;
@@ -20,6 +22,12 @@ export const StandbyNotice: React.FC<{ events: CircadianEvent[]; onSelectEvent: 
             {e.title} · {e.startHbtStr}–{e.endHbtStr}
           </p>
           <p className="mt-1 text-slate-300">{e.subtitle}</p>
+          {(() => {
+            // Why the app believes this standby exists
+            const sb = roster?.standbyDuties?.find((d) => e.id === `standby-${d.id}`);
+            const source = sb && standbySource(sb);
+            return source ? <p className="mt-1 text-[10px] text-slate-500">Source: {source}</p> : null;
+          })()}
         </button>
       ))}
     </div>

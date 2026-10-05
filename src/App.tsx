@@ -23,7 +23,7 @@ import { TodayPreview } from './components/views/TodayPreview';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
 import { ScienceView } from './components/views/ScienceView';
-import { MasterRosterOverview } from './components/MasterRosterOverview';
+import { MonthView } from './components/views/MonthView';
 import { EventDetailModal } from './components/EventDetailModal';
 import {
   Clock,
@@ -31,7 +31,7 @@ import {
   UploadCloud,
   DollarSign,
   Sliders,
-  FileText,
+  CalendarDays,
 } from 'lucide-react';
 
 const DEFAULT_PREFERENCES: CrewPreferences = {
@@ -98,8 +98,23 @@ export default function App() {
   const [customNudges, setCustomNudges] = useState<Record<string, number>>(
     savedPreset ? {} : savedState?.customNudges ?? {}
   );
-  // Date to open when jumping from the master sheet into the timeline
+  // Date to open when jumping from the Month screen into the timeline
   const [timelineJumpDate, setTimelineJumpDate] = useState<string | undefined>(undefined);
+  // Month shown on the Month screen (YYYY-MM-01); starts on the current month
+  // Open the Month screen straight on the full roster table (from the upload screen's check button)
+  const [monthShowOriginal, setMonthShowOriginal] = useState(false);
+  const [monthViewMonth, setMonthViewMonth] = useState<string>(() => `${new Date().toISOString().slice(0, 7)}-01`);
+  /** Opens a day in the Timeline. */
+  const openDayInTimeline = (dateStr: string) => {
+    setTimelineJumpDate(dateStr);
+    setActiveView('roster');
+  };
+  /** Switches screens from the menu or tab bar; the Timeline then opens on today. */
+  const navigateTo = (view: NavView) => {
+    if (view === 'roster') setTimelineJumpDate(undefined);
+    setMonthShowOriginal(false);
+    setActiveView(view);
+  };
   const [selectedEvent, setSelectedEvent] = useState<CircadianEvent | null>(null);
   // Controlled preview of the redesigned Today screen; classic stays the default until approved
   const [todayVersion, setTodayVersion] = useState<'classic' | 'preview'>(() => {
@@ -522,7 +537,7 @@ export default function App() {
   const viewTitles: Record<NavView, string> = {
     today: "Today",
     roster: 'Timeline',
-    mastersheet: 'Roster sheet',
+    mastersheet: 'Month',
     salary: 'Salary estimate',
     upload: 'Upload roster',
     settings: 'Settings',
@@ -535,7 +550,7 @@ export default function App() {
       <Sidebar
         activeView={activeView}
         onSelectView={(view) => {
-          setActiveView(view);
+          navigateTo(view);
           setIsMobileMenuOpen(false);
         }}
         isCollapsed={isSidebarCollapsed}
@@ -616,16 +631,21 @@ export default function App() {
               onDeleteSector={handleDeleteSector}
               onAddStandbyFlight={handleAddStandbyFlight}
               initialDate={timelineJumpDate}
+              onOpenMonthSummary={(dateStr) => {
+                setMonthViewMonth(`${dateStr.slice(0, 7)}-01`);
+                setActiveView('mastersheet');
+              }}
             />
           )}
 
           {activeView === 'mastersheet' && (
-            <MasterRosterOverview
+            <MonthView
               plan={plan}
-              onJumpToTimeline={(dateStr) => {
-                setTimelineJumpDate(dateStr);
-                setActiveView('roster');
-              }}
+              month={monthViewMonth}
+              onChangeMonth={setMonthViewMonth}
+              showOriginal={monthShowOriginal}
+              onShowOriginalChange={setMonthShowOriginal}
+              onOpenDay={openDayInTimeline}
               onSelectEvent={setSelectedEvent}
             />
           )}
@@ -646,7 +666,10 @@ export default function App() {
               onSelectPreset={handleSelectPreset}
               onRosterParsed={handleRosterParsed}
               onViewRosterTimeline={() => setActiveView('roster')}
-              onViewMasterSheet={() => setActiveView('mastersheet')}
+              onViewMasterSheet={() => {
+                setMonthShowOriginal(true);
+                setActiveView('mastersheet');
+              }}
               onRestoreRoster={handleRestoreRoster}
               onClearActiveRoster={handleClearActiveRoster}
               onDeleteHistoryItem={handleDeleteHistoryItem}
@@ -691,7 +714,7 @@ export default function App() {
         {[
           { id: 'today' as NavView, label: 'Today', icon: <Clock className="h-4 w-4" /> },
           { id: 'roster' as NavView, label: 'Timeline', icon: <Calendar className="h-4 w-4" /> },
-          { id: 'mastersheet' as NavView, label: 'Sheet', icon: <FileText className="h-4 w-4" /> },
+          { id: 'mastersheet' as NavView, label: 'Month', icon: <CalendarDays className="h-4 w-4" /> },
           { id: 'salary' as NavView, label: 'Salary', icon: <DollarSign className="h-4 w-4" /> },
           { id: 'upload' as NavView, label: 'Upload', icon: <UploadCloud className="h-4 w-4" /> },
         ].map((tab) => {
@@ -699,7 +722,7 @@ export default function App() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveView(tab.id)}
+              onClick={() => navigateTo(tab.id)}
               className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-[10px] font-bold transition-all ${
                 isActive
                   ? 'text-blue-400 bg-blue-950/40 border border-blue-800/40'

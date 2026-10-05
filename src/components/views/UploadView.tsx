@@ -823,7 +823,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                       title="Cross-check parsed flight sheet against AIMS portal"
                     >
                       <FileText className="h-3 w-3 text-emerald-400" />
-                      <span>Quick Audit / View Master Sheet ➔</span>
+                      <span>Check against original ➔</span>
                     </button>
                   )}
                   <button
@@ -927,10 +927,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 <button
                   onClick={onViewMasterSheet}
                   className="rounded-lg border border-emerald-500/50 bg-emerald-900/60 hover:bg-emerald-800/80 px-3 py-1 font-bold text-emerald-200 text-xs flex items-center gap-1 shadow-sm"
-                  title="Open Master Sheet in Split-Screen verification mode"
+                  title="Open the full roster table to check it against your document"
                 >
                   <FileText className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Quick Audit / View Master Sheet ➔</span>
+                  <span>Check against original ➔</span>
                 </button>
               )}
               <button

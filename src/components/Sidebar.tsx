@@ -12,7 +12,7 @@ import {
   Sparkles,
   MapPin,
   CheckCircle2,
-  FileText,
+  CalendarDays,
   DollarSign,
 } from 'lucide-react';
 import { CircadianPlan } from '../types/circadian';
@@ -58,10 +58,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'mastersheet',
-      label: 'Roster sheet',
-      shortLabel: 'Sheet',
-      icon: <FileText className="h-4 w-4" />,
-      desc: 'All flights in one table',
+      label: 'Month',
+      shortLabel: 'Month',
+      icon: <CalendarDays className="h-4 w-4" />,
+      desc: 'Summary, calendar & all days',
     },
     {
       id: 'salary',

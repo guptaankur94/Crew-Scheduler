@@ -377,3 +377,29 @@ test('positioning flights are duty time but not flying hours', () => {
   assert.match(plan.events.find((e) => e.id === 'flight-dh')!.title, /^Positioning \(as passenger\)/);
   assert.deepEqual(problems(plan), []);
 });
+
+/** Home (IST) date string `days` from today. */
+const istDay = (days: number) => new Date(Date.now() + 5.5 * 3600000 + days * 86400000).toISOString().slice(0, 10);
+
+test('after a roster has ended, today and the week ahead still get the usual rhythm, flagged as outside the roster', () => {
+  const past = generateCircadianPlan(roster([leg('old', 'DEL', 'BOM', `${istDay(-20)}T10:00`, `${istDay(-20)}T12:00`)]), prefs);
+  const today = past.dailySummaries.find((d) => d.dateStr === istDay(0))!;
+  assert.ok(today, 'today is part of the plan');
+  assert.equal(today.outsideRoster, true);
+  assert.equal(past.dailySummaries.find((d) => d.dateStr === istDay(-20))!.outsideRoster, false);
+  assert.ok(past.dailySummaries.some((d) => d.dateStr === istDay(6)), 'a week ahead is covered');
+  const tonight = past.events.find((e) => e.type === 'anchor_sleep' && e.dutyDate === istDay(1));
+  assert.equal(tonight?.startHbtStr, '23:00');
+  assert.ok(past.events.some((e) => e.type === 'caffeine_cutoff' && e.dutyDate === istDay(0)));
+  assert.deepEqual(problems(past), []);
+});
+
+test('before a roster starts, the days until then get the usual rhythm and lead into the first duty', () => {
+  const future = generateCircadianPlan(roster([leg('new', 'DEL', 'BOM', `${istDay(10)}T05:15`, `${istDay(10)}T07:30`)]), prefs);
+  assert.equal(future.dailySummaries[0].dateStr, istDay(0));
+  assert.equal(future.dailySummaries.find((d) => d.dateStr === istDay(3))!.outsideRoster, true);
+  assert.equal(future.dailySummaries.find((d) => d.dateStr === istDay(10))!.outsideRoster, false);
+  const beforeDuty = future.events.find((e) => e.type === 'anchor_sleep' && e.dutyDate === istDay(10))!;
+  assert.equal(beforeDuty.startHbtStr, '18:30', 'early bedtime before the first duty is still planned');
+  assert.deepEqual(problems(future), []);
+});

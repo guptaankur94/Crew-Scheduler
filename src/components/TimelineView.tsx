@@ -4,7 +4,6 @@ import {
   CircadianPlan,
   CrewPreferences,
   CrewRank,
-  DailyCircadianSummary,
   SalaryCurrency,
 } from '../types/circadian';
 import {
@@ -42,6 +41,7 @@ import {
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { SalarySection } from './SalarySection';
 import { StandbyNotice } from './StandbyNotice';
+import { DateNavigator } from './DateNavigator';
 import { FlightLeg } from '../types/circadian';
 import {
   formatAviationDate,
@@ -79,30 +79,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const { events, dailySummaries, preferences, monthlyStats } = plan;
 
   // Selected Week filter: 'all' | 'w1' | 'w2' | 'w3' | 'w4' | 'w5'
-  const [activeWeek, setActiveWeek] = useState<string>('w1');
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
 
   // Debrief duration state per flight (default 30 mins)
   const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
 
-  // Multi-Month detection across continuous timeline (e.g. Jan, Feb, Mar)
-  const monthsInTimeline = React.useMemo(() => {
-    const map = new Map<string, { key: string; label: string; count: number }>();
-    dailySummaries.forEach((d) => {
-      const ym = d.dateStr.slice(0, 7);
-      if (!map.has(ym)) {
-        const dateObj = new Date(`${d.dateStr}T12:00:00Z`);
-        const label = dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-        map.set(ym, { key: ym, label, count: 0 });
-      }
-      if (!d.isOffDay) {
-        map.get(ym)!.count++;
-      }
-    });
-    return Array.from(map.values());
-  }, [dailySummaries]);
-
-  const [activeMonthFilter, setActiveMonthFilter] = useState<string>('all');
   const [showSalaryStudio, setShowSalaryStudio] = useState<boolean>(false);
   const [tacticalModal, setTacticalModal] = useState<{
     isOpen: boolean;
@@ -124,23 +105,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   }, [initialDate]);
 
   const activeDaySummary = dailySummaries.find((d) => d.dateStr === selectedDate) || dailySummaries[0];
-
-  // Month-filtered daily summaries
-  const monthFilteredSummaries = React.useMemo(() => {
-    if (activeMonthFilter === 'all') return dailySummaries;
-    return dailySummaries.filter((d) => d.dateStr.startsWith(activeMonthFilter));
-  }, [dailySummaries, activeMonthFilter]);
-
-  // Filter days based on active week within the active month
-  const filteredSummaries = React.useMemo(() => {
-    if (activeWeek === 'all') return monthFilteredSummaries;
-    if (activeWeek === 'w1') return monthFilteredSummaries.slice(0, 7);
-    if (activeWeek === 'w2') return monthFilteredSummaries.slice(7, 14);
-    if (activeWeek === 'w3') return monthFilteredSummaries.slice(14, 21);
-    if (activeWeek === 'w4') return monthFilteredSummaries.slice(21, 28);
-    if (activeWeek === 'w5') return monthFilteredSummaries.slice(28);
-    return monthFilteredSummaries;
-  }, [monthFilteredSummaries, activeWeek]);
 
   // Helper to find matching FlightLeg from a flight CircadianEvent
   const getFlightLeg = (flightEvent: CircadianEvent): FlightLeg | undefined => {
@@ -242,200 +206,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         </div>
       )}
 
-      {/* Layer 2: Consolidated Smart Roster Navigator (Unified Month, Week & Inspection State) */}
-      <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-slate-950 p-3 sm:p-3.5 shadow-sm space-y-2.5">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          {/* Left: Combined Scope & Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-slate-300 font-bold">
-              <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
-              <span>Timeline:</span>
-            </div>
-
-            {/* If multi-month timeline, render sleek Month segmented buttons */}
-            {monthsInTimeline.length > 1 && (
-              <div className="inline-flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs">
-                <button
-                  onClick={() => {
-                    setActiveMonthFilter('all');
-                    setActiveWeek('w1');
-                  }}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                    activeMonthFilter === 'all'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  All ({monthsInTimeline[0]?.label.split(' ')[0]}–{monthsInTimeline[monthsInTimeline.length - 1]?.label.split(' ')[0]})
-                </button>
-                {monthsInTimeline.map((m) => (
-                  <button
-                    key={m.key}
-                    onClick={() => {
-                      setActiveMonthFilter(m.key);
-                      setActiveWeek('all');
-                      const firstInMonth = dailySummaries.find((d) => d.dateStr.startsWith(m.key));
-                      if (firstInMonth) setSelectedDate(firstInMonth.dateStr);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                      activeMonthFilter === m.key
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {m.label.split(' ')[0]} ({m.count}d)
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Week Pills Segmented Group - Compact, responsive & clean */}
-            <div className="inline-flex items-center bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-xs">
-              {[
-                {
-                  id: 'w1',
-                  label: 'W1',
-                  fullLabel: dailySummaries[0] && dailySummaries[6]
-                    ? `W1 (${formatAviationDate(dailySummaries[0].dateStr)} – ${formatAviationDate(dailySummaries[6].dateStr)})`
-                    : 'W1',
-                },
-                {
-                  id: 'w2',
-                  label: 'W2',
-                  fullLabel: dailySummaries[7] && dailySummaries[13]
-                    ? `W2 (${formatAviationDate(dailySummaries[7].dateStr)} – ${formatAviationDate(dailySummaries[13].dateStr)})`
-                    : 'W2',
-                },
-                {
-                  id: 'w3',
-                  label: 'W3',
-                  fullLabel: dailySummaries[14] && dailySummaries[20]
-                    ? `W3 (${formatAviationDate(dailySummaries[14].dateStr)} – ${formatAviationDate(dailySummaries[20].dateStr)})`
-                    : 'W3',
-                },
-                {
-                  id: 'w4',
-                  label: 'W4',
-                  fullLabel: dailySummaries[21] && dailySummaries[27]
-                    ? `W4 (${formatAviationDate(dailySummaries[21].dateStr)} – ${formatAviationDate(dailySummaries[27].dateStr)})`
-                    : 'W4',
-                },
-                {
-                  id: 'w5',
-                  label: 'W5',
-                  fullLabel: dailySummaries[28]
-                    ? `W5 (${formatAviationDate(dailySummaries[28].dateStr)}${dailySummaries[dailySummaries.length - 1] ? ` – ${formatAviationDate(dailySummaries[dailySummaries.length - 1].dateStr)}` : ''})`
-                    : 'W5',
-                },
-                { id: 'all', label: 'All 30d', fullLabel: `All ${dailySummaries.length} Days` },
-              ].map((wk) => {
-                const isActive = activeWeek === wk.id;
-                return (
-                  <button
-                    key={wk.id}
-                    onClick={() => {
-                      setActiveWeek(wk.id);
-                      if (wk.id === 'w1' && dailySummaries[0]) setSelectedDate(dailySummaries[0].dateStr);
-                      if (wk.id === 'w2' && dailySummaries[7]) setSelectedDate(dailySummaries[7].dateStr);
-                      if (wk.id === 'w3' && dailySummaries[14]) setSelectedDate(dailySummaries[14].dateStr);
-                      if (wk.id === 'w4' && dailySummaries[21]) setSelectedDate(dailySummaries[21].dateStr);
-                      if (wk.id === 'w5' && dailySummaries[28]) setSelectedDate(dailySummaries[28].dateStr);
-                    }}
-                    title={wk.fullLabel}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                      isActive
-                        ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {wk.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Right: Selected Day & Fatigue Status Pill */}
-          {activeDaySummary && selectedDate !== 'all' && (
-            <div className="flex items-center gap-2 text-xs self-start lg:self-center shrink-0">
-              <span className="text-slate-400">
-                Selected: <strong className="text-white font-mono">{formatAviationDate(activeDaySummary.dateStr)}</strong> ({activeDaySummary.dayLabel.split(',')[0]})
-              </span>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                  activeDaySummary.isOffDay
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : activeDaySummary.fatigueRiskLevel === 'high'
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                    : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
-                }`}
-              >
-                {activeDaySummary.outlook?.headline ?? (activeDaySummary.isOffDay ? 'Day off' : 'Duty day')}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Sub-strip: Range Context Label without scrollbar */}
-        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60 font-mono">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-500">Current Window:</span>
-            <span className="text-sky-300 font-semibold font-sans">
-              {activeWeek === 'all'
-                ? `Continuous Timeline (${formatAviationDate(dailySummaries[0]?.dateStr || '')} – ${formatAviationDate(dailySummaries[dailySummaries.length - 1]?.dateStr || '')}) • ${dailySummaries.length} Days`
-                : activeWeek === 'w1'
-                ? `Week 1 (${formatAviationDate(dailySummaries[0]?.dateStr || '')} – ${formatAviationDate(dailySummaries[6]?.dateStr || '')})`
-                : activeWeek === 'w2'
-                ? `Week 2 (${formatAviationDate(dailySummaries[7]?.dateStr || '')} – ${formatAviationDate(dailySummaries[13]?.dateStr || '')})`
-                : activeWeek === 'w3'
-                ? `Week 3 (${formatAviationDate(dailySummaries[14]?.dateStr || '')} – ${formatAviationDate(dailySummaries[20]?.dateStr || '')})`
-                : activeWeek === 'w4'
-                ? `Week 4 (${formatAviationDate(dailySummaries[21]?.dateStr || '')} – ${formatAviationDate(dailySummaries[27]?.dateStr || '')})`
-                : `Week 5 (${formatAviationDate(dailySummaries[28]?.dateStr || '')} – ${formatAviationDate(dailySummaries[dailySummaries.length - 1]?.dateStr || '')})`}
-            </span>
-          </div>
-
-          <span className="text-[10px] text-slate-500 hidden sm:inline font-sans">
-            Tap any day below to inspect schedule & alarms
-          </span>
-        </div>
-      </div>
-
-      {/* Layer 3: Day Selector Pills for the Active Week */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar">
-        {filteredSummaries.map((day: DailyCircadianSummary) => {
-          const isSelected = selectedDate === day.dateStr;
-          return (
-            <button
-              key={day.dateStr}
-              onClick={() => setSelectedDate(day.dateStr)}
-              className={`flex shrink-0 flex-col items-center justify-center rounded-xl border px-3 py-2 text-center transition-all min-w-[76px] ${
-                isSelected
-                  ? 'border-blue-500 bg-blue-950/40 ring-1 ring-blue-500 shadow-md'
-                  : day.isOffDay
-                  ? 'border-emerald-900/40 bg-emerald-950/20 text-emerald-300 hover:bg-emerald-950/30'
-                  : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900'
-              }`}
-            >
-              <span className="text-[10px] font-semibold text-slate-400 uppercase">
-                {day.dayLabel.split(',')[0]}
-              </span>
-              <span className="font-mono text-xs font-bold text-white mt-0.5">
-                {formatAviationDate(day.dateStr)}
-              </span>
-              <span className="text-[9px] mt-1 font-medium">
-                {day.isOffDay ? (
-                  <span className="text-emerald-400 font-bold">OFF</span>
-                ) : day.fatigueRiskLevel === 'high' ? (
-                  <span className="text-amber-400">Harder</span>
-                ) : (
-                  <span className="text-blue-400">Duty</span>
-                )}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Layer 2: Calendar-style day navigator (week strip or month grid) */}
+      <DateNavigator
+        days={dailySummaries}
+        selectedDate={selectedDate}
+        todayStr={new Date(Date.now() + preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10)}
+        onSelect={setSelectedDate}
+      />
 
       {/* Standby periods on the selected day */}
       <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} />

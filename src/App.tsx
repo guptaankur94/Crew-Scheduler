@@ -19,6 +19,7 @@ import { Sidebar, NavView } from './components/Sidebar';
 import { TodayView } from './components/views/TodayView';
 import { RosterView } from './components/views/RosterView';
 import { SalaryView } from './components/views/SalaryView';
+import { TodayPreview } from './components/views/TodayPreview';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
 import { ScienceView } from './components/views/ScienceView';
@@ -100,6 +101,22 @@ export default function App() {
   // Date to open when jumping from the master sheet into the timeline
   const [timelineJumpDate, setTimelineJumpDate] = useState<string | undefined>(undefined);
   const [selectedEvent, setSelectedEvent] = useState<CircadianEvent | null>(null);
+  // Controlled preview of the redesigned Today screen; classic stays the default until approved
+  const [todayVersion, setTodayVersion] = useState<'classic' | 'preview'>(() => {
+    try {
+      return localStorage.getItem('crew_today_version') === 'preview' ? 'preview' : 'classic';
+    } catch {
+      return 'classic';
+    }
+  });
+  const chooseTodayVersion = (version: 'classic' | 'preview') => {
+    setTodayVersion(version);
+    try {
+      localStorage.setItem('crew_today_version', version);
+    } catch {
+      // Not saved: the choice simply resets next time
+    }
+  };
 
   // Generate reactive Circadian Plan whenever roster, preferences, or nudges change
   const plan = useMemo(() => {
@@ -548,6 +565,34 @@ export default function App() {
         {/* Main Content Workspace per Active View */}
         <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 flex-1">
           {activeView === 'today' && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-900/60 bg-sky-950/20 px-3 py-2 text-xs text-sky-200">
+              <span>
+                {todayVersion === 'preview'
+                  ? 'You are viewing the new Today (preview).'
+                  : 'A redesigned Today screen is available to preview.'}
+              </span>
+              <button
+                onClick={() => chooseTodayVersion(todayVersion === 'preview' ? 'classic' : 'preview')}
+                className="rounded-lg border border-sky-700/60 bg-sky-950/60 px-3 py-1 font-bold hover:bg-sky-900/60"
+              >
+                {todayVersion === 'preview' ? 'Back to classic' : 'Try the new Today (preview)'}
+              </button>
+            </div>
+          )}
+
+          {activeView === 'today' && todayVersion === 'preview' && (
+            <TodayPreview
+              plan={plan}
+              onSelectEvent={setSelectedEvent}
+              onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
+              onOpenScience={() => setActiveView('science')}
+              onOpenSettings={() => setActiveView('settings')}
+              onOpenTimeline={() => setActiveView('roster')}
+              onNavigateToUpload={() => setActiveView('upload')}
+            />
+          )}
+
+          {activeView === 'today' && todayVersion === 'classic' && (
             <TodayView
               plan={plan}
               onSelectEvent={setSelectedEvent}

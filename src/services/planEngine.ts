@@ -278,6 +278,11 @@ function subtract(block: Block, cut: Block[]): Block[] {
   return pieces;
 }
 
+/** True if [startMs, endMs] touches the home-time window [fromHour, toHour) on any day. */
+export function overlapsHomeWindow(startMs: number, endMs: number, fromHour: number, toHour: number, clock: HomeClock): boolean {
+  return intersectDaily(startMs, endMs, fromHour, toHour, clock).length > 0;
+}
+
 /** True if a flight overlaps the home-time body-clock night (02:00–06:00). */
 export function flightInBodyNight(flight: FlightLeg, clock: HomeClock): boolean {
   return intersectDaily(Date.parse(flight.departureTimeUtc), Date.parse(flight.arrivalTimeUtc), 2, 6, clock).length > 0;
@@ -308,13 +313,22 @@ export function planRange(duties: Duty[], roster: RosterData, clock: HomeClock, 
     const fromTotal = clock.addDays(rosterFirst, roster.totalDays - 1);
     if (fromTotal > rosterLast) rosterLast = fromTotal;
   }
+  // Days the roster itself covers: its stated dates when it gives them, otherwise from the first to the
+  // last day it lists anything (flights, standby, OFF, leave, sick or training)
+  const listedDates = [
+    clock.date(duties[0].startMs),
+    clock.date(duties[duties.length - 1].endMs),
+    ...(roster.otherDuties ?? []).map((d) => d.date),
+  ].sort();
+  const coverFirst = roster.periodStart ?? listedDates[0];
+  const coverLast = roster.periodEnd ?? listedDates[listedDates.length - 1];
   const rosterDates = new Set<string>();
-  for (let d = rosterFirst; d <= rosterLast; d = clock.addDays(d, 1)) rosterDates.add(d);
+  for (let d = coverFirst; d <= coverLast; d = clock.addDays(d, 1)) rosterDates.add(d);
 
   // The plan also covers today and the week ahead, so the days before a roster starts and after it
   // ends still get the usual home-time rhythm (no duties, just sleep, caffeine, meals and daylight)
-  const firstDate = today < rosterFirst ? today : rosterFirst;
-  const lastDate = lastUsualDay > rosterLast ? lastUsualDay : rosterLast;
+  const firstDate = [today, rosterFirst, coverFirst].sort()[0];
+  const lastDate = [lastUsualDay, rosterLast, coverLast].sort()[2];
   const dates: string[] = [];
   for (let d = firstDate; d <= lastDate; d = clock.addDays(d, 1)) dates.push(d);
   // Start the evening before the first day so the sleep leading into it is planned too

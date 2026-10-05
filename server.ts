@@ -134,7 +134,8 @@ CRITICAL EXTRACTION RULES:
 - EXTRACT EVERY REAL FLIGHT LEG: Look for flight numbers (2-character or 3-character airline code followed by digits, e.g. 6E 205, AI 101, EK 512, QR 570, BA 142, UA 880, DL 1234, FR 405, QP 1102, SG 8145, UK 955, etc.).
 - STANDBY: Standby / reserve duties (SBY, RSRV, HSBY, ASBY, "standby", "reserve") are NOT flights. Return each one in the "standby" array with its start and end time in UTC. Use "airport" for airport standby (ASBY, airport reserve) and "home" for home standby (SBY, HSBY, home reserve).
 - POSITIONING: Flights travelled as a passenger to or from a duty (marked DH, DHD, POS, PAX, "deadhead" or "positioning") ARE returned in "flights" with "isPositioning": true. Normal working flights have "isPositioning": false.
-- DISREGARD OTHER NON-FLIGHT DUTIES: Days off (OFF, D/O, G/D, RD), Leave (AL, S/L, CL), Training / Sim (SIM, TRG, G/S) and Hotel / Layover (HOTEL, L/O, REST) must not be returned.
+- OTHER DAYS: Days without flying are NOT flights. Return each one in the "otherDuties" array with its date (the roster's local date, "YYYY-MM-DD") and the code as printed. Use "off" for days off (OFF, D/O, DO, G/D, "Golden Day Off", RD), "leave" for leave or holiday (AL, CL, PL, LV, "leave"), "sick" for sick days (SCK, SL, S/L, "sick"), "training" for training or simulator days (SIM, TRG, G/S, CRM, "training"), and "other" for anything else that is not a flight or standby. Hotel / layover lines (HOTEL, L/O, REST) are not returned.
+- ROSTER PERIOD: If the document states the dates it covers (e.g. "01/10/2026 - 21/10/2026"), return them as "rosterPeriod" with "start" and "end" dates ("YYYY-MM-DD").
 - AIRPORTS: Extract 3-letter IATA codes (e.g. DEL, BOM, DXB, LHR, JFK). If city names or 4-letter ICAO codes are shown, convert them to 3-letter IATA codes.
 - MISSING YEAR: Today's date is ${today}. If the year is omitted from the document (e.g. only "01 OCT" or "Mon 14" is visible), choose the year that places the date closest to today.
 - NEVER GUESS: If a flight's date, time or airport cannot be read, leave that field as an empty string rather than inventing a value.
@@ -142,7 +143,7 @@ CRITICAL EXTRACTION RULES:
   * Timings on rosters are usually in local station time or Indian Standard Time (IST/UTC+5.5).
   * Convert all departure and arrival times into valid ISO 8601 UTC date-time strings: "YYYY-MM-DDTHH:mm:ssZ".
   * If Report Time (Check-In) is not stated on the roster, set it to 75 minutes before departure.
-  * If Release Time (Check-Out) is not stated, set it to 30 minutes after arrival.
+  * Release Time is the debrief / sign-off / check-out time when the roster shows one (for a multi-sector day, it belongs to the last flight of the day). If it is not stated, set it to 30 minutes after arrival.
   * Set durationMinutes as the flight duration in minutes.
 - HOME BASE & AIRLINE:
   * Infer the crew member's home base (the anchor station where trips start and finish, e.g. DEL, BOM, DXB).
@@ -173,6 +174,10 @@ CRITICAL EXTRACTION RULES:
   "standby": [
     { "type": "home", "airport": "DEL", "startTimeUtc": "YYYY-MM-DDTHH:mm:ssZ", "endTimeUtc": "YYYY-MM-DDTHH:mm:ssZ" }
   ],
+  "otherDuties": [
+    { "type": "off", "date": "YYYY-MM-DD", "code": "OFF" }
+  ],
+  "rosterPeriod": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" },
   "notes": "string"
 }
 `;

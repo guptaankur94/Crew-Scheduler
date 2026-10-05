@@ -13,9 +13,11 @@ interface DateNavigatorProps {
   todayStr: string;
   onSelect: (dateStr: string) => void;
   initialView?: 'week' | 'month';
+  /** Called with the first day of the month on screen whenever it changes. */
+  onVisibleMonthChange?: (monthStart: string) => void;
 }
 
-type Status = { label: string; dot: string; text: string };
+type Status = { label: string; dot: string; text: string; legend: string };
 
 const DAY_MS = 86400000;
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -29,16 +31,39 @@ const monthKey = (dateStr: string) => dateStr.slice(0, 7);
 const monthName = (dateStr: string, withYear = true) =>
   new Date(toMs(dateStr)).toLocaleDateString('en-GB', { month: 'long', ...(withYear ? { year: 'numeric' } : {}), timeZone: 'UTC' });
 
+const STATUS = {
+  duty: { label: 'Duty', dot: 'bg-blue-400', text: 'text-blue-300', legend: 'Duty' },
+  harder: { label: 'Harder', dot: 'bg-amber-400', text: 'text-amber-300', legend: 'Harder duty day' },
+  standby: { label: 'Standby', dot: 'bg-purple-400', text: 'text-purple-300', legend: 'Standby' },
+  off: { label: 'Off', dot: 'bg-emerald-400', text: 'text-emerald-300', legend: 'Day off' },
+  training: { label: 'Training', dot: 'bg-cyan-400', text: 'text-cyan-300', legend: 'Training' },
+  leave: { label: 'Leave', dot: 'bg-teal-600', text: 'text-teal-300', legend: 'Leave' },
+  sick: { label: 'Sick', dot: 'bg-rose-400', text: 'text-rose-300', legend: 'Sick' },
+  none: { label: 'No roster', dot: 'bg-slate-600', text: 'text-slate-500', legend: 'No roster' },
+} as const;
+/** Legend order, most to least important. */
+const LEGEND_ORDER = [STATUS.duty, STATUS.harder, STATUS.standby, STATUS.training, STATUS.off, STATUS.leave, STATUS.sick, STATUS.none];
+
 function statusOf(day: DailyCircadianSummary | undefined): Status | null {
   if (!day) return null;
-  if (day.outsideRoster) return { label: 'No roster', dot: 'bg-slate-600', text: 'text-slate-500' };
-  if (day.dutyType === 'standby') return { label: 'Standby', dot: 'bg-purple-400', text: 'text-purple-300' };
-  if (day.isOffDay) return { label: 'Off', dot: 'bg-emerald-400', text: 'text-emerald-300' };
-  if (day.outlook?.level === 'harder') return { label: 'Harder', dot: 'bg-amber-400', text: 'text-amber-300' };
-  return { label: 'Duty', dot: 'bg-blue-400', text: 'text-blue-300' };
+  if (day.outsideRoster) return STATUS.none;
+  if (day.dutyType === 'standby') return STATUS.standby;
+  if (day.dutyType === 'training') return STATUS.training;
+  if (day.dutyType === 'leave') return STATUS.leave;
+  if (day.dutyType === 'sick') return STATUS.sick;
+  if (day.isOffDay) return STATUS.off;
+  if (day.outlook?.level === 'harder') return STATUS.harder;
+  return STATUS.duty;
 }
 
-export const DateNavigator: React.FC<DateNavigatorProps> = ({ days, selectedDate, todayStr, onSelect, initialView = 'week' }) => {
+export const DateNavigator: React.FC<DateNavigatorProps> = ({
+  days,
+  selectedDate,
+  todayStr,
+  onSelect,
+  initialView = 'week',
+  onVisibleMonthChange,
+}) => {
   const byDate = useMemo(() => new Map(days.map((d) => [d.dateStr, d])), [days]);
   const firstDate = days[0]?.dateStr ?? todayStr;
   const lastDate = days[days.length - 1]?.dateStr ?? todayStr;
@@ -52,6 +77,9 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({ days, selectedDate
 
   const shownWeek = weekStart(anchor);
   const shownMonth = `${monthKey(anchor)}-01`;
+  useEffect(() => {
+    onVisibleMonthChange?.(shownMonth);
+  }, [shownMonth, onVisibleMonthChange]);
   const canGoBack = view === 'week' ? shownWeek > firstDate : shownMonth > firstDate;
   const canGoForward = view === 'week' ? addDays(shownWeek, 6) < lastDate : monthKey(addDays(shownMonth, 31)) <= monthKey(lastDate);
 
@@ -78,6 +106,15 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({ days, selectedDate
       : Array.from({ length: 42 }, (_, i) => addDays(weekStart(shownMonth), i)).filter(
           (d, i, all) => i < 35 || monthKey(all[35]) === monthKey(shownMonth)
         );
+
+  // Legend: only the statuses visible in the current week or month
+  const visibleStatuses = new Set(
+    cells
+      .filter((d) => view === 'week' || monthKey(d) === monthKey(shownMonth))
+      .map((d) => statusOf(byDate.get(d)))
+      .filter(Boolean) as Status[]
+  );
+  const legend = LEGEND_ORDER.filter((s) => visibleStatuses.has(s));
 
   const selected = byDate.get(selectedDate);
   const selectedStatus = statusOf(selected);
@@ -190,6 +227,21 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({ days, selectedDate
           })}
         </div>
       </div>
+
+      {/* Legend for the status dots: always in Month view; in Week view only on phones, where labels are hidden */}
+      {legend.length > 0 && (
+        <div
+          className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 pb-3 text-[11px] text-slate-400 sm:px-5 ${view === 'week' ? 'sm:hidden' : ''}`}
+          aria-label="What the coloured dots mean"
+        >
+          {legend.map((s) => (
+            <span key={s.label} className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+              {s.legend}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Selected day */}
       {selected && (

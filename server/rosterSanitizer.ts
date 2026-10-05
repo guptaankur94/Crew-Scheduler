@@ -1,5 +1,5 @@
 import { getAirportTzOffset, lookupAirport } from '../src/data/airports';
-import type { FlightLeg, StandbyDuty } from '../src/types/circadian';
+import type { FlightLeg, OtherDuty, StandbyDuty } from '../src/types/circadian';
 
 export interface SanitizedRoster {
   airline: string;
@@ -10,6 +10,37 @@ export interface SanitizedRoster {
   notes: string;
   warnings: string[];
   standby: StandbyDuty[];
+  /** Non-flying days the roster lists (OFF, leave, sick, training), so days off are counted honestly. */
+  otherDuties: OtherDuty[];
+  /** The dates the roster says it covers, e.g. "01/10/2026 - 21/10/2026", when shown. */
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const OTHER_KINDS: OtherDuty['kind'][] = ['off', 'leave', 'sick', 'training', 'other'];
+
+/** Days the roster lists without flying: one entry per day and kind, with sensible dates only. */
+function sanitizeOtherDuties(raw: unknown, now: Date, stamp: number): OtherDuty[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: OtherDuty[] = [];
+  raw.forEach((d: any, i: number) => {
+    if (!d || typeof d !== 'object' || typeof d.date !== 'string' || !DATE_RE.test(d.date)) return;
+    const day = Date.parse(`${d.date}T12:00:00Z`);
+    if (!Number.isFinite(day) || Math.abs(day - now.getTime()) > 2 * 365 * 24 * 3600000) return;
+    const kind: OtherDuty['kind'] = OTHER_KINDS.includes(d.type) ? d.type : 'other';
+    const key = `${kind}-${d.date}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      id: `other-${stamp}-${i}`,
+      kind,
+      date: d.date,
+      code: typeof d.code === 'string' && d.code.trim() ? d.code.trim().slice(0, 12) : undefined,
+    });
+  });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 const IATA_RE = /^[A-Z]{3}$/;
@@ -145,6 +176,12 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
     });
   });
 
+  const otherDuties = sanitizeOtherDuties(parsed.otherDuties, now, batchStamp);
+  const periodStart = typeof parsed.rosterPeriod?.start === 'string' && DATE_RE.test(parsed.rosterPeriod.start) ? parsed.rosterPeriod.start : undefined;
+  const periodEndRaw = typeof parsed.rosterPeriod?.end === 'string' && DATE_RE.test(parsed.rosterPeriod.end) ? parsed.rosterPeriod.end : undefined;
+  const periodEnd = periodStart && periodEndRaw && periodEndRaw >= periodStart ? periodEndRaw : undefined;
+  const period = periodStart && periodEnd ? { periodStart, periodEnd } : {};
+
   if (flights.length === 0 && standby.length === 0) return null;
   if (flights.length === 0) {
     const homeBase = IATA_RE.test(declaredHomeBase) ? declaredHomeBase : standby[0].airport;
@@ -157,6 +194,8 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       notes: 'Only standby duties were found.',
       warnings,
       standby,
+      otherDuties,
+      ...period,
     };
   }
 
@@ -190,6 +229,8 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
     ),
     warnings,
     standby: standby.map((sb) => ({ ...sb, airport: sb.airport || homeBase })),
+    otherDuties,
+    ...period,
   };
 }
 

@@ -39,6 +39,14 @@ export interface StandbyDuty {
   endUtc: string;
 }
 
+/** A non-flying day listed on the roster. Dates are as printed on the roster (home-base dates). */
+export interface OtherDuty {
+  id: string;
+  kind: 'off' | 'leave' | 'sick' | 'training' | 'other';
+  date: string; // YYYY-MM-DD
+  code?: string; // as printed, e.g. 'OFF', 'AL', 'SCK', 'SIM'
+}
+
 export interface LayoverInfo {
   id: string;
   airport: string;
@@ -151,6 +159,7 @@ export interface CrewPreferences {
   actualLastSleepLoggedAt?: string; // ISO time the entry was made; it stops applying after 48 hours
   useMelatoninProtocol?: boolean;
   bunkShiftAssignments?: Record<string, 'shift1' | 'shift2'>;
+  payPeriodStartDay?: number; // day of the month the salary window starts (1 = calendar month, up to 28)
 }
 
 export interface SalaryBreakdown {
@@ -173,6 +182,9 @@ export interface SalaryBreakdown {
   rankTitle: string;
   isCustomRates?: boolean;
   source?: 'standard' | 'custom' | 'payslip';
+  periodStart?: string; // the window this estimate covers (home-base dates, inclusive)
+  periodEnd?: string;
+  periodLabel?: string; // e.g. 'October 2026' or '21 Sep – 20 Oct 2026'
 }
 
 export interface RosterData {
@@ -183,11 +195,12 @@ export interface RosterData {
   homeBaseTzOffset: number;
   flights: FlightLeg[];
   layovers: LayoverInfo[];
-  periodStart?: string;
-  periodEnd?: string;
+  periodStart?: string; // first date the roster covers (YYYY-MM-DD), when the roster states it
+  periodEnd?: string; // last date the roster covers
   totalDays?: number;
   standbyHours?: number;
   standbyDuties?: StandbyDuty[];
+  otherDuties?: OtherDuty[]; // OFF, leave, sick and training days as listed on the roster
   rawText?: string;
   parsedAt: string;
   sourceDocumentUrl?: string;
@@ -217,7 +230,7 @@ export interface DailyCircadianSummary {
   dayLabel: string; // e.g. "Mon, Oct 12"
   dayNumber: number; // 1 to 30
   isOffDay: boolean;
-  dutyType: 'flight' | 'off' | 'standby' | 'layover';
+  dutyType: 'flight' | 'off' | 'standby' | 'layover' | 'training' | 'leave' | 'sick';
   totalSleepHours: number;
   napsCount: number;
   eatingWindowHours: number;

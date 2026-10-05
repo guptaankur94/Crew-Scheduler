@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useAiConsent } from '../AiConsentDialog';
 import { useRosterReview } from '../RosterReviewDialog';
-import { RosterData, RosterHistoryEntry, FlightLeg, StandbyDuty } from '../../types/circadian';
+import { RosterData, RosterHistoryEntry, FlightLeg, OtherDuty, StandbyDuty } from '../../types/circadian';
 import { RosterPreset } from '../../data/rosterPresets';
 import { RosterHistoryTable } from '../RosterHistoryTable';
 import { ConflictResolutionModal } from '../ConflictResolutionModal';
@@ -73,6 +73,29 @@ function mergeStandby(existing: StandbyDuty[] | undefined, incoming: StandbyDuty
     .sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc));
 }
 
+/** Combines non-flying days (OFF, leave, sick, training); a newer entry for the same date replaces the older one. */
+function mergeOther(existing: OtherDuty[] | undefined, incoming: OtherDuty[]): OtherDuty[] {
+  const byDate = new Map<string, OtherDuty>();
+  for (const d of [...(existing ?? []), ...incoming]) byDate.set(d.date, d);
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Widens a start/end pair to include another file's stated dates (several screenshots of one roster). */
+function mergePeriodBounds(current: { start?: string; end?: string }, start?: string, end?: string): { start?: string; end?: string } {
+  const valid = (d?: string) => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : undefined);
+  const s = [current.start, valid(start)].filter(Boolean) as string[];
+  const e = [current.end, valid(end)].filter(Boolean) as string[];
+  return { start: s.sort()[0], end: e.sort()[e.length - 1] };
+}
+
+/** The dates the combined roster covers: from the earliest stated start to the latest stated end. */
+function mergePeriod(existing: RosterData | undefined, incoming: { start?: string; end?: string }): { periodStart?: string; periodEnd?: string } {
+  const starts = [existing?.periodStart, incoming.start].filter(Boolean) as string[];
+  const ends = [existing?.periodEnd, incoming.end].filter(Boolean) as string[];
+  if (!starts.length || !ends.length) return {};
+  return { periodStart: starts.sort()[0], periodEnd: ends.sort()[ends.length - 1] };
+}
+
 export interface FileBatchItem {
   id: string;
   file: File;
@@ -112,6 +135,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const { reviewFlights, dialog: reviewDialog } = useRosterReview();
   // Standby periods read along with the flights in the current import
   const importedStandbyRef = useRef<StandbyDuty[]>([]);
+  // Non-flying days and the stated roster dates read in the current import
+  const importedOtherRef = useRef<OtherDuty[]>([]);
+  const importedPeriodRef = useRef<{ start?: string; end?: string }>({});
   const hasOwnRoster = currentRoster.flights.length > 0 && !isViewingSample;
 
   const [activeTab, setActiveTab] = useState<'upload' | 'samples' | 'text' | 'history'>('upload');
@@ -301,6 +327,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const itemsToProcess = [...fileBatch];
     const allExtractedFlights: FlightLeg[] = [];
     importedStandbyRef.current = [];
+    importedOtherRef.current = [];
+    importedPeriodRef.current = {};
     const batchWarnings: string[] = [];
     let detectedAirline = !isViewingSample && currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
     let detectedHomeBase = currentRoster.homeBase || 'DEL';
@@ -349,6 +377,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
           allExtractedFlights.push(...flights);
           if (Array.isArray(result.data.standby)) importedStandbyRef.current.push(...result.data.standby);
+          if (Array.isArray(result.data.otherDuties)) importedOtherRef.current.push(...result.data.otherDuties);
+          importedPeriodRef.current = mergePeriodBounds(importedPeriodRef.current, result.data.periodStart, result.data.periodEnd);
           breakdown.push({ fileName: currentItem.name, count: flights.length });
           if (Array.isArray(result.data.warnings) && result.data.warnings.length > 0) {
             const fileWarnings: string[] = result.data.warnings;
@@ -447,6 +477,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
             flights: mergedFlights,
             layovers: currentRoster.layovers || [],
             standbyDuties: mergeStandby(currentRoster.standbyDuties, importedStandbyRef.current),
+            otherDuties: mergeOther(currentRoster.otherDuties, importedOtherRef.current),
+            ...mergePeriod(currentRoster, importedPeriodRef.current),
             parsedAt: new Date().toISOString(),
           };
 
@@ -496,6 +528,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
         flights: initialFlights,
         layovers: [],
         standbyDuties: mergeStandby([], importedStandbyRef.current),
+            otherDuties: mergeOther([], importedOtherRef.current),
+            ...mergePeriod(undefined, importedPeriodRef.current),
         parsedAt: new Date().toISOString(),
       };
 
@@ -538,6 +572,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
       flights: mergedFlights,
       layovers: currentRoster.layovers || [],
       standbyDuties: mergeStandby(currentRoster.standbyDuties, importedStandbyRef.current),
+            otherDuties: mergeOther(currentRoster.otherDuties, importedOtherRef.current),
+            ...mergePeriod(currentRoster, importedPeriodRef.current),
       parsedAt: new Date().toISOString(),
     };
 
@@ -660,6 +696,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
       const result = await response.json();
       if (result.success && result.data) {
         importedStandbyRef.current = Array.isArray(result.data.standby) ? result.data.standby : [];
+        importedOtherRef.current = Array.isArray(result.data.otherDuties) ? result.data.otherDuties : [];
+        importedPeriodRef.current = mergePeriodBounds({}, result.data.periodStart, result.data.periodEnd);
         const textWarnings: string[] = Array.isArray(result.data.warnings) ? result.data.warnings : [];
         setParseWarnings(textWarnings);
         const confirmed = await reviewFlights(result.data.flights || [], [], textWarnings);
@@ -696,6 +734,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
               flights: merged,
               layovers: currentRoster.layovers || [],
               standbyDuties: mergeStandby(currentRoster.standbyDuties, importedStandbyRef.current),
+            otherDuties: mergeOther(currentRoster.otherDuties, importedOtherRef.current),
+            ...mergePeriod(currentRoster, importedPeriodRef.current),
               parsedAt: new Date().toISOString(),
             };
             onRosterParsed(continuous, 'Pasted Raw Schedule Text', `Merged into continuous timeline (${merged.length} sectors)`);
@@ -713,6 +753,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
           flights: newFlights,
           layovers: [],
           standbyDuties: mergeStandby([], importedStandbyRef.current),
+            otherDuties: mergeOther([], importedOtherRef.current),
+            ...mergePeriod(undefined, importedPeriodRef.current),
           parsedAt: new Date().toISOString(),
         };
         onRosterParsed(parsed, 'Pasted Raw Schedule Text', `Extracted ${parsed.flights.length} flights from text`);

@@ -174,3 +174,31 @@ test('standby at an unknown airport is skipped with a warning, never given an as
   assert.equal(roster?.standby.length, 0);
   assert.ok(roster?.warnings.some((w) => w.includes('QQQ')));
 });
+
+test('non-flying days and the stated roster period are kept; bad entries are dropped', () => {
+  const roster = sanitizeParsedRoster(
+    {
+      flights: [good],
+      otherDuties: [
+        { type: 'off', date: '2026-10-02', code: 'OFF' },
+        { type: 'sick', date: '2026-10-05', code: 'SCK' },
+        { type: 'training', date: '2026-10-06', code: 'SIM' },
+        { type: 'holiday-ish', date: '2026-10-07' },
+        { type: 'off', date: 'not a date' },
+        { type: 'off', date: '2026-10-02' },
+      ],
+      rosterPeriod: { start: '2026-10-01', end: '2026-10-21' },
+    },
+    NOW
+  );
+  assert.deepEqual(roster?.otherDuties.map((d) => [d.kind, d.date]), [
+    ['off', '2026-10-02'],
+    ['sick', '2026-10-05'],
+    ['training', '2026-10-06'],
+    ['other', '2026-10-07'],
+  ]);
+  assert.equal(roster?.periodStart, '2026-10-01');
+  assert.equal(roster?.periodEnd, '2026-10-21');
+  const reversed = sanitizeParsedRoster({ flights: [good], rosterPeriod: { start: '2026-10-21', end: '2026-10-01' } }, NOW);
+  assert.equal(reversed?.periodStart, undefined);
+});

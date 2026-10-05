@@ -53,8 +53,26 @@ export function reviveRoster(value: any): RosterData | null {
           ),
         }
       : {}),
+    ...(Array.isArray(value.otherDuties)
+      ? {
+          otherDuties: value.otherDuties.filter(
+            (d: any) =>
+              d &&
+              typeof d.id === 'string' &&
+              ['off', 'leave', 'sick', 'training', 'other'].includes(d.kind) &&
+              typeof d.date === 'string' &&
+              /^\d{4}-\d{2}-\d{2}$/.test(d.date)
+          ),
+        }
+      : {}),
     parsedAt: isValidIso(value.parsedAt) ? value.parsedAt : new Date().toISOString(),
   };
+  // Stated roster dates are kept only as a valid pair
+  const validDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!validDate(roster.periodStart) || !validDate(roster.periodEnd) || roster.periodStart! > roster.periodEnd!) {
+    delete roster.periodStart;
+    delete roster.periodEnd;
+  }
   if (typeof roster.sourceDocumentUrl === 'string' && roster.sourceDocumentUrl.startsWith('blob:')) {
     delete roster.sourceDocumentUrl;
   }

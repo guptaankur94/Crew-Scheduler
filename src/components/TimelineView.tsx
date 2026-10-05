@@ -34,14 +34,13 @@ import {
   Trash2,
   Hotel,
   GitMerge,
-  FileText,
-  DollarSign,
   Bed,
 } from 'lucide-react';
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
-import { SalarySection } from './SalarySection';
 import { StandbyNotice } from './StandbyNotice';
 import { DateNavigator } from './DateNavigator';
+import { MonthSummary } from './MonthSummary';
+import { computePeriodStats, periodContaining, shortRange } from '../services/periodStats';
 import { FlightLeg } from '../types/circadian';
 import {
   formatAviationDate,
@@ -59,7 +58,6 @@ interface TimelineViewProps {
   onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
-  onSwitchToMasterSheet?: () => void;
   initialDate?: string;
 }
 
@@ -73,10 +71,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onDelaySector,
   onDeleteSector,
   onAddStandbyFlight,
-  onSwitchToMasterSheet,
   initialDate,
 }) => {
-  const { events, dailySummaries, preferences, monthlyStats } = plan;
+  const { events, dailySummaries, preferences } = plan;
 
   // Selected Week filter: 'all' | 'w1' | 'w2' | 'w3' | 'w4' | 'w5'
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
@@ -84,7 +81,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   // Debrief duration state per flight (default 30 mins)
   const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
 
-  const [showSalaryStudio, setShowSalaryStudio] = useState<boolean>(false);
   const [tacticalModal, setTacticalModal] = useState<{
     isOpen: boolean;
     type: TacticalModalType;
@@ -105,6 +101,30 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   }, [initialDate]);
 
   const activeDaySummary = dailySummaries.find((d) => d.dateStr === selectedDate) || dailySummaries[0];
+
+  // "At a glance" counts follow the calendar month on screen
+  const [visibleMonth, setVisibleMonth] = useState<string>(() => `${(selectedDate || '').slice(0, 7)}-01`);
+  const monthStats = React.useMemo(() => {
+    const start = /^\d{4}-\d{2}-01$/.test(visibleMonth) ? visibleMonth : `${new Date().toISOString().slice(0, 7)}-01`;
+    return computePeriodStats(plan, periodContaining(start, 1));
+  }, [plan, visibleMonth]);
+
+  // Say exactly which days the totals come from, so crew can trust them at a glance
+  const coversWholeMonth = monthStats.rosterFrom === monthStats.start && monthStats.rosterTo === monthStats.end;
+  const coverageNote = (() => {
+    const from = monthStats.rosterFrom;
+    const to = monthStats.rosterTo;
+    if (!from || !to) return 'No roster for this month';
+    const range = shortRange(from, to);
+    const startsLate = from > monthStats.start;
+    const endsEarly = to < monthStats.end;
+    if (!startsLate && !endsEarly) return 'Covers the full month from your roster';
+    if (startsLate && endsEarly) return `Covers ${range}, the dates on your roster`;
+    return endsEarly ? `Covers ${range}, where your roster ends` : `Covers ${range}, from when your roster starts`;
+  })();
+  const flightRangeNote = monthStats.flightsFrom
+    ? `Flights departing ${shortRange(monthStats.flightsFrom, monthStats.flightsTo!)}`
+    : 'No flights this month';
 
   // Helper to find matching FlightLeg from a flight CircadianEvent
   const getFlightLeg = (flightEvent: CircadianEvent): FlightLeg | undefined => {
@@ -146,65 +166,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Layer 1: Month at a glance (plain counts taken from the roster) */}
-      {monthlyStats && (
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/80 to-slate-950 p-4 sm:p-5 shadow-sm space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
-              This roster at a glance
-            </span>
-            {onSwitchToMasterSheet && (
-              <button
-                onClick={onSwitchToMasterSheet}
-                className="flex items-center gap-2 rounded-xl border border-blue-800/60 bg-blue-950/40 hover:bg-blue-900/50 hover:border-blue-700 px-3.5 py-2 text-xs font-bold text-blue-300 transition-all shadow-sm self-start"
-              >
-                <FileText className="h-4 w-4 text-blue-400" />
-                <span>Full roster sheet</span>
-              </button>
-            )}
-
-      {showSalaryStudio && onUpdatePreferences && (
-        <SalarySection plan={plan} onUpdatePreferences={onUpdatePreferences} onClose={() => setShowSalaryStudio(false)} />
-      )}
-            {onUpdatePreferences && (
-              <button
-                onClick={() => setShowSalaryStudio(!showSalaryStudio)}
-                className="flex items-center gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/40 hover:bg-emerald-900/50 px-3.5 py-2 text-xs font-bold text-emerald-300 transition-all shadow-sm self-start"
-              >
-                <DollarSign className="h-4 w-4 text-emerald-400" />
-                <span>
-                  {showSalaryStudio
-                    ? 'Close salary estimate'
-                    : `Salary estimate (~${plan.salaryBreakdown.currencySymbol}${plan.salaryBreakdown.totalEarnings.toLocaleString()})`}
-                </span>
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-left font-mono">
-            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Flying hours</span>
-              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.totalFlightHours}h</p>
-              <p className="text-[9px] text-slate-400 font-sans mt-1">Departure to arrival</p>
-            </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Flights</span>
-              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.totalSectors}</p>
-              <p className="text-[9px] text-slate-400 font-sans mt-1">Sectors on this roster</p>
-            </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Days without flights</span>
-              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.offDays}</p>
-              <p className="text-[9px] text-slate-400 font-sans mt-1">Includes days off and standby</p>
-            </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-sans font-bold">Night flights</span>
-              <p className="text-base font-extrabold text-white mt-1">{monthlyStats.woclNightFlights}</p>
-              <p className="text-[9px] text-slate-400 font-sans mt-1">Flights through your body-clock night</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Layer 1: What kind of month this is (follows the calendar month on screen) */}
+      <MonthSummary stats={monthStats} coverageNote={coverageNote} flightRangeNote={flightRangeNote} />
 
       {/* Layer 2: Calendar-style day navigator (week strip or month grid) */}
       <DateNavigator
@@ -212,6 +175,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         selectedDate={selectedDate}
         todayStr={new Date(Date.now() + preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10)}
         onSelect={setSelectedDate}
+        onVisibleMonthChange={setVisibleMonth}
       />
 
       {/* Standby periods on the selected day */}

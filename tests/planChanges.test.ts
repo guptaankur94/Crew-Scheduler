@@ -51,3 +51,20 @@ test('past days are not mentioned', () => {
   const moved = roster([leg('6E 1', 'BLR', 'DEL', '2026-10-03T05:00', 160)]);
   assert.deepEqual(comparePlans(plan(r), plan(moved), Date.parse('2026-10-05T00:00:00+05:30')), []);
 });
+
+test('a late finish from an evening duty gets a full sleep, not a short night cut off at the usual wake-up', () => {
+  const sleepsAfter = (r: RosterData, fromIst: string) =>
+    plan(r).events.filter((e) => (e.type === 'recovery_sleep' || e.type === 'anchor_sleep') && e.startUtc >= new Date(Date.parse(`${fromIst}:00+05:30`)).toISOString());
+  const hours = (e: { startUtc: string; endUtc: string }) => (Date.parse(e.endUtc) - Date.parse(e.startUtc)) / 3600000;
+  // Report 19:00, back at 00:20, next duty the following evening
+  const evening = roster([leg('6E 408', 'BLR', 'PNQ', '2026-10-08T20:00', 90), leg('6E 391', 'PNQ', 'BLR', '2026-10-08T22:10', 100), leg('6E 9', 'BLR', 'MAA', '2026-10-09T18:00', 60)]);
+  const first = sleepsAfter(evening, '2026-10-09T00:00')[0];
+  assert.equal(first.type, 'recovery_sleep');
+  assert.equal(hours(first), 7.5, 'full target sleep from when you get to bed');
+  // Same late finish, but the next duty reports early: the sleep stops in time for that wake-up
+  const earlyNext = roster([leg('6E 408', 'BLR', 'PNQ', '2026-10-08T20:00', 90), leg('6E 391', 'PNQ', 'BLR', '2026-10-08T22:10', 100), leg('6E 9', 'BLR', 'MAA', '2026-10-09T08:00', 60)]);
+  const p = plan(earlyNext);
+  const wake = Date.parse(p.dailySummaries.find((d) => d.dateStr === '2026-10-09')!.prepDetails!.wakeUpUtc!);
+  const capped = sleepsAfter(earlyNext, '2026-10-09T00:00')[0];
+  assert.ok(Date.parse(capped.endUtc) <= wake, 'ends before the next wake-up');
+});

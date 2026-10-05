@@ -44,6 +44,8 @@ export const CHRONOTYPE_BEDTIME_SHIFT_HOURS = { lark: -0.75, intermediate: 0, ow
 export const SHORT_SLEEP_CATCH_UP_MAX_HOURS = 1;
 /** A logged night's sleep only influences the plan for this long. */
 export const SLEEP_LOG_VALID_HOURS = 48;
+/** Ready for bed after midnight but before this hour (home time) counts as a late finish: plan a full sleep from then. */
+export const LATE_BED_UNTIL_HOUR = 4;
 
 /** The usual home-time bedtime for this person. */
 export function usualBedtimeHour(preferences: CrewPreferences): number {
@@ -392,9 +394,14 @@ function planGapSleeps(gap: Gap, preferences: CrewPreferences, clock: HomeClock)
     out.push({ ...b, kind, id: `${isNap ? 'nap' : 'sleep'}-${new Date(startMs).toISOString().slice(0, 16)}`, windowStart: gap.start, windowEnd: gap.end });
   };
 
-  // After a night duty (reported in the evening or overnight): sleep as soon as possible
+  // After a night duty (reported in the evening or overnight): sleep as soon as possible.
+  // Also after any duty that gets you to bed after midnight (e.g. an evening duty that finishes late):
+  // decided by when you can actually go to bed, not by when you reported, so a late finish gets a full
+  // sleep instead of a short night cut off at the usual wake-up time.
   let cursor = gap.start;
-  const afterNightDuty = gap.prev !== undefined && prevCategory === 'redeye';
+  const bedHour = clock.hour(gap.start);
+  const lateToBed = gap.prev !== undefined && bedHour < LATE_BED_UNTIL_HOUR; // ready for bed 00:00–03:59
+  const afterNightDuty = gap.prev !== undefined && (prevCategory === 'redeye' || lateToBed);
   if (afterNightDuty) {
     const startHour = clock.hour(gap.start);
     // Back in the small hours: a full sleep. Back in the morning or early afternoon: a capped

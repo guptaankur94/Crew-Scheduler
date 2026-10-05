@@ -149,18 +149,19 @@ export default function App() {
     setActiveView(view);
   };
   const [selectedEvent, setSelectedEvent] = useState<CircadianEvent | null>(null);
-  // Controlled preview of the redesigned Today screen; classic stays the default until approved
+  // The redesigned Today is the default (approved); the classic Today stays available for anyone who prefers it.
+  // A new storage key, so an earlier choice made while the new one was only a preview does not stick.
   const [todayVersion, setTodayVersion] = useState<'classic' | 'preview'>(() => {
     try {
-      return localStorage.getItem('crew_today_version') === 'preview' ? 'preview' : 'classic';
+      return localStorage.getItem('crew_today_version_v2') === 'classic' ? 'classic' : 'preview';
     } catch {
-      return 'classic';
+      return 'preview';
     }
   });
   const chooseTodayVersion = (version: 'classic' | 'preview') => {
     setTodayVersion(version);
     try {
-      localStorage.setItem('crew_today_version', version);
+      localStorage.setItem('crew_today_version_v2', version);
     } catch {
       // Not saved: the choice simply resets next time
     }
@@ -597,17 +598,12 @@ export default function App() {
         {/* Main Content Workspace per Active View */}
         <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 flex-1">
           {activeView === 'today' && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-900/60 bg-sky-950/20 px-3 py-2 text-xs text-sky-200">
-              <span>
-                {todayVersion === 'preview'
-                  ? 'You are viewing the new Today (preview).'
-                  : 'A redesigned Today screen is available to preview.'}
-              </span>
+            <div className="mb-3 flex justify-end text-xs">
               <button
                 onClick={() => chooseTodayVersion(todayVersion === 'preview' ? 'classic' : 'preview')}
-                className="rounded-lg border border-sky-700/60 bg-sky-950/60 px-3 py-1 font-bold hover:bg-sky-900/60"
+                className="font-semibold text-slate-500 hover:text-slate-200"
               >
-                {todayVersion === 'preview' ? 'Back to classic' : 'Try the new Today (preview)'}
+                {todayVersion === 'preview' ? 'Switch to classic Today' : 'Switch to the new Today'}
               </button>
             </div>
           )}

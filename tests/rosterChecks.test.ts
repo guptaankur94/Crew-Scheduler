@@ -112,3 +112,24 @@ test('24-hour time field: typing, padding and validation', () => {
   assert.equal(isValidTime24('6:49'), false);
   assert.equal(isValidTime24('06:60'), false);
 });
+
+test('out and back to another time zone with very different flight times is flagged (wrong time zone)', () => {
+  const mk = (id: string, fn: string, o: string, d: string, depUtc: string, arrUtc: string, oz: number, dz: number) => ({
+    id, flightNumber: fn, origin: o, destination: d, departureTimeUtc: depUtc, arrivalTimeUtc: arrUtc,
+    reportTimeUtc: depUtc, releaseTimeUtc: arrUtc, originTzOffset: oz, destTzOffset: dz,
+    durationMinutes: (Date.parse(arrUtc) - Date.parse(depUtc)) / 60000,
+  });
+  // The real case: Singapore times read as India time (7h31 out, 2h03 back)
+  const wrong = checkRosterFlights([
+    mk('a', '6E 1457', 'BLR', 'SIN', '2026-10-04T04:32:00Z', '2026-10-04T12:03:00Z', 5.5, 8),
+    mk('b', '6E 1458', 'SIN', 'BLR', '2026-10-04T14:18:00Z', '2026-10-04T16:21:00Z', 8, 5.5),
+  ]);
+  assert.match(wrong.get('b')![0].message, /SIN times may be in the wrong time zone/);
+  assert.equal(wrong.get('a')![0].level, 'check', 'a check, not a blocking problem');
+  // Read correctly (5h01 out, 4h33 back): no flag
+  const right = checkRosterFlights([
+    mk('a', '6E 1457', 'BLR', 'SIN', '2026-10-04T04:32:00Z', '2026-10-04T09:33:00Z', 5.5, 8),
+    mk('b', '6E 1458', 'SIN', 'BLR', '2026-10-04T11:48:00Z', '2026-10-04T16:21:00Z', 8, 5.5),
+  ]);
+  assert.equal(right.size, 0);
+});

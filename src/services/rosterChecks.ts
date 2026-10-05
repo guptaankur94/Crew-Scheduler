@@ -14,6 +14,8 @@ export interface RosterIssue {
 
 const MIN = 60_000;
 const SAME_DUTY_GAP_MS = 6 * 60 * MIN;
+/** Out-and-back flight times further apart than this are worth a second look (winds alone rarely explain more). */
+const OUT_AND_BACK_TOLERANCE_MINUTES = 90;
 
 export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssue[]> {
   const issues = new Map<string, RosterIssue[]>();
@@ -67,6 +69,20 @@ export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssu
         add(f.id, 'problem', `Overlaps ${prev.flightNumber}`);
       } else if (dep - prevArr < SAME_DUTY_GAP_MS && prev.destination !== f.origin) {
         add(f.id, 'check', `Starts at ${f.origin}, but the previous flight landed at ${prev.destination}`);
+      }
+    }
+
+    // Out and back to another time zone: the two flight times should be similar. A big difference usually
+    // means one airport's times were read in the wrong time zone (e.g. Singapore times taken as India time).
+    if (prev && prev.origin === f.destination && prev.destination === f.origin && dep - Date.parse(prev.arrivalTimeUtc) < SAME_DUTY_GAP_MS) {
+      const out = (Date.parse(prev.arrivalTimeUtc) - Date.parse(prev.departureTimeUtc)) / MIN;
+      const back = minutes;
+      const zoneGap = Math.abs(prev.destTzOffset - prev.originTzOffset);
+      if (zoneGap >= 1 && Math.abs(out - back) > OUT_AND_BACK_TOLERANCE_MINUTES) {
+        const h = (m: number) => `${Math.floor(m / 60)}h${String(Math.round(m % 60)).padStart(2, '0')}`;
+        const msg = `${prev.origin}→${prev.destination} takes ${h(out)} but the return takes ${h(back)}: the ${prev.destination} times may be in the wrong time zone (${prev.destination} is ${prev.destTzOffset >= 0 ? '+' : ''}${prev.destTzOffset}h from UTC). Check against your roster.`;
+        add(prev.id, 'check', msg);
+        add(f.id, 'check', msg);
       }
     }
   });

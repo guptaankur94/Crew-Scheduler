@@ -121,7 +121,7 @@ export const SalaryView: React.FC<SalaryViewProps> = ({ plan, onUpdatePreference
         {/* What is counted */}
         {valid ? (
           <p className="text-xs text-slate-300">
-            <span className="font-semibold text-white">{shortRange(stats.start, stats.end)}</span> · {days} days · {stats.sectors} flights ·{' '}
+            <span className="font-semibold text-white">{shortRange(stats.start, stats.end)}</span> · {days} days · {stats.sectors} sectors{stats.positioningSectors > 0 && ` + ${stats.positioningSectors} positioning`} ·{' '}
             {stats.flyingHours}h flying · {stats.standbyHours}h standby · {stats.layoverNights} layover{stats.layoverNights === 1 ? '' : 's'}
             {stats.rosterTo && stats.rosterTo < stats.end && (
               <span className="text-slate-500"> · your roster ends {shortRange(stats.rosterTo, stats.rosterTo)}</span>

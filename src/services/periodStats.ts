@@ -1,5 +1,5 @@
 import { CrewPreferences, DailyCircadianSummary, RosterData, SalaryBreakdown } from '../types/circadian';
-import { lookupAirport } from '../data/airports';
+import { airportCountryCode, lookupAirport } from '../data/airports';
 import { flightInBodyNight, groupDuties, HomeClock, overlapsHomeWindow } from './planEngine';
 import { calculateSalaryBreakdown } from './salary';
 
@@ -25,12 +25,19 @@ export interface PeriodStats extends Period {
   flightsFrom?: string;
   flightsTo?: string;
   flyingHours: number;
+  /** Flights worked as crew. Positioning (travelling as a passenger) is counted separately. */
   sectors: number;
+  positioningSectors: number;
   nightFlights: number;
   daysWithoutFlights: number;
   rosterDays: number;
   standbyHours: number;
   layoverNights: number;
+  /**
+   * Layovers ending in the window, by where they are. International means the layover airport is in a different
+   * country from the home base, using the airport reference list; an airport not in the list is never guessed.
+   */
+  layovers: { total: number; international: number; domestic: number; unverified: number; internationalStations: string[]; domesticStations: string[] };
   salary: SalaryBreakdown;
 
   // "What kind of month is this?" figures
@@ -55,6 +62,8 @@ export interface PeriodStats extends Period {
     byDate: Record<string, 'overnight' | 'early' | 'late'>;
   };
   standbyDays: number;
+  /** Days with home standby and days with airport standby (a day with both counts in each). */
+  standbyDaysByKind: { home: number; airport: number };
   /** Duties that take you to an airport 3 or more hours from home time. */
   timeZoneTrips: number;
   // Drill-down
@@ -164,11 +173,25 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
 
   // A layover night belongs to the period of the day the duty ending away from base finishes
   const duties = groupDuties(roster.flights, roster.homeBase, roster.standbyDuties ?? []);
-  const layoverNights = duties.filter((d, i) => {
+  const layoverDuties = duties.filter((d, i) => {
     if (!d.awayAtEnd || !inPeriod(clock.date(d.endMs))) return false;
     const next = duties[i + 1];
     return !next || (next.awayAtStart && next.startAirport === d.endAirport);
-  }).length;
+  });
+  const layoverNights = layoverDuties.length;
+  const homeCountry = airportCountryCode(roster.homeBase);
+  const layovers = { total: layoverNights, international: 0, domestic: 0, unverified: 0, internationalStations: [] as string[], domesticStations: [] as string[] };
+  for (const d of layoverDuties) {
+    const country = airportCountryCode(d.endAirport);
+    if (!homeCountry || !country) layovers.unverified += 1;
+    else if (country === homeCountry) {
+      layovers.domestic += 1;
+      if (!layovers.domesticStations.includes(d.endAirport)) layovers.domesticStations.push(d.endAirport);
+    } else {
+      layovers.international += 1;
+      if (!layovers.internationalStations.includes(d.endAirport)) layovers.internationalStations.push(d.endAirport);
+    }
+  }
 
   const roundedStandby = Number(standbyHours.toFixed(1));
   const label = periodLabel(period);
@@ -215,9 +238,14 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
   const dutyMinutes = flyingDuties.map((d) => ({ minutes: (d.endMs - d.startMs) / 60000, date: clock.date(d.startMs) }));
   const longest = dutyMinutes.sort((a, b) => b.minutes - a.minutes)[0];
   const dutyDates = rosterDays.filter((d) => d.dutyType === 'flight').map((d) => d.dateStr).sort();
-  const standbyDays = new Set(
-    (roster.standbyDuties ?? []).map((sb) => clock.date(Date.parse(sb.startUtc))).filter(inPeriod)
-  ).size;
+  const standbyDatesOf = (kinds: string[]) =>
+    new Set(
+      (roster.standbyDuties ?? [])
+        .filter((sb) => kinds.includes(sb.kind))
+        .map((sb) => clock.date(Date.parse(sb.startUtc)))
+        .filter(inPeriod)
+    ).size;
+  const standbyDays = standbyDatesOf(['home', 'airport']);
   const rosterDates = rosterDays.map((d) => d.dateStr).sort();
 
   return {
@@ -229,12 +257,14 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
     flightsFrom: flightDates[0],
     flightsTo: flightDates[flightDates.length - 1],
     flyingHours: Number((flyingMinutes / 60).toFixed(1)),
-    sectors: flights.length,
+    sectors: flights.filter((f) => !f.isPositioning).length,
+    positioningSectors: flights.filter((f) => f.isPositioning).length,
     nightFlights,
     daysWithoutFlights,
     rosterDays: rosterDays.length,
     standbyHours: roundedStandby,
     layoverNights,
+    layovers,
     salary: { ...salary, periodStart: period.start, periodEnd: period.end, periodLabel: label },
     daysOff: offDates.length,
     longestBreak: longestRunOf(offDates),
@@ -244,6 +274,7 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
     dutyDays: dutyDates.length,
     disruptive,
     standbyDays,
+    standbyDaysByKind: { home: standbyDatesOf(['home']), airport: standbyDatesOf(['airport']) },
     timeZoneTrips,
     dutyHours: Number((dutyMinutes.reduce((sum, d) => sum + d.minutes, 0) / 60).toFixed(1)),
     longestDuty: longest ? { hours: Number((longest.minutes / 60).toFixed(1)), date: longest.date } : undefined,

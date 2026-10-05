@@ -45,6 +45,12 @@ The sample roster and all planning screens work straight away. To read your own 
 | `src/data/airports.ts` | Airports and daylight-saving-aware time zones. |
 | `tests/` | Automated tests. |
 
+### Rules that keep the numbers right
+
+- **A newer roster wins for the days it covers.** When a roster is uploaded on top of a saved one, everything saved on the new roster's dates (flights, standby, days off) is replaced, not combined. The dates are the period printed on the roster, widened to the first and last entries found. The person sees exactly what will be replaced before saving and can keep the older entries. Matching flight by flight is not enough: a re-planned day rarely overlaps the old one in time, so old flights would stay and inflate monthly totals. Code: `uploadCoverage` and `splitByCoverage` in `src/services/rosterMerger.ts`; regression tests in `tests/rosterReplace.test.ts`.
+- **Totals count flights by their home-time departure date**, and positioning flights are not flying hours or sectors (`src/services/periodStats.ts`).
+- **Countries are compared by ISO code from the airport database**, never by name (`airportCountryCode` in `src/data/airports.ts`).
+
 ## Privacy
 
 Files and text you upload are sent to Google Gemini to be read. Nothing is stored on the server. Crop out anything you do not want to share, such as bank details or ID numbers.

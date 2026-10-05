@@ -86,7 +86,8 @@ test('standby and positioning are counted per period', () => {
   );
   const oct = computePeriodStats(plan, { start: '2026-10-01', end: '2026-10-31' });
   assert.equal(oct.flyingHours, 2, 'positioning is not flying time');
-  assert.equal(oct.sectors, 2);
+  assert.equal(oct.sectors, 1, 'positioning is not a worked sector');
+  assert.equal(oct.positioningSectors, 1);
   assert.equal(oct.standbyHours, 6);
   assert.equal(oct.salary.standbyHours, 6);
 });

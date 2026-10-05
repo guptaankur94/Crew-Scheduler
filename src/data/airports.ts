@@ -69,6 +69,14 @@ export function lookupAirport(iata: string): AirportRecord | undefined {
   return { iata: code, timeZone: row[0], city: row[1] || code, country: row[2] };
 }
 
+/**
+ * ISO country code of an airport (e.g. 'IN', 'AE'), from the reference database only, so codes from
+ * different sources are never compared by name. Undefined when the airport is not in the database.
+ */
+export function airportCountryCode(iata: string): string | undefined {
+  return REFERENCE[iata.trim().toUpperCase()]?.[2] || undefined;
+}
+
 export function isKnownAirport(iata: string): boolean {
   return lookupAirport(iata) !== undefined;
 }

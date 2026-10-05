@@ -44,7 +44,16 @@ export interface PeriodStats extends Period {
   /** Days with a flying duty (by the day the duty starts). */
   dutyDays: number;
   /** Flying duties that cut into normal night sleep, each counted once (EASA ORO.FTL.105 bands, home time). */
-  disruptive: { total: number; early: number; overnight: number; late: number; ofDuties: number; dates: string[] };
+  disruptive: {
+    total: number;
+    early: number;
+    overnight: number;
+    late: number;
+    ofDuties: number;
+    dates: string[];
+    /** The disruption type of the duty starting on each date, for tagging days in lists. */
+    byDate: Record<string, 'overnight' | 'early' | 'late'>;
+  };
   standbyDays: number;
   /** Duties that take you to an airport 3 or more hours from home time. */
   timeZoneTrips: number;
@@ -174,7 +183,15 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
 
   // Flying duties starting in the window, classified for sleep disruption
   const flyingDuties = duties.filter((d) => d.flights.length > 0 && inPeriod(clock.date(d.startMs)));
-  const disruptive = { total: 0, early: 0, overnight: 0, late: 0, ofDuties: flyingDuties.length, dates: [] as string[] };
+  const disruptive = {
+    total: 0,
+    early: 0,
+    overnight: 0,
+    late: 0,
+    ofDuties: flyingDuties.length,
+    dates: [] as string[],
+    byDate: {} as Record<string, 'overnight' | 'early' | 'late'>,
+  };
   for (const d of flyingDuties) {
     const startHour = clock.hour(d.startMs);
     const endHour = clock.hour(d.endMs);
@@ -186,6 +203,7 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
       disruptive[kind] += 1;
       disruptive.total += 1;
       disruptive.dates.push(clock.date(d.startMs));
+      if (!disruptive.byDate[clock.date(d.startMs)]) disruptive.byDate[clock.date(d.startMs)] = kind;
     }
   }
 
@@ -292,4 +310,22 @@ export function monthNarrative(stats: PeriodStats): string {
     parts.push('There are no days off on your roster this month.');
   }
   return parts.join(' ');
+}
+
+/** Which days of the window the figures come from, in plain words. */
+export function coverageNote(stats: PeriodStats): string {
+  const from = stats.rosterFrom;
+  const to = stats.rosterTo;
+  if (!from || !to) return 'No roster for this month';
+  const range = shortRange(from, to);
+  const startsLate = from > stats.start;
+  const endsEarly = to < stats.end;
+  if (!startsLate && !endsEarly) return 'Covers the full month from your roster';
+  if (startsLate && endsEarly) return `Covers ${range}, the dates on your roster`;
+  return endsEarly ? `Covers ${range}, where your roster ends` : `Covers ${range}, from when your roster starts`;
+}
+
+/** The departure dates the flying-hours figure is built from. */
+export function flightRangeNote(stats: PeriodStats): string {
+  return stats.flightsFrom ? `Flights departing ${shortRange(stats.flightsFrom, stats.flightsTo!)}` : 'No flights this month';
 }

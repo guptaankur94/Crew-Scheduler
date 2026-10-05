@@ -39,8 +39,6 @@ import {
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { StandbyNotice } from './StandbyNotice';
 import { DateNavigator } from './DateNavigator';
-import { MonthSummary } from './MonthSummary';
-import { computePeriodStats, periodContaining, shortRange } from '../services/periodStats';
 import { FlightLeg } from '../types/circadian';
 import {
   formatAviationDate,
@@ -59,6 +57,8 @@ interface TimelineViewProps {
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
   initialDate?: string;
+  /** Opens the Month screen on the month containing this date. */
+  onOpenMonthSummary?: (dateStr: string) => void;
 }
 
 export const TimelineView: React.FC<TimelineViewProps> = ({
@@ -72,6 +72,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onDeleteSector,
   onAddStandbyFlight,
   initialDate,
+  onOpenMonthSummary,
 }) => {
   const { events, dailySummaries, preferences } = plan;
 
@@ -102,29 +103,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   const activeDaySummary = dailySummaries.find((d) => d.dateStr === selectedDate) || dailySummaries[0];
 
-  // "At a glance" counts follow the calendar month on screen
-  const [visibleMonth, setVisibleMonth] = useState<string>(() => `${(selectedDate || '').slice(0, 7)}-01`);
-  const monthStats = React.useMemo(() => {
-    const start = /^\d{4}-\d{2}-01$/.test(visibleMonth) ? visibleMonth : `${new Date().toISOString().slice(0, 7)}-01`;
-    return computePeriodStats(plan, periodContaining(start, 1));
-  }, [plan, visibleMonth]);
+  const todayStr = new Date(Date.now() + preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10);
+  const todayInPlan = dailySummaries.some((d) => d.dateStr === todayStr);
+  const selectedMonthName = selectedDate
+    ? new Date(`${selectedDate}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })
+    : '';
 
-  // Say exactly which days the totals come from, so crew can trust them at a glance
-  const coversWholeMonth = monthStats.rosterFrom === monthStats.start && monthStats.rosterTo === monthStats.end;
-  const coverageNote = (() => {
-    const from = monthStats.rosterFrom;
-    const to = monthStats.rosterTo;
-    if (!from || !to) return 'No roster for this month';
-    const range = shortRange(from, to);
-    const startsLate = from > monthStats.start;
-    const endsEarly = to < monthStats.end;
-    if (!startsLate && !endsEarly) return 'Covers the full month from your roster';
-    if (startsLate && endsEarly) return `Covers ${range}, the dates on your roster`;
-    return endsEarly ? `Covers ${range}, where your roster ends` : `Covers ${range}, from when your roster starts`;
-  })();
-  const flightRangeNote = monthStats.flightsFrom
-    ? `Flights departing ${shortRange(monthStats.flightsFrom, monthStats.flightsTo!)}`
-    : 'No flights this month';
+  const backToToday = () => {
+    setSelectedDate(todayStr);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Helper to find matching FlightLeg from a flight CircadianEvent
   const getFlightLeg = (flightEvent: CircadianEvent): FlightLeg | undefined => {
@@ -166,17 +154,29 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Layer 1: What kind of month this is (follows the calendar month on screen) */}
-      <MonthSummary stats={monthStats} coverageNote={coverageNote} flightRangeNote={flightRangeNote} />
+      {/* Week strip to pick a day (the month overview lives on the Month screen) */}
+      <DateNavigator days={dailySummaries} selectedDate={selectedDate} todayStr={todayStr} onSelect={setSelectedDate} allowMonthView={false} />
+      {onOpenMonthSummary && selectedDate && (
+        <div className="-mt-2 flex justify-end">
+          <button
+            onClick={() => onOpenMonthSummary(selectedDate)}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-slate-400 hover:text-white"
+          >
+            See {selectedMonthName} summary <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
-      {/* Layer 2: Calendar-style day navigator (week strip or month grid) */}
-      <DateNavigator
-        days={dailySummaries}
-        selectedDate={selectedDate}
-        todayStr={new Date(Date.now() + preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10)}
-        onSelect={setSelectedDate}
-        onVisibleMonthChange={setVisibleMonth}
-      />
+      {/* Nudge back to today after looking at another day */}
+      {todayInPlan && selectedDate !== todayStr && (
+        <button
+          onClick={backToToday}
+          className="fixed bottom-20 left-1/2 z-30 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full border border-blue-400/40 bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/40 hover:bg-blue-500 lg:bottom-6 lg:left-auto lg:right-8 lg:translate-x-0"
+        >
+          <Calendar className="h-4 w-4" />
+          Back to today
+        </button>
+      )}
 
       {/* Standby periods on the selected day */}
       <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} />

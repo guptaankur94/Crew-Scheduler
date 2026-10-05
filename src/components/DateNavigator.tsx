@@ -3,8 +3,8 @@ import { DailyCircadianSummary } from '../types/circadian';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 /**
- * Calendar-style day picker for the Timeline: a week strip (Monday to Sunday) or a month grid,
- * with one status per day. Replaces the separate month filter, W1–W5 tabs and loose day chips.
+ * Calendar-style day picker: a week strip (Monday to Sunday) or a month grid, with one status per day.
+ * The Timeline uses the week strip; the Month screen uses the grid for a fixed month.
  */
 
 interface DateNavigatorProps {
@@ -15,6 +15,13 @@ interface DateNavigatorProps {
   initialView?: 'week' | 'month';
   /** Called with the first day of the month on screen whenever it changes. */
   onVisibleMonthChange?: (monthStart: string) => void;
+  /** false shows the week strip only, without the Week/Month switch. */
+  allowMonthView?: boolean;
+  /**
+   * Shows this month (YYYY-MM-01) as a plain calendar grid, without its own header or selected-day line.
+   * The screen around it provides the month picker.
+   */
+  month?: string;
 }
 
 type Status = { label: string; dot: string; text: string; legend: string };
@@ -29,7 +36,11 @@ const addDays = (dateStr: string, n: number) => toStr(toMs(dateStr) + n * DAY_MS
 const weekStart = (dateStr: string) => addDays(dateStr, -((new Date(toMs(dateStr)).getUTCDay() + 6) % 7));
 const monthKey = (dateStr: string) => dateStr.slice(0, 7);
 const monthName = (dateStr: string, withYear = true) =>
-  new Date(toMs(dateStr)).toLocaleDateString('en-GB', { month: 'long', ...(withYear ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+  new Date(toMs(dateStr)).toLocaleDateString('en-GB', {
+    month: 'long',
+    ...(withYear ? { year: 'numeric' } : {}),
+    timeZone: 'UTC',
+  });
 
 const STATUS = {
   duty: { label: 'Duty', dot: 'bg-blue-400', text: 'text-blue-300', legend: 'Duty' },
@@ -41,10 +52,12 @@ const STATUS = {
   sick: { label: 'Sick', dot: 'bg-rose-400', text: 'text-rose-300', legend: 'Sick' },
   none: { label: 'No roster', dot: 'bg-slate-600', text: 'text-slate-500', legend: 'No roster' },
 } as const;
+export const DAY_STATUS = STATUS;
 /** Legend order, most to least important. */
 const LEGEND_ORDER = [STATUS.duty, STATUS.harder, STATUS.standby, STATUS.training, STATUS.off, STATUS.leave, STATUS.sick, STATUS.none];
 
-function statusOf(day: DailyCircadianSummary | undefined): Status | null {
+/** The one status shown for a day, as a dot and label. */
+export function statusOf(day: DailyCircadianSummary | undefined): Status | null {
   if (!day) return null;
   if (day.outsideRoster) return STATUS.none;
   if (day.dutyType === 'standby') return STATUS.standby;
@@ -63,17 +76,22 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
   onSelect,
   initialView = 'week',
   onVisibleMonthChange,
+  allowMonthView = true,
+  month,
 }) => {
+  const fixedMonth = !!month;
   const byDate = useMemo(() => new Map(days.map((d) => [d.dateStr, d])), [days]);
   const firstDate = days[0]?.dateStr ?? todayStr;
   const lastDate = days[days.length - 1]?.dateStr ?? todayStr;
 
-  const [view, setView] = useState<'week' | 'month'>(initialView);
+  const [chosenView, setView] = useState<'week' | 'month'>(allowMonthView ? initialView : 'week');
+  const view = fixedMonth ? 'month' : allowMonthView ? chosenView : 'week';
   // The week or month on screen; follows the selected day
-  const [anchor, setAnchor] = useState(selectedDate || todayStr);
+  const [ownAnchor, setAnchor] = useState(selectedDate || todayStr);
   useEffect(() => {
     if (selectedDate) setAnchor(selectedDate);
   }, [selectedDate]);
+  const anchor = month ?? ownAnchor;
 
   const shownWeek = weekStart(anchor);
   const shownMonth = `${monthKey(anchor)}-01`;
@@ -104,7 +122,7 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
     view === 'week'
       ? Array.from({ length: 7 }, (_, i) => addDays(shownWeek, i))
       : Array.from({ length: 42 }, (_, i) => addDays(weekStart(shownMonth), i)).filter(
-          (d, i, all) => i < 35 || monthKey(all[35]) === monthKey(shownMonth)
+          (d, i, all) => i < 35 || monthKey(all[35]) === monthKey(shownMonth),
         );
 
   // Legend: only the statuses visible in the current week or month
@@ -112,7 +130,7 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
     cells
       .filter((d) => view === 'week' || monthKey(d) === monthKey(shownMonth))
       .map((d) => statusOf(byDate.get(d)))
-      .filter(Boolean) as Status[]
+      .filter(Boolean) as Status[],
   );
   const legend = LEGEND_ORDER.filter((s) => visibleStatuses.has(s));
 
@@ -122,47 +140,51 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/70 shadow-sm">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 sm:px-5">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => move(-1)}
-            disabled={!canGoBack}
-            aria-label={view === 'week' ? 'Previous week' : 'Previous month'}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <h3 className="min-w-[10rem] text-center text-base font-semibold text-white">{title}</h3>
-          <button
-            onClick={() => move(1)}
-            disabled={!canGoForward}
-            aria-label={view === 'week' ? 'Next week' : 'Next month'}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          {byDate.has(todayStr) && (
+      {!fixedMonth && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 sm:px-5">
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => onSelect(todayStr)}
-              className="ml-2 rounded-lg border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-white"
+              onClick={() => move(-1)}
+              disabled={!canGoBack}
+              aria-label={view === 'week' ? 'Previous week' : 'Previous month'}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent"
             >
-              Today
+              <ChevronLeft className="h-4 w-4" />
             </button>
+            <h3 className="min-w-[10rem] text-center text-base font-semibold text-white">{title}</h3>
+            <button
+              onClick={() => move(1)}
+              disabled={!canGoForward}
+              aria-label={view === 'week' ? 'Next week' : 'Next month'}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            {byDate.has(todayStr) && (
+              <button
+                onClick={() => onSelect(todayStr)}
+                className="ml-2 rounded-lg border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-white"
+              >
+                Today
+              </button>
+            )}
+          </div>
+
+          {allowMonthView && (
+            <div className="inline-flex rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-xs font-semibold">
+              {(['week', 'month'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`rounded-md px-3 py-1 capitalize transition-colors ${view === v ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           )}
         </div>
-
-        <div className="inline-flex rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-xs font-semibold">
-          {(['week', 'month'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`rounded-md px-3 py-1 capitalize transition-colors ${view === v ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Days */}
       <div className="px-4 py-4 sm:px-5">
@@ -193,8 +215,8 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
                   isSelected
                     ? 'border-blue-500 bg-blue-600/15 ring-1 ring-blue-500'
                     : day
-                    ? 'border-slate-800 bg-slate-950/60 hover:border-slate-600'
-                    : 'border-transparent'
+                      ? 'border-slate-800 bg-slate-950/60 hover:border-slate-600'
+                      : 'border-transparent'
                 } ${!day || !inMonth ? 'opacity-30' : ''} disabled:cursor-default`}
               >
                 {view === 'week' && (
@@ -244,10 +266,15 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
       )}
 
       {/* Selected day */}
-      {selected && (
+      {selected && !fixedMonth && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 px-4 py-3 text-sm sm:px-5">
           <span className="text-white">
-            {new Date(toMs(selected.dateStr)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}
+            {new Date(toMs(selected.dateStr)).toLocaleDateString('en-GB', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+              timeZone: 'UTC',
+            })}
             {selected.dateStr === todayStr && <span className="ml-2 text-xs text-blue-300">Today</span>}
           </span>
           <span className="flex items-center gap-3 text-xs">

@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { monthNarrative, PeriodStats, shortRange } from '../services/periodStats';
+import { coverageNote, flightRangeNote, monthNarrative, PeriodStats, shortRange } from '../services/periodStats';
 import { ChevronDown } from 'lucide-react';
 
 /**
  * Monthly roster summary: "What kind of month is this going to be for me?"
- * Leads with one factual sentence, then recovery (days off) against what takes from it
- * (sleep-disrupting duties), then the familiar workload numbers. Everything else is behind "See details".
+ * Leads with one factual sentence, then flying hours and the duties that disrupt sleep, then days off,
+ * duty days and standby. Everything else is behind "See details".
  */
 
 interface MonthSummaryProps {
   stats: PeriodStats;
-  coverageNote: string;
-  flightRangeNote: string;
+  /** Hide the month title when the screen already shows it (e.g. next to a month picker). */
+  hideTitle?: boolean;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -24,7 +24,7 @@ const Tile: React.FC<{ title: string; value: React.ReactNode; note?: React.React
   </div>
 );
 
-export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, coverageNote, flightRangeNote }) => {
+export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) => {
   const [showDetails, setShowDetails] = useState(false);
   const hasRoster = stats.rosterDays > 0;
   const notCounted = [
@@ -43,30 +43,16 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, coverageNote,
     <section className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/80 to-slate-950 p-4 sm:p-5 shadow-sm space-y-4">
       {/* What this month means */}
       <div>
-        <h3 className="text-base font-semibold text-white">{stats.label}</h3>
-        <p className="mt-1 text-sm leading-relaxed text-slate-200">{monthNarrative(stats)}</p>
-        <p className="mt-1 text-xs text-slate-500">{coverageNote}</p>
+        {!hideTitle && <h3 className="mb-1 text-base font-semibold text-white">{stats.label}</h3>}
+        <p className="text-sm leading-relaxed text-slate-200">{monthNarrative(stats)}</p>
+        <p className="mt-1 text-xs text-slate-500">{coverageNote(stats)}</p>
       </div>
 
       {hasRoster && (
         <>
-          {/* Recovery against what takes from it */}
+          {/* Top row: flying hours, and how much of the month cuts into sleep */}
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <Tile
-              large
-              title="Days off"
-              value={plural(stats.daysOff, 'day')}
-              note={
-                <>
-                  {stats.longestBreak.days >= 2
-                    ? `Longest break ${stats.longestBreak.days} days in a row (${shortRange(stats.longestBreak.from!, stats.longestBreak.to!)})`
-                    : stats.daysOff > 0
-                    ? 'Single days only'
-                    : 'None on your roster'}
-                  {notCounted.length > 0 && <span className="block text-slate-500">Not counted: {notCounted.join(', ')}</span>}
-                </>
-              }
-            />
+            <Tile large title="Flying hours" value={`${stats.flyingHours}h`} note={flightRangeNote(stats)} />
             <Tile
               large
               title="Duties that disrupt sleep"
@@ -79,10 +65,23 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, coverageNote,
             />
           </div>
 
-          {/* Workload and pay */}
+          {/* Second row: days off, duty days, standby (and time zones when relevant) */}
           <div className={`grid grid-cols-2 gap-2.5 ${stats.timeZoneTrips > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+            <Tile
+              title="Days off"
+              value={plural(stats.daysOff, 'day')}
+              note={
+                <>
+                  {stats.longestBreak.days >= 2
+                    ? `Longest break ${stats.longestBreak.days} days (${shortRange(stats.longestBreak.from!, stats.longestBreak.to!)})`
+                    : stats.daysOff > 0
+                    ? 'Single days only'
+                    : 'None on your roster'}
+                  {notCounted.length > 0 && <span className="block text-slate-500">Not counted: {notCounted.join(', ')}</span>}
+                </>
+              }
+            />
             <Tile title="Duty days" value={stats.dutyDays} note={plural(stats.sectors, 'flight')} />
-            <Tile title="Flying hours" value={`${stats.flyingHours}h`} note={flightRangeNote} />
             <Tile title="Standby" value={plural(stats.standbyDays, 'day')} note={`${stats.standbyHours}h`} />
             {stats.timeZoneTrips > 0 && (
               <Tile title="Time zones" value={plural(stats.timeZoneTrips, 'trip')} note="3+ hours from home time" />

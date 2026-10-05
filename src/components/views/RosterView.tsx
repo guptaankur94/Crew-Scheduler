@@ -12,12 +12,14 @@ interface RosterViewProps {
   onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
-  /** Day to open on, e.g. when jumping in from the Roster sheet. */
+  /** Day to open on, e.g. when jumping in from the Month screen. */
   initialDate?: string;
+  /** Opens the Month screen on the month containing this date. */
+  onOpenMonthSummary?: (dateStr: string) => void;
 }
 
 /**
- * The Timeline tab. The roster sheet and salary estimate have their own tabs, so this screen shows
+ * The Timeline tab. The Month screen and salary estimate have their own tabs, so this screen shows
  * only the timeline itself.
  */
 export const RosterView: React.FC<RosterViewProps> = ({
@@ -31,6 +33,7 @@ export const RosterView: React.FC<RosterViewProps> = ({
   onDeleteSector,
   onAddStandbyFlight,
   initialDate,
+  onOpenMonthSummary,
 }) => (
   <TimelineView
     plan={plan}
@@ -43,5 +46,6 @@ export const RosterView: React.FC<RosterViewProps> = ({
     onDeleteSector={onDeleteSector}
     onAddStandbyFlight={onAddStandbyFlight}
     initialDate={initialDate}
+    onOpenMonthSummary={onOpenMonthSummary}
   />
 );

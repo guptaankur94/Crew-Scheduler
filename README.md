@@ -51,7 +51,7 @@ Files and text you upload are sent to Google Gemini to be read. Nothing is store
 
 ## Known limitations
 
-- Only the airports listed in `src/data/airports.ts` have exact time zones. For other airports the app relies on the offset the AI reads from the roster.
+- Airport time zones come from an offline list of about 8,000 airports (`src/data/airportDb.json`, rebuilt with `scripts/build-airport-db.py`). A flight at an airport not on the list is flagged and cannot be saved until the code is corrected; the app never guesses a time zone.
 - The home base uses one UTC offset for the whole roster, so a home base that observes daylight saving can be an hour out across a clock change.
 - The server has no login. It is safe on your own computer, but add authentication before hosting it on the public internet.
 - Mobile packaging (`capacitor.config.json`) is not set up yet: a phone build needs the server hosted online first.

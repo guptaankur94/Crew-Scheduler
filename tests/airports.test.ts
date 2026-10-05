@@ -56,3 +56,14 @@ test('daylight saving is applied per date at airports outside the curated list',
   assert.equal(getAirportTzOffset('MEL', '2026-01-15T12:00:00Z'), 11);
   assert.equal(getAirportTzOffset('MEL', '2026-07-15T12:00:00Z'), 10);
 });
+
+test('gaps filled from a second source: Durgapur and other single-time-zone airports resolve', () => {
+  assert.deepEqual(lookupAirport('RDP'), { iata: 'RDP', timeZone: 'Asia/Kolkata', city: 'Durgapur', country: 'IN' });
+  for (const code of ['SAG', 'JLG', 'JGB', 'REW', 'AVR', 'SDW', 'MZS']) assert.equal(lookupAirport(code)?.timeZone, 'Asia/Kolkata', code);
+  assert.equal(lookupAirport('ULH')?.timeZone, 'Asia/Riyadh');
+  assert.equal(getAirportTzOffset('RDP', '2026-10-03T06:00:00Z'), 5.5);
+});
+
+test('an airport in a country with several time zones is not added by guesswork', () => {
+  assert.equal(lookupAirport('PPV'), undefined);
+});

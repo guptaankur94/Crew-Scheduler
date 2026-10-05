@@ -475,6 +475,7 @@ export function generateCircadianPlan(
       fatigueRiskLevel: level === 'harder' ? 'high' : level === 'watch' ? 'moderate' : 'low',
       keyGuidance: guidance,
       outlook,
+      outsideRoster: roster.flights.length > 0 && !range.rosterDates.has(dateStr),
       prepDetails: dayPrepMap.get(dateStr),
       layoverStation,
     };

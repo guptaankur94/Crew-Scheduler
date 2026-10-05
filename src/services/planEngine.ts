@@ -287,25 +287,43 @@ export interface PlanRange {
   dates: string[];
   startMs: number;
   endMs: number;
+  /** Days the roster itself covers; other days get the usual home-time rhythm only. */
+  rosterDates: Set<string>;
 }
+
+/** Days ahead of today that always get a plan, even when the roster does not cover them. */
+export const USUAL_RHYTHM_DAYS_AHEAD = 7;
 
 /** Calendar days (home time) the plan covers, plus the instant range advice is generated for. */
 export function planRange(duties: Duty[], roster: RosterData, clock: HomeClock, now: Date): PlanRange {
+  const today = clock.date(now.getTime());
+  const lastUsualDay = clock.addDays(today, USUAL_RHYTHM_DAYS_AHEAD - 1);
   if (duties.length === 0) {
-    const today = clock.date(now.getTime());
-    const dates = Array.from({ length: 7 }, (_, i) => clock.addDays(today, i));
-    return { dates, startMs: clock.at(today, 0), endMs: clock.at(clock.addDays(today, 7), 12) };
+    const dates = Array.from({ length: USUAL_RHYTHM_DAYS_AHEAD }, (_, i) => clock.addDays(today, i));
+    return { dates, startMs: clock.at(today, 0), endMs: clock.at(clock.addDays(today, USUAL_RHYTHM_DAYS_AHEAD), 12), rosterDates: new Set() };
   }
-  const firstDate = clock.date(duties[0].startMs);
-  let lastDate = clock.addDays(clock.date(duties[duties.length - 1].endMs), 1);
+  const rosterFirst = clock.date(duties[0].startMs);
+  let rosterLast = clock.addDays(clock.date(duties[duties.length - 1].endMs), 1);
   if (roster.totalDays && roster.totalDays > 0) {
-    const fromTotal = clock.addDays(firstDate, roster.totalDays - 1);
-    if (fromTotal > lastDate) lastDate = fromTotal;
+    const fromTotal = clock.addDays(rosterFirst, roster.totalDays - 1);
+    if (fromTotal > rosterLast) rosterLast = fromTotal;
   }
+  const rosterDates = new Set<string>();
+  for (let d = rosterFirst; d <= rosterLast; d = clock.addDays(d, 1)) rosterDates.add(d);
+
+  // The plan also covers today and the week ahead, so the days before a roster starts and after it
+  // ends still get the usual home-time rhythm (no duties, just sleep, caffeine, meals and daylight)
+  const firstDate = today < rosterFirst ? today : rosterFirst;
+  const lastDate = lastUsualDay > rosterLast ? lastUsualDay : rosterLast;
   const dates: string[] = [];
   for (let d = firstDate; d <= lastDate; d = clock.addDays(d, 1)) dates.push(d);
-  // Start the evening before the first duty so the sleep before it is planned too
-  return { dates, startMs: clock.at(clock.addDays(firstDate, -1), 12), endMs: clock.at(clock.addDays(lastDate, 1), 12) };
+  // Start the evening before the first day so the sleep leading into it is planned too
+  return {
+    dates,
+    startMs: clock.at(clock.addDays(firstDate, -1), 12),
+    endMs: clock.at(clock.addDays(lastDate, 1), 12),
+    rosterDates,
+  };
 }
 
 interface Gap {

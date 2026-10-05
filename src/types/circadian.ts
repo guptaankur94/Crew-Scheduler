@@ -224,6 +224,7 @@ export interface DailyCircadianSummary {
   woclExposureMinutes: number;
   fatigueRiskLevel: 'low' | 'moderate' | 'high';
   keyGuidance: string;
+  outsideRoster?: boolean; // true for days the roster does not cover (usual home-time rhythm only)
   outlook?: {
     level: 'steady' | 'watch' | 'harder';
     headline: string; // e.g. 'Harder day ahead'

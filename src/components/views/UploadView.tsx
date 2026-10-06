@@ -13,6 +13,7 @@ import { applyImport, combineFiles, describeChanges, diffRoster, hasNoChanges, i
 import { useWhatChanged } from '../WhatChangedDialog';
 import { TimeConvention } from '../../services/rosterTimes';
 import { normalizeDutyTimes } from '../../services/dutyTimes';
+import { daySignature } from '../../services/rosterFindings';
 import { UploadedRosters } from '../UploadedRosters';
 import { fileFingerprint, importedWith, rememberImport } from '../../services/importFingerprints';
 import { addImportRecord, cleanSlate, ImportRecord, loadImportRecords, markRemoved, ownedDates, periodOf, recordsFromHistory, replaceRecordReading, visibleRecords, withoutDates } from '../../services/importRecords';
@@ -341,6 +342,30 @@ export const UploadView: React.FC<UploadViewProps> = ({
   });
   const hasOwnRoster = currentRoster.flights.length > 0 && !isViewingSample;
 
+  /** What the check screen shows besides the flights: standby, listed days, the dates read, and (when there is a
+   * saved roster) the days that read exactly as already saved, so only the changes need checking. */
+  const reviewDays = (flights: FlightLeg[]) => {
+    const content = uploadContent(flights);
+    const standby = content.standby ?? [];
+    const otherDuties = content.otherDuties ?? [];
+    const read: RosterData = { ...currentRoster, flights: content.flights, standbyDuties: standby, otherDuties };
+    const clock = rosterClock(currentRoster);
+    const dates = [
+      ...new Set([
+        ...(content.visibleDates ?? []),
+        ...content.flights.map((f) => clock.date(Date.parse(f.departureTimeUtc))),
+        ...standby.map((s) => clock.date(Date.parse(s.startUtc))),
+        ...otherDuties.map((o) => o.date),
+      ]),
+    ];
+    return {
+      standby,
+      otherDuties,
+      dates: content.visibleDates ?? [],
+      unchanged: hasOwnRoster ? dates.filter((d) => daySignature(read, d) === daySignature(currentRoster, d)) : [],
+    };
+  };
+
   const [isParsingBatch, setIsParsingBatch] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -656,7 +681,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         {
           ...batchTimes,
           homeBase: hasOwnRoster ? currentRoster.homeBase : detectedHomeBase,
-          days: { standby: importedStandbyRef.current, otherDuties: importedOtherRef.current, dates: importedVisibleRef.current },
+          days: reviewDays(allExtractedFlights),
         }
       );
       if (!reviewed) {
@@ -855,7 +880,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
           convention: result.data.timeConvention ?? timeConvention,
           stated: !!result.data.timeConventionStated,
           homeBase: result.data.homeBase || currentRoster.homeBase,
-          days: { standby: importedStandbyRef.current, otherDuties: importedOtherRef.current, dates: importedVisibleRef.current },
+          days: reviewDays(result.data.flights || []),
         });
         if (reviewed && !result.data.timeConventionStated && reviewed.convention !== timeConvention) onTimeConventionChosen?.(reviewed.convention);
         const confirmed = reviewed?.flights;
@@ -1352,7 +1377,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                       onClick={onViewRosterTimeline}
                       className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-colors"
                     >
-                      View in Duty Timeline ➔
+                      View in Days ➔
                     </button>
                     <button
                       onClick={clearAllStagedFiles}

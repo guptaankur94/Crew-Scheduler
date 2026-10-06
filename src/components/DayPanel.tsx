@@ -326,7 +326,7 @@ export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention, 
                   {u}
                 </p>
               ))}
-              <p className="text-[11px] text-slate-500">These are what you reported happened. Change them from Today or the Timeline; the roster above stays as published.</p>
+              <p className="text-[11px] text-slate-500">These are what you reported happened. Change them on Days; the roster above stays as published.</p>
             </section>
           )}
 
@@ -374,7 +374,7 @@ export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention, 
               <CheckCircle2 className="h-4 w-4" /> {checked ? 'Checked: looks right' : 'Looks right'}
             </button>
             <button onClick={() => onOpenTimeline(date)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-300 hover:text-white">
-              Open in Timeline <ArrowRight className="h-3.5 w-3.5" />
+              Open in Days <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>

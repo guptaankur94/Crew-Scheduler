@@ -104,7 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col justify-between border-r border-slate-800/80 bg-slate-950/95 backdrop-blur-xl transition-all duration-300 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col justify-between border-r border-slate-800/80 bg-slate-950/95 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-xl transition-all duration-300 ${
           isCollapsed ? 'w-18' : 'w-64'
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >

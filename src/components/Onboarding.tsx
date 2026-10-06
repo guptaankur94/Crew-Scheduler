@@ -140,7 +140,7 @@ export const Onboarding: React.FC<Props> = ({ preferences, onUpdatePreferences, 
 
   return (
     <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-950" role="dialog" aria-modal="true" aria-label="Set up CrewCircadian">
-      <div className="mx-auto flex min-h-full max-w-xl flex-col gap-6 px-5 pb-10 pt-[max(2.5rem,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-full max-w-xl flex-col gap-6 px-5 pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1rem))] pt-[calc(env(safe-area-inset-top)+1.5rem)]">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 font-bold text-white">
             <Compass className="h-5 w-5 text-blue-400" /> CrewCircadian

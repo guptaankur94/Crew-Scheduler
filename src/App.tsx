@@ -557,7 +557,7 @@ export default function App() {
 
       {/* 2. Main Content Layout (Padded when sidebar is expanded/collapsed on desktop) */}
       <div
-        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 pb-20 lg:pb-8 ${
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-8 ${
           isSidebarCollapsed ? 'lg:pl-18' : 'lg:pl-64'
         }`}
       >
@@ -731,7 +731,7 @@ export default function App() {
       </div>
 
       {/* 3. Mobile Floating Bottom Navigation Bar (Ultra-convenient thumb reach) */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 lg:hidden border-t border-slate-800 bg-slate-950/95 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shadow-2xl">
+      <div className="fixed bottom-0 left-0 right-0 z-30 lg:hidden border-t border-slate-800 bg-slate-950/95 backdrop-blur-md px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-around shadow-2xl">
         {[
           { id: 'today' as NavView, label: 'Today', icon: <Clock className="h-4 w-4" /> },
           { id: 'roster' as NavView, label: 'Days', icon: <Calendar className="h-4 w-4" /> },

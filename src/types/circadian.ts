@@ -284,6 +284,7 @@ export interface DailyCircadianSummary {
   fatigueRiskLevel: 'low' | 'moderate' | 'high';
   keyGuidance: string;
   outsideRoster?: boolean; // true for days the roster does not cover (usual home-time rhythm only)
+  noDuty?: boolean; // a blank day inside the roster: nothing at all listed for it (shown as "No duty", counted with days off)
   outlook?: {
     level: 'steady' | 'watch' | 'harder';
     headline: string; // e.g. 'Harder day ahead'

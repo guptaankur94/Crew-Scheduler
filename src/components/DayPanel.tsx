@@ -59,7 +59,7 @@ interface StandbyDraft {
 }
 
 const DAY_KINDS: { value: OtherDuty['kind'] | 'none'; label: string }[] = [
-  { value: 'none', label: 'Nothing else listed' },
+  { value: 'none', label: 'No duty (nothing listed)' },
   { value: 'off', label: 'Day off' },
   { value: 'leave', label: 'Leave' },
   { value: 'sick', label: 'Sick' },

@@ -1,5 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { FlightLeg } from '../types/circadian';
+import { FlightLeg, OtherDuty, StandbyDuty } from '../types/circadian';
+import { rosterClock, standbyHomeDate } from '../services/rosterKeys';
+import { shortRange } from '../services/periodStats';
 import { getAirportTzOffset, isKnownAirport } from '../data/airports';
 import { convertPrinted, normaliseClock, printedFrom, TIME_CONVENTION_LABEL, TimeConvention } from '../services/rosterTimes';
 import { checkRosterFlights, hasBlockingProblems, RosterIssue } from '../services/rosterChecks';
@@ -7,6 +9,17 @@ import { AlertTriangle, CheckCircle2, Trash2, X } from 'lucide-react';
 import { TimeInput24 } from './TimeInput24';
 
 const MIN = 60_000;
+
+/** The rest of what was read, so every date can be shown: standby, listed days, and the dates the roster shows. */
+export interface ReviewDays {
+  standby: StandbyDuty[];
+  otherDuties: OtherDuty[];
+  dates: string[];
+}
+
+const DAY_WORD: Record<OtherDuty['kind'], string> = { off: 'Day off', leave: 'Leave', sick: 'Sick', training: 'Training', other: 'Other duty' };
+const dayHeading = (date: string) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 export interface ReviewPreview {
   name: string;
@@ -79,12 +92,13 @@ interface RosterReviewDialogProps {
   /** True when the roster itself says which clock it uses. */
   conventionStated?: boolean;
   homeBase: string;
+  days?: ReviewDays;
 }
 
 const inputClass =
   'block rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-white focus:border-blue-500 focus:outline-none';
 
-const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previews, serverWarnings, onConfirm, onCancel, convention: initialConvention, conventionStated, homeBase }) => {
+const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previews, serverWarnings, onConfirm, onCancel, convention: initialConvention, conventionStated, homeBase, days }) => {
   // The rows hold times as printed; the clock setting decides how they are read, so changing it re-reads them
   const [convention, setConvention] = useState<TimeConvention>(initialConvention);
   const [drafts, setDrafts] = useState<Draft[]>(() =>
@@ -105,9 +119,87 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
   const checks = [...issues.values()].filter((l) => l.every((i) => i.level === 'check')).length;
   const blocked = hasBlockingProblems(issues) || drafts.length === 0;
 
+  // Every date, in order: each day's flights under its heading; days without flights say what the roster shows
+  const clock = useMemo(() => rosterClock({ homeBase, homeBaseTzOffset: getAirportTzOffset(homeBase, new Date()) ?? 5.5 }), [homeBase]);
+  const standbyByDate = useMemo(() => {
+    const map = new Map<string, StandbyDuty[]>();
+    for (const sb of days?.standby ?? []) {
+      const d = standbyHomeDate(sb, clock);
+      map.set(d, [...(map.get(d) ?? []), sb]);
+    }
+    return map;
+  }, [days, clock]);
+  const dates = useMemo(() => {
+    const valid = /^\d{4}-\d{2}-\d{2}$/;
+    const all = [...(days?.dates ?? []), ...drafts.map((d) => d.date), ...standbyByDate.keys(), ...(days?.otherDuties ?? []).map((o) => o.date)].filter((d) => valid.test(d)).sort();
+    if (!all.length) return [];
+    const out: string[] = [];
+    // Fill the gaps so a blank day shows as "No duty" (capped, in case a date was mistyped years away)
+    for (let d = all[0]; d <= all[all.length - 1] && out.length < 62; d = clock.addDays(d, 1)) out.push(d);
+    for (const d of all) if (!out.includes(d)) out.push(d);
+    return out.sort();
+  }, [days, drafts, standbyByDate, clock]);
+  const undated = drafts.filter((d) => !dates.includes(d.date));
+
   const update = (key: string, field: keyof Omit<Draft, 'key' | 'original'>, value: string) =>
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, [field]: value } : d)));
   const remove = (key: string) => setDrafts((prev) => prev.filter((d) => d.key !== key));
+
+  const renderRow = (d: Draft) => {
+              const rowIssues: RosterIssue[] = issues.get(d.key) ?? [];
+              const isProblem = rowIssues.some((i) => i.level === 'problem');
+              const isCheck = !isProblem && rowIssues.length > 0;
+              return (
+                <div
+                  key={d.key}
+                  className={`rounded-xl border p-3 ${
+                    isProblem ? 'border-rose-700/70 bg-rose-950/20' : isCheck ? 'border-amber-700/60 bg-amber-950/10' : 'border-slate-800 bg-slate-950/60'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="text-[10px] text-slate-400">
+                      Flight
+                      <input className={`${inputClass} w-28`} value={d.flightNumber} onChange={(e) => update(d.key, 'flightNumber', e.target.value)} />
+                    </label>
+                    <label className="text-[10px] text-slate-400">
+                      From
+                      <input className={`${inputClass} w-[4.5rem] uppercase`} maxLength={3} value={d.origin} onChange={(e) => update(d.key, 'origin', e.target.value.toUpperCase())} />
+                    </label>
+                    <label className="text-[10px] text-slate-400">
+                      To
+                      <input className={`${inputClass} w-[4.5rem] uppercase`} maxLength={3} value={d.destination} onChange={(e) => update(d.key, 'destination', e.target.value.toUpperCase())} />
+                    </label>
+                    <label className="text-[10px] text-slate-400">
+                      Date
+                      <input type="date" className={`${inputClass} w-[10.5rem]`} value={d.date} onChange={(e) => update(d.key, 'date', e.target.value)} />
+                    </label>
+                    <label className="text-[10px] text-slate-400">
+                      Departs (24h, as printed)
+                      <TimeInput24 className={inputClass} ariaLabel="Departure time, 24-hour, as printed" value={d.dep} onChange={(v) => update(d.key, 'dep', v)} />
+                    </label>
+                    <label className="text-[10px] text-slate-400">
+                      Arrives (24h, as printed)
+                      <TimeInput24 className={inputClass} ariaLabel="Arrival time, 24-hour, as printed" value={d.arr} onChange={(v) => update(d.key, 'arr', v)} />
+                    </label>
+                    <button
+                      onClick={() => remove(d.key)}
+                      className="ml-auto flex items-center justify-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:border-rose-700 hover:text-rose-300"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Remove
+                    </button>
+                  </div>
+                  {rowIssues.length > 0 && (
+                    <ul className="mt-2 space-y-0.5 text-[11px]">
+                      {rowIssues.map((i, n) => (
+                        <li key={n} className={`flex items-center gap-1.5 ${i.level === 'problem' ? 'text-rose-300' : 'text-amber-300'}`}>
+                          <AlertTriangle className="h-3 w-3 shrink-0" /> {i.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-stretch justify-center bg-black/80 p-2 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="review-title">
@@ -118,8 +210,11 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
             <h2 id="review-title" className="text-lg font-bold text-white">
               Check your roster before saving
             </h2>
+            {dates.length > 0 && (
+              <p className="mt-1 text-sm font-semibold text-slate-200">Covers {shortRange(dates[0], dates[dates.length - 1])}</p>
+            )}
             <p className="mt-1 text-xs text-slate-400">
-              We read {drafts.length} flight{drafts.length === 1 ? '' : 's'}. Compare them with your roster and fix anything
+              We read {drafts.length} flight{drafts.length === 1 ? '' : 's'}{dates.length > 0 ? `, day by day below` : ''}. Compare them with your roster and fix anything
               that is wrong. Times are shown exactly as printed.
             </p>
             <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
@@ -176,65 +271,42 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
                     <li key={i}>{w}</li>
                   ))}
                 </ul>
-                <p className="mt-1">You can add missing flights later from Roster &amp; History → Add flight.</p>
+                <p className="mt-1">You can add missing flights later from Month: open the day and add a flight.</p>
               </div>
             )}
 
-            {drafts.map((d) => {
-              const rowIssues: RosterIssue[] = issues.get(d.key) ?? [];
-              const isProblem = rowIssues.some((i) => i.level === 'problem');
-              const isCheck = !isProblem && rowIssues.length > 0;
+            {dates.map((date) => {
+              const rows = drafts.filter((d) => d.date === date);
+              const sbs = standbyByDate.get(date) ?? [];
+              const listed = (days?.otherDuties ?? []).filter((o) => o.date === date);
               return (
-                <div
-                  key={d.key}
-                  className={`rounded-xl border p-3 ${
-                    isProblem ? 'border-rose-700/70 bg-rose-950/20' : isCheck ? 'border-amber-700/60 bg-amber-950/10' : 'border-slate-800 bg-slate-950/60'
-                  }`}
-                >
-                  <div className="flex flex-wrap items-end gap-2">
-                    <label className="text-[10px] text-slate-400">
-                      Flight
-                      <input className={`${inputClass} w-28`} value={d.flightNumber} onChange={(e) => update(d.key, 'flightNumber', e.target.value)} />
-                    </label>
-                    <label className="text-[10px] text-slate-400">
-                      From
-                      <input className={`${inputClass} w-[4.5rem] uppercase`} maxLength={3} value={d.origin} onChange={(e) => update(d.key, 'origin', e.target.value.toUpperCase())} />
-                    </label>
-                    <label className="text-[10px] text-slate-400">
-                      To
-                      <input className={`${inputClass} w-[4.5rem] uppercase`} maxLength={3} value={d.destination} onChange={(e) => update(d.key, 'destination', e.target.value.toUpperCase())} />
-                    </label>
-                    <label className="text-[10px] text-slate-400">
-                      Date
-                      <input type="date" className={`${inputClass} w-[10.5rem]`} value={d.date} onChange={(e) => update(d.key, 'date', e.target.value)} />
-                    </label>
-                    <label className="text-[10px] text-slate-400">
-                      Departs (24h, as printed)
-                      <TimeInput24 className={inputClass} ariaLabel="Departure time, 24-hour, as printed" value={d.dep} onChange={(v) => update(d.key, 'dep', v)} />
-                    </label>
-                    <label className="text-[10px] text-slate-400">
-                      Arrives (24h, as printed)
-                      <TimeInput24 className={inputClass} ariaLabel="Arrival time, 24-hour, as printed" value={d.arr} onChange={(v) => update(d.key, 'arr', v)} />
-                    </label>
-                    <button
-                      onClick={() => remove(d.key)}
-                      className="ml-auto flex items-center justify-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:border-rose-700 hover:text-rose-300"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Remove
-                    </button>
+                <section key={date} className="space-y-1.5" aria-label={dayHeading(date)}>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-slate-800 pb-1 pt-1">
+                    <h3 className="text-sm font-semibold text-white">{dayHeading(date)}</h3>
+                    {sbs.map((sb) => (
+                      <span key={sb.id} className="text-xs text-purple-300">
+                        {sb.kind === 'home' ? 'Home standby' : 'Airport standby'} {clock.time(Date.parse(sb.startUtc))}–{clock.time(Date.parse(sb.endUtc))}
+                      </span>
+                    ))}
+                    {listed.map((o) => (
+                      <span key={o.id} className="text-xs text-emerald-300">
+                        {DAY_WORD[o.kind]}
+                        {o.code ? ` (${o.code})` : ''}
+                      </span>
+                    ))}
+                    {rows.length === 0 && sbs.length === 0 && listed.length === 0 && <span className="text-xs text-slate-500">No duty</span>}
                   </div>
-                  {rowIssues.length > 0 && (
-                    <ul className="mt-2 space-y-0.5 text-[11px]">
-                      {rowIssues.map((i, n) => (
-                        <li key={n} className={`flex items-center gap-1.5 ${i.level === 'problem' ? 'text-rose-300' : 'text-amber-300'}`}>
-                          <AlertTriangle className="h-3 w-3 shrink-0" /> {i.message}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                  {rows.map(renderRow)}
+                </section>
               );
             })}
+            {undated.length > 0 && (
+              <section className="space-y-1.5">
+                <h3 className="border-b border-slate-800 pb-1 pt-1 text-sm font-semibold text-rose-300">No valid date</h3>
+                {undated.map(renderRow)}
+              </section>
+            )}
+            {dates.length === 0 && drafts.map(renderRow)}
           </div>
         </div>
 
@@ -270,6 +342,7 @@ export interface ReviewTimes {
   convention: TimeConvention;
   stated?: boolean;
   homeBase: string;
+  days?: ReviewDays;
 }
 
 export function useRosterReview() {
@@ -295,6 +368,7 @@ export function useRosterReview() {
       convention={pending.times.convention}
       conventionStated={pending.times.stated}
       homeBase={pending.times.homeBase}
+      days={pending.times.days}
       onConfirm={(flights, convention) => {
         pending.resolve({ flights, convention });
         setPending(null);

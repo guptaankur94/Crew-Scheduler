@@ -252,6 +252,8 @@ export const MonthView: React.FC<MonthViewProps> = ({
                               ? 'Standby'
                               : row.summary.outsideRoster
                               ? 'No roster for this day'
+                              : row.summary.noDuty
+                              ? 'No duty'
                               : OTHER_DAY_LABEL[kind] ?? status.label}
                             {row.code && <span className="text-slate-500">({row.code})</span>}
                           </span>

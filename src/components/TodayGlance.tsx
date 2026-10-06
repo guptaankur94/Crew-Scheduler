@@ -64,7 +64,7 @@ export const TodayGlance: React.FC<Props> = ({ plan, todayStr, nowMs }) => {
     todayValue = 'No roster';
     todayLines = ['Showing your usual home-time rhythm'];
   } else if (today) {
-    todayValue = { off: 'Day off', leave: 'Leave', sick: 'Sick day', training: 'Training', standby: 'Standby', layover: 'Layover', flight: 'Duty' }[today.dutyType];
+    todayValue = { off: today.noDuty ? 'No duty' : 'Day off', leave: 'Leave', sick: 'Sick day', training: 'Training', standby: 'Standby', layover: 'Layover', flight: 'Duty' }[today.dutyType];
     todayLines = [today.layoverStation && `Away at ${today.layoverStation.iata}`];
   }
 

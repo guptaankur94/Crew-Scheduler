@@ -43,6 +43,8 @@ export interface PeriodStats extends Period {
   // "What kind of month is this?" figures
   /** Days the roster gives as free: no flights, standby, leave, sick or training. */
   daysOff: number;
+  /** Of the days off: blank days with nothing on the roster ("No duty"). */
+  noDutyDays: number;
   /** Longest run of consecutive days off inside the window. */
   longestBreak: { days: number; from?: string; to?: string };
   leaveDays: number;
@@ -267,6 +269,7 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
     layovers,
     salary: { ...salary, periodStart: period.start, periodEnd: period.end, periodLabel: label },
     daysOff: offDates.length,
+    noDutyDays: rosterDays.filter((d) => d.dutyType === 'off' && d.noDuty).length,
     longestBreak: longestRunOf(offDates),
     leaveDays: countType('leave'),
     sickDays: countType('sick'),

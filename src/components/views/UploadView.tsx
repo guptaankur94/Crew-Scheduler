@@ -662,7 +662,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
         allExtractedFlights,
         itemsToProcess.map((item) => ({ name: item.name, url: item.type.startsWith('image/') ? item.previewUrl : undefined })),
         batchWarnings,
-        { ...batchTimes, homeBase: hasOwnRoster ? currentRoster.homeBase : detectedHomeBase }
+        {
+          ...batchTimes,
+          homeBase: hasOwnRoster ? currentRoster.homeBase : detectedHomeBase,
+          days: { standby: importedStandbyRef.current, otherDuties: importedOtherRef.current, dates: importedVisibleRef.current },
+        }
       );
       if (!reviewed) {
         setParseError('Nothing was saved. Upload again when you are ready.');
@@ -861,6 +865,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
           convention: result.data.timeConvention ?? timeConvention,
           stated: !!result.data.timeConventionStated,
           homeBase: result.data.homeBase || currentRoster.homeBase,
+          days: { standby: importedStandbyRef.current, otherDuties: importedOtherRef.current, dates: importedVisibleRef.current },
         });
         if (reviewed && !result.data.timeConventionStated && reviewed.convention !== timeConvention) onTimeConventionChosen?.(reviewed.convention);
         const confirmed = reviewed?.flights;

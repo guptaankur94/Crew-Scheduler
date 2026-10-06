@@ -118,6 +118,7 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) 
                   ? 'Single days only'
                   : 'None on your roster',
                 stats.daysOff > 0 && `${stats.weekendDaysOff} on a weekend`,
+                stats.noDutyDays > 0 && `${stats.noDutyDays} of them no duty (blank on your roster)`,
                 notCounted.length > 0 && muted(`Not counted: ${notCounted.join(', ')}`),
               ]}
             />

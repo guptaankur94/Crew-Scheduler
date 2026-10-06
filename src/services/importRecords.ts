@@ -3,6 +3,7 @@ import { TimeConvention } from './rosterTimes';
 import { daySignature } from './rosterFindings';
 import { flightHomeDate, rosterClock, standbyHomeDate } from './rosterKeys';
 import { normalizeDutyTimes } from './dutyTimes';
+import { kv } from './kv';
 
 /*
  * UPLOADED ROSTERS
@@ -37,7 +38,7 @@ export interface ImportRecord {
 
 export function loadImportRecords(): ImportRecord[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = kv.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed) ? parsed.filter((r) => r && typeof r.id === 'string' && Array.isArray(r.dates) && r.read && Array.isArray(r.read.flights)) : [];
   } catch {
@@ -47,7 +48,7 @@ export function loadImportRecords(): ImportRecord[] {
 
 function save(records: ImportRecord[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(records.slice(0, MAX_RECORDS)));
+    kv.setItem(KEY, JSON.stringify(records.slice(0, MAX_RECORDS)));
   } catch {
     // Storage full: the newest records are kept when there is room again
   }
@@ -67,7 +68,7 @@ export function removeImportRecord(id: string): ImportRecord[] {
 
 export function clearImportRecords(): void {
   try {
-    localStorage.removeItem(KEY);
+    kv.removeItem(KEY);
   } catch {
     // Nothing to clear
   }

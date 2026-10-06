@@ -42,12 +42,15 @@ import {
   createEmptyRoster,
   undoableEntry,
 } from './services/rosterHistoryService';
+import { kv } from './services/kv';
 import { keepNudgesOutside, RosterUpdateInfo } from './services/rosterDiff';
 import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
 import { RosterView } from './components/views/RosterView';
 import { Onboarding } from './components/Onboarding';
+import { planReminders } from './services/reminders';
+import { syncReminders } from './services/nativeReminders';
 import { TodayPreview } from './components/views/TodayPreview';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
@@ -171,7 +174,7 @@ export default function App() {
   const planBeforeUpdate = useRef<{ plan: typeof plan; title: string } | null>(null);
   const [planNotice, setPlanNotice] = useState<PlanChangeNotice | null>(() => {
     try {
-      const raw = localStorage.getItem('crew_plan_notice_v1');
+      const raw = kv.getItem('crew_plan_notice_v1');
       const saved = raw ? JSON.parse(raw) : null;
       // Only a current heads-up (one sentence, under a day old) is shown
       return saved && typeof saved.sentence === 'string' && Date.now() - Date.parse(saved.at) < HEADS_UP_HOURS * 3600000 ? saved : null;
@@ -182,8 +185,8 @@ export default function App() {
   const showPlanNotice = (notice: PlanChangeNotice | null) => {
     setPlanNotice(notice);
     try {
-      if (notice) localStorage.setItem('crew_plan_notice_v1', JSON.stringify(notice));
-      else localStorage.removeItem('crew_plan_notice_v1');
+      if (notice) kv.setItem('crew_plan_notice_v1', JSON.stringify(notice));
+      else kv.removeItem('crew_plan_notice_v1');
     } catch {
       // Not remembered: the notice simply disappears on reload
     }
@@ -520,6 +523,12 @@ export default function App() {
       [eventId]: minutes,
     }));
   };
+
+  // Phone app: keep the phone's reminders in step with the plan (re-planned whenever the plan or choices change)
+  useEffect(() => {
+    const timer = setTimeout(() => void syncReminders(planReminders(plan, preferences.reminders ?? {}, Date.now())).catch(() => {}), 1500);
+    return () => clearTimeout(timer);
+  }, [plan, preferences.reminders]);
 
   const viewTitles: Record<NavView, string> = {
     today: "Today",

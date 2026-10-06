@@ -1,4 +1,5 @@
 import { CrewPreferences, FlightLeg, RosterData, UserUpdate } from '../types/circadian';
+import { kv } from './kv';
 
 const STORAGE_KEY = 'crew_app_state_v1';
 
@@ -142,7 +143,7 @@ export function reviveAppState(parsed: any, defaultPreferences: CrewPreferences)
  */
 export function loadAppState(defaultPreferences: CrewPreferences): PersistedAppState | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kv.getItem(STORAGE_KEY);
     if (!raw) return null;
     const state = reviveAppState(JSON.parse(raw), defaultPreferences);
     // The crew member's name is no longer kept; names saved by earlier versions are dropped
@@ -157,7 +158,7 @@ export function loadAppState(defaultPreferences: CrewPreferences): PersistedAppS
 /** The saved state exactly as stored, for backups. */
 export function loadRawAppState(): unknown {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kv.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -166,15 +167,15 @@ export function loadRawAppState(): unknown {
 
 export function saveAppState(state: PersistedAppState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    kv.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {
-    console.warn('Failed to save app state to localStorage', err);
+    console.warn('Failed to save app state', err);
   }
 }
 
 export function clearAppState(): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    kv.removeItem(STORAGE_KEY);
   } catch (err) {
     console.warn('Failed to clear saved app state', err);
   }

@@ -1,3 +1,5 @@
+import { kv } from './kv';
+
 /**
  * Remembers whether the user agreed to send files to Google Gemini for reading.
  * Apple's App Review Guideline 5.1.2(i) requires this consent before personal data goes to a third-party AI.
@@ -6,7 +8,7 @@ const CONSENT_KEY = 'crew_ai_consent_v1';
 
 export function getAiConsentDate(): string | null {
   try {
-    return localStorage.getItem(CONSENT_KEY);
+    return kv.getItem(CONSENT_KEY);
   } catch {
     return null;
   }
@@ -18,7 +20,7 @@ export function hasAiConsent(): boolean {
 
 export function giveAiConsent(now: Date = new Date()): void {
   try {
-    localStorage.setItem(CONSENT_KEY, now.toISOString());
+    kv.setItem(CONSENT_KEY, now.toISOString());
   } catch {
     // Storage unavailable: the user will simply be asked again next time
   }
@@ -26,7 +28,7 @@ export function giveAiConsent(now: Date = new Date()): void {
 
 export function withdrawAiConsent(): void {
   try {
-    localStorage.removeItem(CONSENT_KEY);
+    kv.removeItem(CONSENT_KEY);
   } catch {
     // Nothing stored
   }

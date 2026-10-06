@@ -257,7 +257,8 @@ CRITICAL EXTRACTION RULES:
 
     return res.json({ success: true, data: roster });
   } catch (error: any) {
-    console.error('Error parsing roster with Gemini:', error);
+    // Message and status only: never anything that could contain the roster itself
+    console.error('Error parsing roster with Gemini:', (error as { status?: number })?.status ?? '', (error as Error)?.message ?? 'unknown error');
     return res.status(500).json({
       success: false,
       error: 'Something went wrong while reading the roster. Details are in the server log.',

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CrewCircadian</string>
+    <string name="title_activity_main">CrewCircadian</string>
+    <string name="package_name">com.crewcircadian.app</string>
+    <string name="custom_url_scheme">com.crewcircadian.app</string>
+</resources>

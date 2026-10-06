@@ -4,7 +4,7 @@ import { CircadianPlan } from '../types/circadian';
  * REMINDERS AND ALARMS
  *
  * What the phone should ring or show, worked out from the plan. Opt-in, few, and tied to roster moments:
- *   wake      the wake-up alarm before each duty (an alarm: it rings even in Silent mode where the phone allows)
+ *   wake      the wake-up alarm before each duty (marked as an alarm, for a native alarm module to ring through Silent mode later)
  *   leave     ten minutes before leaving home or the hotel
  *   bedtime   thirty minutes before a planned sleep, to wind down
  *   caffeine  when the caffeine cut-off before a sleep starts
@@ -20,7 +20,7 @@ export interface Reminder {
   atUtc: string;
   title: string;
   body: string;
-  /** Alarms ring through Silent mode where the phone allows; reminders are ordinary notifications. */
+  /** Marked for a native alarm module (rings through Silent mode); until then shown like the other reminders. */
   alarm: boolean;
 }
 

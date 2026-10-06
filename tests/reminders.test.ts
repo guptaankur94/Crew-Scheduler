@@ -49,3 +49,11 @@ test('reminders never fall inside a planned sleep, and stay within the next week
   assert.ok(all.length <= MAX_SCHEDULED);
   assert.ok(all.some((r) => r.kind === 'leave' && ist(r.atUtc) === '2026-10-05 05:05'), 'leave reminder 10 min before 05:15');
 });
+
+test('each reminder gets a stable phone ID, the same every time it is planned', async () => {
+  const { reminderNumber } = await import('../src/services/nativeReminders');
+  const ids = planReminders(plan, { wake: true, leave: true, bedtime: true, caffeine: true }, now).map((r) => reminderNumber(r.id));
+  assert.equal(new Set(ids).size, ids.length, 'no two reminders share an ID');
+  assert.equal(reminderNumber('wake-x'), reminderNumber('wake-x'));
+  assert.ok(ids.every((n) => Number.isInteger(n) && n >= 0 && n < 2 ** 31));
+});

@@ -1,6 +1,6 @@
 import { getAirportTzOffset } from '../data/airports';
 import { bunkChoice, sectorKeys } from './rosterKeys';
-import { CircadianEvent, CrewPreferences, EventType, FlightLeg, PrepDetails, RosterData, ScientificCitation, StandbyDuty } from '../types/circadian';
+import { CaffeineDose, CircadianEvent, CrewPreferences, EventType, FlightLeg, PrepDetails, RosterData, ScientificCitation, StandbyDuty } from '../types/circadian';
 
 /**
  * Plan engine: treats the roster as one continuous timeline.
@@ -30,6 +30,27 @@ export const PRE_NIGHT_DUTY_NAP_MINUTES = 90;
 export const POST_EARLY_DUTY_NAP_MINUTES = 60;
 /** Longest first sleep after a night duty, so the following night's sleep still works. */
 export const RECOVERY_SLEEP_MAX_HOURS = 5;
+/**
+ * CAFFEINE CUT-OFF BY USUAL DOSE (Gardiner et al. 2025): about one coffee (≈100 mg) had little effect up to
+ * about 4 hours before bed, and a large dose (≈400 mg) should stop about 12 hours before. We use the cautious end:
+ * 6 h for one coffee or a few cups of chai, 8 h for two coffees, 12 h for three or more or energy drinks.
+ * Caffeine disturbs daytime sleep (after a night duty) more than night sleep (Carrier et al. 2007); the size of
+ * that effect is not pinned down, so we add DAYTIME_SLEEP_EXTRA_HOURS as our own safety margin.
+ */
+/** Finish hard exercise this long before a night's sleep (Leota et al. 2025). */
+export const EXERCISE_BEFORE_SLEEP_HOURS = 4;
+/** No alcohol this long before a duty or standby (DGCA). */
+export const ALCOHOL_BEFORE_DUTY_HOURS = 12;
+export const CAFFEINE_HOURS: Record<CaffeineDose, number> = { light: 6, moderate: 8, strong: 12 };
+export const DAYTIME_SLEEP_EXTRA_HOURS = 2;
+
+/** Hours to stop caffeine before a sleep starting at this home-time hour. */
+export function caffeineCutoffHoursFor(preferences: Pick<CrewPreferences, 'caffeineDose' | 'caffeineCutoffHours'>, sleepStartHour: number): number {
+  const base = preferences.caffeineDose ? CAFFEINE_HOURS[preferences.caffeineDose] : preferences.caffeineCutoffHours || 6;
+  const daytime = sleepStartHour >= 6 && sleepStartHour < 17;
+  return base + (daytime ? DAYTIME_SLEEP_EXTRA_HOURS : 0);
+}
+
 /** Usual home-time bedtime used on nights with no duty pressure. */
 export const DEFAULT_BEDTIME_HOUR = 23;
 /** Flight sectors at least this long may have in-flight crew rest. */
@@ -94,6 +115,8 @@ export interface PlanCitations {
   melatonin_shield: ScientificCitation;
   daylight: ScientificCitation;
   prep: ScientificCitation;
+  exercise_cutoff: ScientificCitation;
+  alcohol_cutoff: ScientificCitation;
 }
 
 interface Block {
@@ -648,10 +671,11 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
 
   const mainSleeps = validSleeps.filter((s) => s.kind === 'night' || s.kind === 'before_duty' || s.kind === 'recovery');
 
-  // 2. Caffeine: stop a set time before each main sleep (never before the previous sleep ended)
-  const cutoffHours = preferences.caffeineCutoffHours || 6;
+  // 2. Caffeine: stop before each main sleep, by usual dose; earlier before a daytime sleep (never before the
+  // previous sleep ended)
   const cutoffStartBySleep = new Map<string, number>();
   mainSleeps.forEach((s, i) => {
+    const cutoffHours = caffeineCutoffHoursFor(preferences, clock.hour(s.startMs));
     const prevEnd = i > 0 ? mainSleeps[i - 1].endMs : -Infinity;
     const start = Math.max(s.startMs - cutoffHours * HOUR, prevEnd);
     cutoffStartBySleep.set(s.id, start);
@@ -783,6 +807,53 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
         )
       );
     }
+  }
+
+  // 3b. Hard exercise: finish 4 hours before a night's sleep (not before sleep after a night duty: sleep first)
+  mainSleeps.forEach((s, i) => {
+    if (s.kind === 'recovery') return;
+    const prevEnd = i > 0 ? mainSleeps[i - 1].endMs : -Infinity;
+    const start = s.startMs - EXERCISE_BEFORE_SLEEP_HOURS * HOUR;
+    if (start < prevEnd) return;
+    events.push(
+      make(
+        `exercise-cutoff-${s.id}`,
+        'exercise_cutoff',
+        `🏃 Finish hard workouts by ${clock.time(start)}`,
+        `${EXERCISE_BEFORE_SLEEP_HOURS} hours before your sleep at ${clock.time(s.startMs)}. A walk or stretching is fine.`,
+        start,
+        s.startMs,
+        citations.exercise_cutoff,
+        'optional',
+        '#0f766e',
+        'activity',
+        clock.date(start)
+      )
+    );
+  });
+
+  // 3c. Alcohol: none in the 12 hours before a duty or a standby (DGCA), shown on the duty's day
+  const alcoholBefore = [
+    ...duties.map((d) => ({ key: d.flights[0]?.id ?? `duty-${d.startMs}`, startMs: d.startMs, what: 'check-in' })),
+    ...(roster.standbyDuties ?? []).filter((sb) => sb.kind === 'home').map((sb) => ({ key: `standby-${sb.id}`, startMs: Date.parse(sb.startUtc), what: 'standby' })),
+  ];
+  for (const a of alcoholBefore) {
+    const start = a.startMs - ALCOHOL_BEFORE_DUTY_HOURS * HOUR;
+    events.push(
+      make(
+        `alcohol-cutoff-${a.key}`,
+        'alcohol_cutoff',
+        `🚫 No alcohol from ${clock.time(start)}${clock.date(start) !== clock.date(a.startMs) ? ' the day before' : ''}`,
+        `${ALCOHOL_BEFORE_DUTY_HOURS} hours before your ${a.what} at ${clock.time(a.startMs)} (DGCA rule for crew)`,
+        start,
+        a.startMs,
+        citations.alcohol_cutoff,
+        'critical',
+        '#9f1239',
+        'x-circle',
+        clock.date(a.startMs)
+      )
+    );
   }
 
   // 4. Meals: in each waking stretch between main sleeps; keep food light in the body-clock night

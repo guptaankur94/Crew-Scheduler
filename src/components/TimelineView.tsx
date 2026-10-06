@@ -140,6 +140,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const caffeineEvents = dayEvents.filter((e) => e.type.includes('caffeine'));
   const alertEvents = dayEvents.filter((e) => e.type === 'wocl_risk' || e.type === 'melatonin_shield');
   const lightEvents = dayEvents.filter((e) => e.type === 'light_exposure');
+  const goodToKnow = dayEvents.filter((e) => e.type === 'alcohol_cutoff' || e.type === 'exercise_cutoff').sort((a, b) => a.startUtc.localeCompare(b.startUtc));
 
   const isOffDay = activeDaySummary?.isOffDay;
   const prepDetails = activeDaySummary?.prepDetails;
@@ -814,6 +815,25 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Good to know: alcohol before duty, hard exercise before sleep */}
+      {goodToKnow.length > 0 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5 text-xs">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Good to know</p>
+          <ul className="space-y-1.5">
+            {goodToKnow.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-baseline justify-between gap-2">
+                <span>
+                  <strong className="text-slate-100">{e.title}</strong> <span className="text-slate-400">· {e.subtitle}</span>
+                </span>
+                <button onClick={() => onSelectEvent(e)} className="text-[11px] font-semibold text-slate-400 underline underline-offset-2 hover:text-white">
+                  Why?
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Layer 6: Morning Light / Sunlight Reset card on Off Day or Layover */}
       {lightEvents.length > 0 && (

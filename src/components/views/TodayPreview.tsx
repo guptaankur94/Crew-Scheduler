@@ -54,6 +54,7 @@ const TODAY_TYPES = new Set([
   'fasting_window',
   'light_exposure',
   'melatonin_shield',
+  'alcohol_cutoff',
 ]);
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -66,6 +67,7 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   fasting_window: <span className="text-sm leading-none">🍵</span>,
   light_exposure: <Sun className="h-4 w-4 text-amber-400" />,
   melatonin_shield: <span className="text-sm leading-none">🕶️</span>,
+  alcohol_cutoff: <span className="text-sm leading-none">🚫</span>,
 };
 
 function untilText(ms: number): string {

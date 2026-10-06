@@ -104,9 +104,21 @@ export type EventType =
   | 'melatonin_shield'
   | 'wocl_risk'
   | 'rest_day'
-  | 'standby';
+  | 'standby'
+  | 'exercise_cutoff'
+  | 'alcohol_cutoff';
+
+/**
+ * How well a rule is supported: strong (consistent trials or reviews), moderate (some trials or expert guidance),
+ * limited (early or mixed evidence; shown as a gentle guide), practical (arithmetic on your roster and settings),
+ * regulation (a legal rule, not a health claim).
+ */
+export type EvidenceGrade = 'strong' | 'moderate' | 'limited' | 'practical' | 'regulation';
 
 export interface ScientificCitation {
+  /** Stable ID of the rule in the rule book (docs/RULE_BOOK.md), e.g. SLEEP-01. */
+  ruleId: string;
+  evidence: EvidenceGrade;
   organization: string;
   studyTitle: string;
   keyFinding: string;
@@ -165,13 +177,18 @@ export type Chronotype = 'lark' | 'intermediate' | 'owl';
 export type CrewRank = 'junior' | 'senior' | 'lead';
 export type SalaryCurrency = 'INR' | 'AED' | 'USD';
 
+/** Usual caffeine: light = one coffee or a few cups of chai (≈100 mg), moderate = two coffees, strong = three or more, or energy drinks (≈400 mg). */
+export type CaffeineDose = 'light' | 'moderate' | 'strong';
+
 export interface CrewPreferences {
   airline: AirlineId;
   homeBaseIata: string;
   homeBaseTzOffset: number;
   chronotype: Chronotype;
   targetSleepHours: number;
-  caffeineCutoffHours: number; // 6 or 8 hours before sleep
+  caffeineCutoffHours: number; // hours before night sleep (follows caffeineDose when set)
+  /** How much caffeine the person usually has; decides the cut-off (Gardiner et al. 2025). */
+  caffeineDose?: CaffeineDose;
   preferredNapDuration: 25 | 26 | 45 | 90; // NASA 26m vs full cycle 90m
   groomingMinutes: number; // Time from wake-up to cab pickup (e.g. 60 min)
   cabBufferMinutes: number; // Time from cab pickup to reporting at base (e.g. 60 min)

@@ -252,7 +252,7 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
         )}
       </section>
 
-      {/* Today at a glance: duty, next sleep, wake-up, caffeine */}
+      {/* Today in one line: the kind of day, check-in and sign-off */}
       <TodayGlance plan={plan} todayStr={todayStr} nowMs={nowMs} />
 
       {/* Standby, only when there is some today */}

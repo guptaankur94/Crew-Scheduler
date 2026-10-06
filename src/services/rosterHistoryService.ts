@@ -25,7 +25,6 @@ export function createEmptyRoster(homeBase = 'DEL', homeBaseTzOffset = 5.5): Ros
   return {
     id: `cleared-roster-${Date.now()}`,
     airline: 'None',
-    crewName: 'Cabin Crew',
     homeBase,
     homeBaseTzOffset,
     flights: [],
@@ -34,12 +33,22 @@ export function createEmptyRoster(homeBase = 'DEL', homeBaseTzOffset = 5.5): Ros
   };
 }
 
+function withoutCrewName(entry: RosterHistoryEntry): RosterHistoryEntry {
+  const strip = (r?: RosterData) => {
+    if (!r || !('crewName' in r)) return r;
+    const { crewName: _name, ...rest } = r as RosterData & { crewName?: string };
+    return rest;
+  };
+  return { ...entry, rosterSnapshot: strip(entry.rosterSnapshot), previousSnapshot: strip(entry.previousSnapshot) };
+}
+
 export function loadRosterHistory(): RosterHistoryEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
+    // The crew member's name is no longer kept; names saved by earlier versions are dropped
+    if (Array.isArray(parsed)) return parsed.map(withoutCrewName);
     return [];
   } catch (err) {
     console.warn('Failed to load roster history from localStorage', err);

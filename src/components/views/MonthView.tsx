@@ -1,13 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { CircadianEvent, CircadianPlan } from '../../types/circadian';
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, ChevronRight as RowArrow, FileSearch, PencilLine, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, ChevronRight as RowArrow, PencilLine } from 'lucide-react';
 import { DayItems, DayPanel } from '../DayPanel';
 import { daySignature, Finding, findingsByDate } from '../../services/rosterFindings';
 import { TimeConvention } from '../../services/rosterTimes';
 import { flightHomeDate, rosterClock } from '../../services/rosterKeys';
 import { MonthSummary } from '../MonthSummary';
 import { DateNavigator, statusOf } from '../DateNavigator';
-import { MasterRosterOverview } from '../MasterRosterOverview';
 import { computePeriodStats, periodContaining, periodLabel, shiftPeriod } from '../../services/periodStats';
 import { monthDayRows } from '../../services/monthDays';
 import { checkDutyLimits, RuleSetId } from '../../services/dutyLimits';
@@ -27,8 +26,6 @@ interface MonthViewProps {
   onOpenDay: (dateStr: string) => void;
   onSelectEvent?: (event: CircadianEvent) => void;
   /** Whether the full roster table is open in place of the month overview. */
-  showOriginal: boolean;
-  onShowOriginalChange: (show: boolean) => void;
   /** The roster as published plus the person's recorded changes except delays, for the duty-limit check. */
   limitsRoster: RosterData;
   /** The roster as published, to check and correct. */
@@ -61,8 +58,6 @@ export const MonthView: React.FC<MonthViewProps> = ({
   onChangeMonth,
   onOpenDay,
   onSelectEvent,
-  showOriginal,
-  onShowOriginalChange: setShowOriginal,
   limitsRoster,
   roster,
   timeConvention,
@@ -117,21 +112,6 @@ export const MonthView: React.FC<MonthViewProps> = ({
   const lastMonth = `${(dailySummaries[dailySummaries.length - 1]?.dateStr ?? todayStr).slice(0, 7)}-01`;
   const go = (n: number) => onChangeMonth(shiftPeriod(period, n, 1).start);
 
-  if (showOriginal) {
-    return (
-      <div className="space-y-4">
-        <button
-          onClick={() => setShowOriginal(false)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-white"
-        >
-          <X className="h-3.5 w-3.5" />
-          Back to {periodLabel(period)}
-        </button>
-        <MasterRosterOverview plan={plan} onJumpToTimeline={onOpenDay} onSelectEvent={onSelectEvent} />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* Month picker */}
@@ -155,13 +135,6 @@ export const MonthView: React.FC<MonthViewProps> = ({
             <ChevronRight className="h-5 w-5" />
           </button>
         </div>
-        <button
-          onClick={() => setShowOriginal(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-white"
-        >
-          <FileSearch className="h-3.5 w-3.5" />
-          Check against original
-        </button>
       </div>
 
       {/* What kind of month this is */}

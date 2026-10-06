@@ -26,13 +26,10 @@ import {
   Check,
   AlertCircle,
   Loader2,
-  Calendar,
   CheckCircle2,
   Plane,
   RefreshCw,
   Clock,
-  Layers,
-  History,
   Trash2,
   AlertTriangle,
   Files,
@@ -127,7 +124,6 @@ export interface FileBatchItem {
   airline?: string;
   homeBase?: string;
   homeBaseTzOffset?: number;
-  crewName?: string;
   error?: string;
 }
 
@@ -163,7 +159,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
    */
   const saveOverSavedRoster = async (
     upload: UploadContent,
-    meta: { title: string; airline: string; crewName: string },
+    meta: { title: string; airline: string },
     options: { at?: string; keepSources?: boolean; clearUpdates?: boolean } = {}
   ): Promise<{ outcome: 'saved' | 'no_changes' | 'cancelled'; parsedAt?: string; summary?: string; saved?: UploadContent; scopeDates?: string[] }> => {
     // A new upload's items remember where they came from; a restored upload keeps its original source
@@ -181,7 +177,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const roster: RosterData = {
       id: `roster-${Date.now()}`,
       airline: meta.airline,
-      crewName: meta.crewName,
       homeBase: currentRoster.homeBase,
       homeBaseTzOffset: currentRoster.homeBaseTzOffset,
       flights: applied.flights,
@@ -539,7 +534,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
     let detectedAirline = !isViewingSample && currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
     let detectedHomeBase = currentRoster.homeBase || 'DEL';
     let detectedHomeBaseTzOffset = currentRoster.homeBaseTzOffset || 5.5;
-    let detectedCrewName = (!isViewingSample && currentRoster.crewName) || 'Cabin Crew';
     const breakdown: { fileName: string; count: number }[] = [];
 
     // Process files one by one sequentially
@@ -578,9 +572,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
           }
           if (typeof result.data.homeBaseTzOffset === 'number') {
             detectedHomeBaseTzOffset = result.data.homeBaseTzOffset;
-          }
-          if (result.data.crewName) {
-            detectedCrewName = result.data.crewName;
           }
 
           allExtractedFlights.push(...flights);
@@ -703,7 +694,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       if (hasOwnRoster) {
         const saved = await saveOverSavedRoster(
           uploadContent(allExtractedFlights),
-          { title, airline: detectedAirline, crewName: detectedCrewName },
+          { title, airline: detectedAirline },
           { at }
         );
         if (saved.outcome === 'cancelled') {
@@ -729,7 +720,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
       const newRoster: RosterData = {
         id: `roster-init-${Date.now()}`,
         airline: detectedAirline,
-        crewName: detectedCrewName,
         homeBase: detectedHomeBase,
         homeBaseTzOffset: detectedHomeBaseTzOffset,
         flights: initialFlights,
@@ -885,7 +875,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         if (hasOwnRoster) {
           const saved = await saveOverSavedRoster(
             uploadContent(newFlights),
-            { title: textTitle, airline: result.data.airline || currentRoster.airline, crewName: result.data.crewName || currentRoster.crewName || 'Cabin Crew' },
+            { title: textTitle, airline: result.data.airline || currentRoster.airline },
             { at }
           );
           if (saved.outcome === 'cancelled') setParseError('Nothing was saved. Paste your roster again when you are ready.');
@@ -900,7 +890,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
         const parsed: RosterData = {
           id: `roster-text-${Date.now()}`,
           airline: result.data.airline || 'Airline',
-          crewName: result.data.crewName || 'Cabin Crew',
           homeBase: result.data.homeBase || 'DEL',
           homeBaseTzOffset: result.data.homeBaseTzOffset || 5.5,
           flights: taggedText.flights,
@@ -969,17 +958,17 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 <button
                   onClick={onViewMasterSheet}
                   className="rounded-lg border border-emerald-500/50 bg-emerald-900/60 hover:bg-emerald-800/80 px-3 py-1 font-bold text-emerald-200 text-xs flex items-center gap-1 shadow-sm"
-                  title="Open the full roster table to check it against your document"
+                  title="Check the days in Month against your roster"
                 >
                   <FileText className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Check against original ➔</span>
+                  <span>Check in Month ➔</span>
                 </button>
               )}
               <button
                 onClick={onViewRosterTimeline}
                 className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1 font-bold text-white text-xs flex items-center gap-1 shadow-sm"
               >
-                <span>Go to Timeline</span>
+                <span>Go to Days</span>
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
@@ -1100,7 +1089,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800/80 pt-3 text-[11px] text-slate-400">
                 <span className="flex items-center gap-1.5">
                   <Plane className="h-3.5 w-3.5 text-blue-400" />
-                  <span>Compatible with IndiGo (AIMS, CrewLynx), Air India, Emirates, Etihad, Qatar, & DGCA/FAA formats</span>
+                  <span>Works with roster screenshots, PDFs and pasted text</span>
                 </span>
                 <span className="text-slate-500">Supports PNG, JPG, JPEG, WEBP, PDF</span>
               </div>
@@ -1399,7 +1388,21 @@ export const UploadView: React.FC<UploadViewProps> = ({
       )}
 
       {/* Your rosters: Re-read or Remove */}
-      <UploadedRosters rosters={yourRosters} busy={isParsingBatch} onReread={rereadRoster} onRemove={removeRoster} />
+      <UploadedRosters
+        rosters={yourRosters}
+        busy={isParsingBatch}
+        onReread={rereadRoster}
+        onRemove={removeRoster}
+        loadOriginal={async (record) => {
+          const files = await Promise.all(
+            record.files.filter((f) => f.stored && f.fingerprint).map(async (f) => {
+              const stored = await getStoredFile(f.fingerprint!);
+              return stored ? { name: f.name, url: URL.createObjectURL(stored.blob) } : null;
+            })
+          );
+          return files.filter((f): f is { name: string; url: string } => !!f);
+        }}
+      />
 
       {/* One tap from undoing the last change */}
       {history[0] && onUndoLatest && (

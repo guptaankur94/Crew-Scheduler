@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeParsedRoster, sanitizeParsedPayslip } from '../server/rosterSanitizer';
+import { sanitizeParsedRoster } from '../server/rosterSanitizer';
 
 const NOW = new Date('2026-09-30T00:00:00Z');
 const good = {
@@ -103,25 +103,6 @@ test('a missing flight number is kept but flagged', () => {
   const roster = sanitizeParsedRoster({ flights: [{ ...good, flightNumber: '' }] }, NOW);
   assert.equal(roster?.flights[0].flightNumber, 'UNKNOWN');
   assert.equal(roster?.warnings.length, 1);
-});
-
-test('payslip: keeps valid figures, rejects empty or negative readings', () => {
-  assert.deepEqual(
-    sanitizeParsedPayslip({ currency: 'inr', baseFixedPay: 40000, flyingHourlyRate: -5, standbyHourlyRate: 'x' }),
-    {
-      airline: undefined,
-      rankTitle: undefined,
-      currency: 'INR',
-      baseFixedPay: 40000,
-      flyingHourlyRate: undefined,
-      standbyHourlyRate: undefined,
-      layoverPerDiem: undefined,
-      nightAllowanceRate: undefined,
-      notes: undefined,
-    }
-  );
-  assert.equal(sanitizeParsedPayslip({ currency: 'INR', baseFixedPay: 0, flyingHourlyRate: 0 }), null);
-  assert.equal(sanitizeParsedPayslip(null), null);
 });
 
 test('standby periods are kept, bad ones dropped with a warning; positioning is flagged', () => {

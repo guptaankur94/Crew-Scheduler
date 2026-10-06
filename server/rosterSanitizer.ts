@@ -5,7 +5,6 @@ import { normalizeDutyTimes } from '../src/services/dutyTimes';
 
 export interface SanitizedRoster {
   airline: string;
-  crewName: string;
   homeBase: string;
   homeBaseTzOffset: number;
   flights: FlightLeg[];
@@ -251,7 +250,6 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), option
     const homeBase = IATA_RE.test(declaredHomeBase) ? declaredHomeBase : standby[0].airport;
     return {
       airline: typeof parsed.airline === 'string' && parsed.airline.trim() ? parsed.airline.trim() : 'Airline',
-      crewName: typeof parsed.crewName === 'string' && parsed.crewName.trim() ? parsed.crewName.trim() : 'Cabin Crew',
       homeBase,
       homeBaseTzOffset: getAirportTzOffset(homeBase, standby[0].startUtc) ?? (isPlausibleOffset(parsed.homeBaseTzOffset) ? parsed.homeBaseTzOffset : 0),
       flights,
@@ -285,7 +283,6 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), option
 
   return {
     airline: text(parsed.airline, 'Airline'),
-    crewName: text(parsed.crewName, 'Cabin Crew'),
     homeBase,
     homeBaseTzOffset,
     flights,
@@ -300,51 +297,4 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), option
     timeConvention,
     timeConventionStated,
   };
-}
-
-export interface SanitizedPayslip {
-  airline?: string;
-  rankTitle?: string;
-  currency: string;
-  baseFixedPay?: number;
-  flyingHourlyRate?: number;
-  standbyHourlyRate?: number;
-  layoverPerDiem?: number;
-  nightAllowanceRate?: number;
-  notes?: string;
-}
-
-/**
- * Keeps only non-negative finite pay figures from a model's payslip reading.
- * Returns null when no pay figure at all was extracted.
- */
-export function sanitizeParsedPayslip(parsed: any): SanitizedPayslip | null {
-  if (!parsed || typeof parsed !== 'object') return null;
-
-  const amount = (value: unknown): number | undefined =>
-    typeof value === 'number' && isFinite(value) && value >= 0 ? value : undefined;
-  const text = (value: unknown): string | undefined =>
-    typeof value === 'string' && value.trim() ? value.trim() : undefined;
-
-  const result: SanitizedPayslip = {
-    airline: text(parsed.airline),
-    rankTitle: text(parsed.rankTitle),
-    currency: (text(parsed.currency) || '').toUpperCase(),
-    baseFixedPay: amount(parsed.baseFixedPay),
-    flyingHourlyRate: amount(parsed.flyingHourlyRate),
-    standbyHourlyRate: amount(parsed.standbyHourlyRate),
-    layoverPerDiem: amount(parsed.layoverPerDiem),
-    nightAllowanceRate: amount(parsed.nightAllowanceRate),
-    notes: text(parsed.notes),
-  };
-
-  const hasAnyFigure = [
-    result.baseFixedPay,
-    result.flyingHourlyRate,
-    result.standbyHourlyRate,
-    result.layoverPerDiem,
-    result.nightAllowanceRate,
-  ].some((v) => v !== undefined && v > 0);
-
-  return hasAnyFigure ? result : null;
 }

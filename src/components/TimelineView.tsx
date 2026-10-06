@@ -18,11 +18,6 @@ import {
   Calendar,
   Sun,
   Clock,
-  Car,
-  Bell,
-  Briefcase,
-  Copy,
-  Check,
   ArrowRight,
   Trash2,
   Bed,
@@ -32,11 +27,6 @@ import { StandbyNotice } from './StandbyNotice';
 import { flightSource } from '../services/provenance';
 import { dutyPositions } from '../services/dutyTimes';
 
-/** Minutes from one HH:MM to the next (across midnight if needed). */
-const minutesBetween = (from: string, to: string) => {
-  const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-  return (m(to) - m(from) + 1440) % 1440;
-};
 import { rosterClock } from '../services/rosterKeys';
 import { DateNavigator } from './DateNavigator';
 import { FlightLeg } from '../types/circadian';
@@ -60,6 +50,8 @@ export interface TimelineViewProps {
   renderStandbyEdit?: (dateStr: string, standbyEvents: CircadianEvent[]) => React.ReactNode;
   /** Set, change or remove the delay of this flight. */
   renderDelayEdit?: (flightId: string) => React.ReactNode;
+  /** Opens Settings (getting-ready and travel times). */
+  onOpenSettings?: () => void;
   initialDate?: string;
   /** Opens the Month screen on the month containing this date. */
   onOpenMonthSummary?: (dateStr: string) => void;
@@ -78,13 +70,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onAddStandbyFlight,
   renderStandbyEdit,
   renderDelayEdit,
+  onOpenSettings,
   initialDate,
   onOpenMonthSummary,
 }) => {
   const { events, dailySummaries, preferences } = plan;
 
   // Selected Week filter: 'all' | 'w1' | 'w2' | 'w3' | 'w4' | 'w5'
-  const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
 
   // Flights that end a duty (they carry the sign-off)
   const dutyEnds = React.useMemo(() => new Set([...dutyPositions(plan.roster.flights)].filter(([, p]) => p.last).map(([id]) => id)), [plan.roster.flights]);
@@ -152,13 +144,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const isOffDay = activeDaySummary?.isOffDay;
   const prepDetails = activeDaySummary?.prepDetails;
 
-  const handleCopyPrepTimers = () => {
-    if (!prepDetails) return;
-    const text = `✈️ Getting to work (${activeDaySummary.dayLabel}):\n⏰ Wake-up: ${prepDetails.wakeUpHbt}\n🚖 ${prepDetails.pickupLabel || 'Leave home'}: ${prepDetails.cabPickupHbt}\n🏢 Check-in: ${prepDetails.reportHbt}\n🛫 Flight Departure: ${prepDetails.departureHbt}\n🛌 Bedtime the night before: ${prepDetails.targetBedtimeHbt || '--:--'}`;
-    navigator.clipboard.writeText(text);
-    setCopiedTimers(true);
-    setTimeout(() => setCopiedTimers(false), 2500);
-  };
 
   return (
     <div className="space-y-4">
@@ -225,161 +210,38 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         </div>
       )}
 
-      {/* Layer 4: Pre-Flight Morning Routine Runway (Wake-Up Alarm ➔ Cab Pickup ➔ Base Reporting ➔ Wheels Up) */}
+      {/* Getting to work: one line (the times come from Settings) */}
       {!isOffDay && prepDetails && (
-        <div className="rounded-2xl border border-sky-900/50 bg-gradient-to-r from-sky-950/40 via-slate-900/90 to-slate-950 p-4 sm:p-5 shadow-md space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-sky-900/30 pb-3 gap-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400 ring-1 ring-sky-500/20">
-                  <Clock className="h-4 w-4" />
-                </div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-sky-300">
-                  Getting to work
-                </h4>
-              </div>
-              <p className="text-[11px] text-slate-300">
-                Check-in at <strong className="text-white font-mono">{prepDetails.reportHbt}</strong>. With {preferences.groomingMinutes} min to get ready and {prepDetails.cabBufferMinutes} min of travel, wake at <strong className="text-sky-300 font-mono">{prepDetails.wakeUpHbt}</strong> and leave at <strong className="text-amber-300 font-mono">{prepDetails.cabPickupHbt}</strong>.
-              </p>
-            </div>
-
-            {/* Quick Duration Controls and Copy Button */}
-            <div className="flex flex-wrap items-center gap-2">
-              {onUpdatePreferences && (
-                <div className="flex items-center gap-2 text-xs">
-                  {/* Grooming */}
-                  <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1">
-                    <span className="text-[10px] text-slate-400 font-semibold">Getting ready:</span>
-                    <button
-                      onClick={() => onUpdatePreferences({ groomingMinutes: Math.max(30, preferences.groomingMinutes - 15) })}
-                      className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15 min less to get ready"
-                    >
-                      <Minus className="h-3 w-3" />
-                    </button>
-                    <span className="font-mono font-bold text-sky-300 text-xs">{preferences.groomingMinutes}m</span>
-                    <button
-                      onClick={() => onUpdatePreferences({ groomingMinutes: Math.min(120, preferences.groomingMinutes + 15) })}
-                      className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15 min more to get ready"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </button>
-                  </div>
-
-                  {/* Cab Buffer */}
-                  <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1">
-                    <span className="text-[10px] text-slate-400 font-semibold">Travel:</span>
-                    <button
-                      onClick={() => onUpdatePreferences({ cabBufferMinutes: Math.max(30, preferences.cabBufferMinutes - 15) })}
-                      className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15 min less travel"
-                    >
-                      <Minus className="h-3 w-3" />
-                    </button>
-                    <span className="font-mono font-bold text-amber-300 text-xs">{preferences.cabBufferMinutes}m</span>
-                    <button
-                      onClick={() => onUpdatePreferences({ cabBufferMinutes: Math.min(120, preferences.cabBufferMinutes + 15) })}
-                      className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15 min more travel"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Copy Timers Button */}
-              <button
-                onClick={handleCopyPrepTimers}
-                className="flex items-center gap-1.5 rounded-lg border border-sky-800/60 bg-sky-950/60 hover:bg-sky-900/60 px-3 py-1.5 text-xs font-semibold text-sky-200 transition-colors shadow-sm"
-              >
-                {copiedTimers ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-sky-300" />}
-                <span>{copiedTimers ? 'Copied' : 'Copy times'}</span>
+        <div className="rounded-2xl border border-sky-900/50 bg-slate-900/60 px-4 py-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="flex items-center gap-2 font-bold uppercase tracking-wider text-sky-300">
+              <Clock className="h-3.5 w-3.5" /> Getting to work
+            </h4>
+            {onOpenSettings && (
+              <button onClick={onOpenSettings} className="text-[11px] font-semibold text-slate-400 underline underline-offset-2 hover:text-white">
+                Change in Settings
               </button>
-            </div>
+            )}
           </div>
-
-          {/* Step-by-Step Runway Visual with Flow Connectors */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative">
-            {/* Step 1: Wake-Up or Prep Alarm */}
-            <div className="flex flex-col justify-between rounded-xl border border-sky-800/60 bg-slate-950 p-3.5 relative shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1 text-[11px] font-bold text-sky-400 uppercase">
-                  <Bell className="h-3.5 w-3.5 text-sky-400" /> {prepDetails.step1Label || 'Step 1: Prep Alarm'}
-                </span>
-                <span className="text-[10px] font-mono text-sky-300 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/50">
-                  {preferences.groomingMinutes} min
-                </span>
-              </div>
-              <div className="my-2.5">
-                <p className="text-2xl font-black font-mono text-white">
-                  {prepDetails.wakeUpHbt} <span className="text-xs font-normal text-slate-400">home</span>
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  {prepDetails.step1Description || 'Shower, uniform inspection, flight bag check & briefing review'}
-                </p>
-              </div>
-            </div>
-
-            {/* Step 2: Cab Pickup */}
-            <div className="flex flex-col justify-between rounded-xl border border-amber-800/60 bg-slate-950 p-3.5 relative shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1 text-[11px] font-bold text-amber-400 uppercase">
-                  <Car className="h-3.5 w-3.5 text-amber-400" /> Step 2: {prepDetails.pickupLabel || 'Leave home'}
-                </span>
-                <span className="text-[10px] font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50">
-                  {prepDetails.cabBufferMinutes} min
-                </span>
-              </div>
-              <div className="my-2.5">
-                <p className="text-2xl font-black font-mono text-amber-300">
-                  {prepDetails.cabPickupHbt} <span className="text-xs font-normal text-slate-400">home</span>
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  {prepDetails.isAwayFromBase ? 'Hotel transport to the airport' : 'Travel from home to the airport'}
-                </p>
-              </div>
-            </div>
-
-            {/* Step 3: Base Reporting / Briefing */}
-            <div className="flex flex-col justify-between rounded-xl border border-blue-800/60 bg-slate-950 p-3.5 relative shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1 text-[11px] font-bold text-blue-400 uppercase">
-                  <Briefcase className="h-3.5 w-3.5 text-blue-400" /> Step 3: Check-in
-                </span>
-                <span className="text-[10px] font-mono text-blue-300 bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-800/50">
-                  {minutesBetween(prepDetails.reportHbt, prepDetails.departureHbt)} min before departure
-                </span>
-              </div>
-              <div className="my-2.5">
-                <p className="text-2xl font-black font-mono text-blue-300">
-                  {prepDetails.reportHbt} <span className="text-xs font-normal text-slate-400">home</span>
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Security, breath test, documents and crew briefing
-                </p>
-              </div>
-            </div>
-
-            {/* Step 4: Scheduled Departure */}
-            <div className="flex flex-col justify-between rounded-xl border border-slate-700 bg-slate-950 p-3.5 relative shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-300 uppercase">
-                  <Plane className="h-3.5 w-3.5 text-blue-400" /> Step 4: Departure
-                </span>
-              </div>
-              <div className="my-2.5">
-                <p className="text-2xl font-black font-mono text-white">
-                  {prepDetails.departureHbt} <span className="text-xs font-normal text-slate-400">home</span>
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Scheduled departure of your first flight
-                </p>
-              </div>
-            </div>
-          </div>
-
+          <p className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 font-mono text-sm font-bold text-white">
+            <span>
+              <span className="font-sans text-xs font-normal text-slate-400">Wake</span> {prepDetails.wakeUpHbt}
+            </span>
+            <span>
+              <span className="font-sans text-xs font-normal text-slate-400">{prepDetails.pickupLabel || 'Leave home'}</span> {prepDetails.cabPickupHbt}
+            </span>
+            <span>
+              <span className="font-sans text-xs font-normal text-slate-400">Check-in</span> {prepDetails.reportHbt}
+            </span>
+            {actualFlights.length > 0 && (
+              <span>
+                <span className="font-sans text-xs font-normal text-slate-400">Departs</span> {prepDetails.departureHbt}
+              </span>
+            )}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            {prepDetails.groomingMinutes} min to get ready · {prepDetails.cabBufferMinutes} min {prepDetails.isAwayFromBase ? 'hotel transport' : 'travel'} · home time
+          </p>
         </div>
       )}
 

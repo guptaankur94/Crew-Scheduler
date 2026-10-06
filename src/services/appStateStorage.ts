@@ -144,7 +144,10 @@ export function loadAppState(defaultPreferences: CrewPreferences): PersistedAppS
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return reviveAppState(JSON.parse(raw), defaultPreferences);
+    const state = reviveAppState(JSON.parse(raw), defaultPreferences);
+    // The crew member's name is no longer kept; names saved by earlier versions are dropped
+    if (state?.roster) delete (state.roster as { crewName?: string }).crewName;
+    return state;
   } catch (err) {
     console.warn('Failed to load saved app state', err);
     return null;

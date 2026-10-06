@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { FileImage, FileText, RefreshCw, Trash2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Eye, FileImage, FileText, RefreshCw, Trash2 } from 'lucide-react';
 import { ImportRecord } from '../services/importRecords';
 import { shortRange } from '../services/periodStats';
 
@@ -8,6 +8,7 @@ import { shortRange } from '../services/periodStats';
  *   Re-read  a clean slate for that roster's dates: read again (the kept file, or what was read at upload
  *            if the file was not kept); manual corrections on those dates are removed; delays and callouts stay.
  *   Remove   take that roster's days out of the plan and delete its kept file. Undo brings it back.
+ *   View original  open the file kept on this device, to compare it with what the app shows.
  */
 
 interface Props {
@@ -15,12 +16,21 @@ interface Props {
   busy?: boolean;
   onReread: (record: ImportRecord) => void;
   onRemove: (record: ImportRecord) => void;
+  /** The kept original files of a roster, as links that open them. */
+  loadOriginal?: (record: ImportRecord) => Promise<{ name: string; url: string }[]>;
 }
 
 const uploaded = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
-export const UploadedRosters: React.FC<Props> = ({ rosters, busy, onReread, onRemove }) => {
+export const UploadedRosters: React.FC<Props> = ({ rosters, busy, onReread, onRemove, loadOriginal }) => {
   const [confirm, setConfirm] = useState<{ id: string; action: 'reread' | 'remove' } | null>(null);
+  const [originals, setOriginals] = useState<{ id: string; files: { name: string; url: string }[] } | null>(null);
+  // Links to kept files are released when closed or when this page is left
+  useEffect(() => () => originals?.files.forEach((f) => URL.revokeObjectURL(f.url)), [originals]);
+  const toggleOriginal = async (record: ImportRecord) => {
+    if (originals?.id === record.id) return setOriginals(null);
+    if (loadOriginal) setOriginals({ id: record.id, files: await loadOriginal(record) });
+  };
   if (!rosters.length) return null;
 
   return (
@@ -44,7 +54,16 @@ export const UploadedRosters: React.FC<Props> = ({ rosters, busy, onReread, onRe
                   </p>
                 </div>
                 {!asking && (
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {kept && loadOriginal && (
+                      <button
+                        onClick={() => toggleOriginal(r)}
+                        aria-expanded={originals?.id === r.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-slate-500"
+                      >
+                        <Eye className="h-3.5 w-3.5" /> View original
+                      </button>
+                    )}
                     <button
                       disabled={busy}
                       onClick={() => setConfirm({ id: r.id, action: 'reread' })}
@@ -62,6 +81,24 @@ export const UploadedRosters: React.FC<Props> = ({ rosters, busy, onReread, onRe
                   </div>
                 )}
               </div>
+
+              {originals?.id === r.id && (
+                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
+                  {originals.files.length ? (
+                    <ul className="space-y-1">
+                      {originals.files.map((f) => (
+                        <li key={f.url}>
+                          <a href={f.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-300 underline underline-offset-2 hover:text-white">
+                            {f.name}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-slate-400">The original file is no longer on this device.</p>
+                  )}
+                </div>
+              )}
 
               {asking && (
                 <div className="mt-3 space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">

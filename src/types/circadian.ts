@@ -225,7 +225,6 @@ export interface SalaryBreakdown {
 export interface RosterData {
   id: string;
   airline: AirlineId;
-  crewName?: string;
   homeBase: string;
   homeBaseTzOffset: number;
   flights: FlightLeg[];

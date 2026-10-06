@@ -4,7 +4,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { sanitizeParsedRoster, sanitizeParsedPayslip } from './server/rosterSanitizer';
+import { sanitizeParsedRoster } from './server/rosterSanitizer';
 import type { SanitizedRoster } from './server/rosterSanitizer';
 import { normalizeUpload, extractJsonFromText } from './server/upload';
 import { createDailyLimit, createRateLimiter } from './server/rateLimit';
@@ -152,7 +152,6 @@ CRITICAL EXTRACTION RULES:
 - RESPOND STRICTLY WITH VALID JSON inside a \`\`\`json block matching:
 {
   "airline": "string",
-  "crewName": "string",
   "homeBase": "string",
   "homeBaseTzOffset": 5.5,
   "flights": [
@@ -258,144 +257,6 @@ CRITICAL EXTRACTION RULES:
   }
 });
 
-// Endpoint: Parse Salary Slip / Payslip Screenshot or PDF text
-app.post('/api/payslip/parse', async (req: Request, res: Response) => {
-  try {
-    const { imageBase64, mimeType = 'image/png', rawText } = req.body;
-
-    if (!imageBase64 && !rawText) {
-      return res.status(400).json({ success: false, error: 'Please provide a payslip screenshot or text.' });
-    }
-
-    const upload = imageBase64 ? normalizeUpload(imageBase64, mimeType) : null;
-    if (imageBase64 && !upload) {
-      return res.status(400).json({ success: false, error: 'Unsupported file. Please upload a PNG, JPEG, WebP or PDF.' });
-    }
-    if (!upload && (typeof rawText !== 'string' || !rawText.trim() || rawText.length > MAX_RAW_TEXT_CHARS)) {
-      return res.status(400).json({ success: false, error: 'Payslip text is empty or too long.' });
-    }
-
-    const systemInstruction = `
-You are an expert aviation finance specialist analyzing airline cabin crew salary slips and paystubs (such as IndiGo Airlines, Emirates, Etihad, Air India, Qatar Airways, British Airways, etc.).
-Your task is to extract the exact remuneration structure:
-1. Base fixed salary (retainer / basic pay).
-2. Flying hourly allowance (hourly block rate, flying pay per hour).
-3. Standby hourly rate or daily standby reserve allowance.
-4. Outstation layover allowance / per diem per overnight stay.
-5. Night flying / WOCL premium (extra pay per night sector or night hour).
-6. Currency (INR, AED, USD, etc.).
-7. Seniority rank / job title (e.g. Junior FA, Senior Cabin Crew, In-Flight Manager / Lead).
-8. Airline name.
-
-Respond strictly in valid JSON conforming to the requested schema.
-`;
-
-    const contents: any[] = [];
-
-    if (upload) {
-      contents.push({ inlineData: { mimeType: upload.mimeType, data: upload.data } });
-      contents.push({
-        text: 'Analyze this airline cabin crew salary slip screenshot and extract the base pay, flying hourly rate, standby rate, layover per diem, night allowance, currency, and rank into structured JSON.',
-      });
-    } else {
-      contents.push({
-        text: `Analyze this cabin crew payslip text:\n\n${rawText}\n\nExtract base pay, flying hourly rate, standby rate, layover per diem, night allowance, currency, and rank into structured JSON.`,
-      });
-    }
-
-    const { result: payslip, lastError } = await generateWithFallback(
-      {
-        contents,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              airline: { type: Type.STRING },
-              rankTitle: { type: Type.STRING },
-              currency: { type: Type.STRING, description: 'INR, AED, or USD' },
-              baseFixedPay: { type: Type.NUMBER, description: 'Basic monthly salary retainer' },
-              flyingHourlyRate: { type: Type.NUMBER, description: 'Hourly pay per flying block hour' },
-              standbyHourlyRate: { type: Type.NUMBER, description: 'Hourly pay for standby reserve' },
-              layoverPerDiem: { type: Type.NUMBER, description: 'Allowance per outstation layover stay' },
-              nightAllowanceRate: { type: Type.NUMBER, description: 'Extra allowance per night sector or night hour' },
-              notes: { type: Type.STRING, description: 'Summary of extracted compensation logic' },
-            },
-            required: ['currency', 'baseFixedPay', 'flyingHourlyRate', 'standbyHourlyRate'],
-          },
-        },
-      },
-      (text) => sanitizeParsedPayslip(extractJsonFromText(text))
-    );
-
-    if (!payslip) {
-      const failure = describeFailure(
-        lastError,
-        'Could not read any pay figures from this payslip. Please make sure the amounts are visible, or enter your rates manually.'
-      );
-      return res.status(failure.status).json({ success: false, error: failure.error });
-    }
-
-    return res.json({ success: true, data: payslip });
-  } catch (error: any) {
-    console.error('Error parsing payslip with Gemini:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Something went wrong while reading the payslip. Details are in the server log.',
-    });
-  }
-});
-
-// Endpoint: AI Aero-Medical Fatigue Consultation
-app.post('/api/roster/ai-advise', async (req: Request, res: Response) => {
-  try {
-    const { roster, preferences } = req.body || {};
-    const flights: any[] = Array.isArray(roster?.flights) ? roster.flights.slice(0, 200) : [];
-    if (flights.length === 0) {
-      return res.status(400).json({ success: false, error: 'A roster with at least one flight is required.' });
-    }
-
-    const clip = (value: unknown, max: number) => String(value ?? '').replace(/[\r\n]+/g, ' ').slice(0, max);
-    const chronotype = ['lark', 'intermediate', 'owl'].includes(preferences?.chronotype)
-      ? preferences.chronotype
-      : 'intermediate';
-    const summary = flights.map(
-      (f) => `${clip(f?.flightNumber, 12)}: ${clip(f?.origin, 4)} -> ${clip(f?.destination, 4)} at ${clip(f?.departureTimeUtc, 30)}`
-    );
-
-    const { result: advice, lastError } = await generateWithFallback(
-      {
-        contents: `You are an expert aerospace medicine and fatigue risk consultant (grounded in NASA Ames Fatigue Countermeasures, ICAO Doc 9966, and Salk Institute Chrono-nutrition).
-Given this cabin crew schedule for ${clip(roster.airline, 60).toUpperCase()} based at ${clip(roster.homeBase, 4)} with ${flights.length} flight sectors:
-Roster Summary: ${JSON.stringify(summary)}
-Crew Chronotype: ${chronotype}
-
-Provide:
-1. A concise 3-bullet personalized fatigue risk assessment.
-2. Specific high-risk sectors (e.g. WOCL red-eyes or ultra-early checks).
-3. Practical advice for galley nutrition, hydration at altitude, and post-flight recovery.
-Keep it direct, professional, and encouraging for cabin crew.`,
-      },
-      (text) => (text.trim() ? text : null)
-    );
-
-    if (!advice) {
-      const failure = describeFailure(lastError, 'The AI service returned no advice. Please try again.');
-      return res.status(failure.status).json({ success: false, error: failure.error });
-    }
-
-    return res.json({ success: true, advice });
-  } catch (error: any) {
-    console.error('Error generating AI advice:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Something went wrong while generating advice. Details are in the server log.',
-    });
-  }
-});
-
-// Unknown API routes get a JSON 404 instead of the web page
 app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Unknown API endpoint.' });
 });
@@ -429,7 +290,7 @@ async function startServer() {
   app.listen(PORT, HOST, () => {
     console.log(`CrewCircadian server running on http://localhost:${PORT}`);
     if (!ai) {
-      console.warn('GEMINI_API_KEY is not set: roster and payslip upload are disabled. Add it to .env and restart.');
+      console.warn('GEMINI_API_KEY is not set: roster upload is disabled. Add it to .env and restart.');
     }
   });
 }

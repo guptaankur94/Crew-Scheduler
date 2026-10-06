@@ -7,18 +7,14 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
-  Plane,
   Clock,
-  Sparkles,
   MapPin,
-  CheckCircle2,
   CalendarDays,
-  DollarSign,
 } from 'lucide-react';
 import { CircadianPlan } from '../types/circadian';
 import { lookupAirport } from '../data/airports';
 
-export type NavView = 'today' | 'roster' | 'mastersheet' | 'salary' | 'upload' | 'settings' | 'science';
+export type NavView = 'today' | 'roster' | 'mastersheet' | 'upload' | 'settings' | 'science';
 
 interface SidebarProps {
   activeView: NavView;
@@ -39,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile,
 }) => {
-  const { preferences, roster, salaryBreakdown } = plan;
+  const { preferences, roster } = plan;
 
   const navItems: { id: NavView; label: string; shortLabel: string; icon: React.ReactNode; badge?: string; desc: string }[] = [
     {
@@ -51,8 +47,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'roster',
-      label: 'Timeline',
-      shortLabel: 'Timeline',
+      label: 'Days',
+      shortLabel: 'Days',
       icon: <Calendar className="h-4 w-4" />,
       desc: 'Your days, step by step',
     },
@@ -61,16 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Month',
       shortLabel: 'Month',
       icon: <CalendarDays className="h-4 w-4" />,
-      desc: 'Summary, calendar & all days',
-    },
-    {
-      id: 'salary',
-      label: 'Salary estimate',
-      shortLabel: 'Salary',
-      icon: <DollarSign className="h-4 w-4" />,
-      desc: 'Estimated pay from your roster',
-      // No estimate without a roster (a blank slate shows no pay)
-      badge: plan.dailySummaries.some((d) => !d.outsideRoster) ? `~${salaryBreakdown.currencySymbol.trim()}${Math.round(salaryBreakdown.totalEarnings / 1000)}k` : undefined,
+      desc: 'Hours, calendar & checks',
     },
     {
       id: 'upload',
@@ -222,22 +209,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        {/* Bottom Crew Profile Badge */}
-        <div className="border-t border-slate-800/80 p-3">
-          {!isCollapsed ? (
-            <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-2.5 text-xs space-y-1">
-              <p className="text-[11px] font-semibold text-white truncate">
-                {roster.crewName || 'Aviation Crew Member'}
-              </p>
-            </div>
-          ) : (
-            <div className="flex justify-center">
-              <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300" title={roster.crewName || 'Crew'}>
-                {roster.crewName ? roster.crewName[0].toUpperCase() : 'C'}
-              </div>
-            </div>
-          )}
-        </div>
       </aside>
     </>
   );

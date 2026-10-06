@@ -455,7 +455,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
           {aiConsentDate ? (
             <span className="flex flex-wrap items-center gap-2">
-              You allowed roster and payslip reading by Google Gemini on{' '}
+              You allowed roster reading by Google Gemini on{' '}
               {new Date(aiConsentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
               <button
                 onClick={() => {

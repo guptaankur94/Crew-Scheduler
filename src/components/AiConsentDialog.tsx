@@ -8,11 +8,11 @@ const AiConsentDialog: React.FC<{ onAnswer: (allowed: boolean) => void }> = ({ o
         Read your file with AI?
       </h2>
       <p>
-        To read your roster or payslip, CrewCircadian sends the file to <strong className="text-white">Google Gemini</strong>,
-        an AI service run by Google. It is used only to read your flights or pay figures. CrewCircadian does not keep a
+        To read your roster, CrewCircadian sends the file to <strong className="text-white">Google Gemini</strong>,
+        an AI service run by Google. It is used only to read your flights and duties. CrewCircadian does not keep a
         copy; Google's own terms apply to how it handles the file.
       </p>
-      <p>Before uploading, crop out anything you do not want to share, such as your staff number or bank details.</p>
+      <p>Before uploading, crop out anything you do not want to share, such as your name or staff number.</p>
       <p className="text-xs text-slate-500">You can withdraw this permission at any time in Settings → Your data.</p>
       <div className="flex justify-end gap-2 pt-2">
         <button

@@ -9,7 +9,7 @@ import { MonthSummary } from '../MonthSummary';
 import { DateNavigator, statusOf } from '../DateNavigator';
 import { computePeriodStats, periodContaining, periodLabel, shiftPeriod } from '../../services/periodStats';
 import { monthDayRows } from '../../services/monthDays';
-import { checkDutyLimits, RuleSetId } from '../../services/dutyLimits';
+import { checkDutyLimits, RuleSetId, rulesStatus } from '../../services/dutyLimits';
 import { RosterData } from '../../types/circadian';
 
 /**
@@ -82,12 +82,14 @@ export const MonthView: React.FC<MonthViewProps> = ({
     () => checkDutyLimits(limitsRoster, ruleSet, rosterDays.length ? { from: rosterDays[0], to: rosterDays[rosterDays.length - 1] } : undefined),
     [limitsRoster, ruleSet, rosterDays[0], rosterDays[rosterDays.length - 1]]
   );
-  const monthIssues = limits.issues.filter((i) => i.date >= period.start && i.date <= period.end);
+  // Out-of-date rules are not used at all (see rulesStatus)
+  const rulesCurrent = rulesStatus(limits.rules).current;
+  const monthIssues = rulesCurrent ? limits.issues.filter((i) => i.date >= period.start && i.date <= period.end) : [];
 
   // "Is my roster right?": doubts per day, edits, and days the person has checked
   const findings = useMemo(
-    () => findingsByDate(roster, limits, rosterDays.length ? { from: rosterDays[0], to: rosterDays[rosterDays.length - 1] } : undefined),
-    [roster, limits, rosterDays[0], rosterDays[rosterDays.length - 1]]
+    () => findingsByDate(roster, rulesCurrent ? limits : null, rosterDays.length ? { from: rosterDays[0], to: rosterDays[rosterDays.length - 1] } : undefined),
+    [roster, limits, rulesCurrent, rosterDays[0], rosterDays[rosterDays.length - 1]]
   );
   const editedDates = useMemo(() => {
     const clock = rosterClock(roster);
@@ -143,13 +145,15 @@ export const MonthView: React.FC<MonthViewProps> = ({
       {/* DGCA duty limits: one line; the details are on the days marked ⚠ */}
       {rosterDays.length > 0 && (
         <p
-          className={`flex flex-wrap items-center gap-1.5 text-xs ${monthIssues.length ? 'text-amber-200' : 'text-emerald-300'}`}
-          title={`A guide based on ${limits.rules.name} (${limits.rules.note}). Your airline's approved scheme can be stricter.`}
+          className={`flex flex-wrap items-center gap-1.5 text-xs ${monthIssues.length ? 'text-amber-200' : 'text-slate-400'}`}
+          title={`A guide based on ${limits.rules.name} (${limits.rules.note}; rules last checked ${limits.rules.checkedOn}). Not an official check: your airline's approved scheme can differ.`}
         >
-          {monthIssues.length ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-          {monthIssues.length
-            ? `${monthIssues.length} duty-limit ${monthIssues.length === 1 ? 'warning' : 'warnings'} in ${periodLabel(period)}: see the days marked ⚠`
-            : `Within DGCA duty limits in ${periodLabel(period)}, from what your roster shows`}
+          {monthIssues.length > 0 && <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />}
+          {!rulesCurrent
+            ? `Duty-limit notes are switched off: the DGCA rules in the app were last checked on ${limits.rules.checkedOn} and are due to be checked again.`
+            : monthIssues.length
+            ? `${monthIssues.length} duty-limit ${monthIssues.length === 1 ? 'note' : 'notes'} worth a look in ${periodLabel(period)}: see the days marked ⚠`
+            : `No duty-limit notes in ${periodLabel(period)} from what your roster shows. This is a guide, not an official check.`}
           {limits.rules.status === 'draft' && <span className="text-slate-500">(draft rules preview)</span>}
         </p>
       )}

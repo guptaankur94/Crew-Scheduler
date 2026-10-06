@@ -41,6 +41,8 @@ export interface RuleSet {
   name: string;
   status: 'in-force' | 'draft';
   note: string;
+  /** When this rule text was last checked against the DGCA document (YYYY-MM-DD). */
+  checkedOn: string;
   fdpRows: FdpRow[];
   /** Draft V only: duties touching 00:00–06:00 within the acclimatised zone use this row instead (Para 6.1.4). */
   nightRow?: FdpRow;
@@ -65,6 +67,7 @@ export const RULE_SETS: Record<RuleSetId, RuleSet> = {
     name: 'DGCA CAR 7-J-I Issue IV',
     status: 'in-force',
     note: 'In force since 1 November 2018',
+    checkedOn: '2026-10-06',
     fdpRows: [
       { maxFlightMin: 8 * H, fdpFor: (l) => (l <= 6 ? 12 * H : null), ref: 'Para 6.1.1', splitDuty: true, woclReduction: true },
       { maxFlightMin: 11 * H, fdpFor: (l) => (l <= 3 ? 15 * H : null), ref: 'Para 6.1.2', splitDuty: false, woclReduction: true },
@@ -93,6 +96,7 @@ export const RULE_SETS: Record<RuleSetId, RuleSet> = {
     name: 'DGCA CAR 7-J-I Issue V (draft)',
     status: 'draft',
     note: 'DGCA draft of October 2025; not in force until DGCA notifies it',
+    checkedOn: '2026-10-06',
     fdpRows: [
       {
         maxFlightMin: 8 * H,
@@ -183,6 +187,22 @@ function localNightsIn(start: number, end: number, clock: HomeClock): number {
   return nights;
 }
 
+/**
+ * KEEPING THE RULES CURRENT
+ * The rule text must be re-checked against DGCA every RULES_REVIEW_MONTHS. If that is RULES_GRACE_DAYS overdue,
+ * the check switches off (and says why) rather than risk flagging against out-of-date rules.
+ */
+export const RULES_REVIEW_MONTHS = 6;
+export const RULES_GRACE_DAYS = 30;
+
+export function rulesStatus(rules: RuleSet, nowMs: number = Date.now()): { current: boolean; checkedOn: string; switchOffOn: string } {
+  const checked = new Date(`${rules.checkedOn}T00:00:00Z`);
+  const due = new Date(checked);
+  due.setUTCMonth(due.getUTCMonth() + RULES_REVIEW_MONTHS);
+  const switchOff = due.getTime() + RULES_GRACE_DAYS * 86400000;
+  return { current: nowMs < switchOff, checkedOn: rules.checkedOn, switchOffOn: new Date(switchOff).toISOString().slice(0, 10) };
+}
+
 export function checkDutyLimits(
   roster: RosterData,
   ruleSetId: RuleSetId = 'dgca-cc-iv',
@@ -265,7 +285,7 @@ export function checkDutyLimits(
     ].filter(Boolean);
     issues.push(
       splitOk
-        ? { date, severity: 'check', title: 'Long duty: OK only as split duty', detail: `${why.join(', ')}. Within limits only if the ${fmt(bestBreak)} break is planned as split duty.`, ref: `${row.ref}, split duty` }
+        ? { date, severity: 'check', title: 'Long duty: allowed only as split duty', detail: `${why.join(', ')}. Allowed only if the ${fmt(bestBreak)} break is planned as split duty.`, ref: `${row.ref}, split duty` }
         : { date, severity: 'over', title: 'Flight duty period over the limit', detail: `${why.join(', ')}.`, ref: row.ref }
     );
   }

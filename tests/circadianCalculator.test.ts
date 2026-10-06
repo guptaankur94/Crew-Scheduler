@@ -289,8 +289,10 @@ test('a logged short night moves the next bedtime up to an hour earlier, only wh
   const loggedAt = new Date();
   const withLog = (hours: number, at: Date) =>
     generateCircadianPlan(r, { ...prefs, actualLastSleepHours: hours, actualLastSleepLoggedAt: at.toISOString() });
+  // Tonight's sleep (or the one in progress): the first that has not ended yet. Comparing by end, not start, keeps the
+  // test right in the evening, when the earlier bedtime may already have passed
   const nextNight = (p: CircadianPlan) =>
-    p.events.filter((e) => e.type === 'anchor_sleep' && Date.parse(e.startUtc) > loggedAt.getTime()).sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc))[0];
+    p.events.filter((e) => e.type === 'anchor_sleep' && Date.parse(e.endUtc) > loggedAt.getTime()).sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc))[0];
 
   const normal = nextNight(generateCircadianPlan(r, prefs));
   const short = nextNight(withLog(5, loggedAt));

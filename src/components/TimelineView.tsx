@@ -4,8 +4,6 @@ import {
   CircadianEvent,
   CircadianPlan,
   CrewPreferences,
-  CrewRank,
-  SalaryCurrency,
 } from '../types/circadian';
 import {
   Plane,
@@ -18,35 +16,32 @@ import {
   Minus,
   HelpCircle,
   Calendar,
-  Layers,
-  Sparkles,
   Sun,
-  Shield,
   Clock,
   Car,
   Bell,
-  ChevronUp,
   Briefcase,
-  Luggage,
   Copy,
   Check,
   ArrowRight,
-  Info,
   Trash2,
-  Hotel,
-  GitMerge,
   Bed,
 } from 'lucide-react';
 import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
 import { StandbyNotice } from './StandbyNotice';
 import { flightSource } from '../services/provenance';
+import { dutyPositions } from '../services/dutyTimes';
+
+/** Minutes from one HH:MM to the next (across midnight if needed). */
+const minutesBetween = (from: string, to: string) => {
+  const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return (m(to) - m(from) + 1440) % 1440;
+};
 import { rosterClock } from '../services/rosterKeys';
 import { DateNavigator } from './DateNavigator';
 import { FlightLeg } from '../types/circadian';
 import {
   formatAviationDate,
-  calculateDebriefEndTime,
-  getPriorDayDateStr,
 } from '../utils/dateUtils';
 
 export interface TimelineViewProps {
@@ -59,11 +54,10 @@ export interface TimelineViewProps {
   /** Rostered flights the person marked as cancelled, so they can be reinstated. */
   cancelledFlights?: { flight: FlightLeg; sectorKey: string }[];
   onReinstateFlight?: (sectorKey: string) => void;
-  onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
   /** Edits for the rostered standby on this day (times, released early, callout, back to rostered). */
-  renderStandbyEdit?: (dateStr: string) => React.ReactNode;
+  renderStandbyEdit?: (dateStr: string, standbyEvents: CircadianEvent[]) => React.ReactNode;
   /** Set, change or remove the delay of this flight. */
   renderDelayEdit?: (flightId: string) => React.ReactNode;
   initialDate?: string;
@@ -80,7 +74,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onCancelSector,
   cancelledFlights = [],
   onReinstateFlight,
-  onDelaySector,
   onDeleteSector,
   onAddStandbyFlight,
   renderStandbyEdit,
@@ -93,8 +86,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   // Selected Week filter: 'all' | 'w1' | 'w2' | 'w3' | 'w4' | 'w5'
   const [copiedTimers, setCopiedTimers] = useState<boolean>(false);
 
-  // Debrief duration state per flight (default 30 mins)
-  const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
+  // Flights that end a duty (they carry the sign-off)
+  const dutyEnds = React.useMemo(() => new Set([...dutyPositions(plan.roster.flights)].filter(([, p]) => p.last).map(([id]) => id)), [plan.roster.flights]);
 
   // The flight whose delay editor is open
   const [delayOpenFor, setDelayOpenFor] = useState<string | null>(null);
@@ -149,9 +142,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   });
 
   // Separate into daily tracks
-  const flightEvents = dayEvents.filter((e) => e.type === 'flight' || e.type === 'duty_ground');
   const actualFlights = dayEvents.filter((e) => e.type === 'flight');
-  const prepEvents = dayEvents.filter((e) => e.type === 'pre_flight_prep');
   const sleepEvents = dayEvents.filter((e) => e.type.includes('sleep') || e.type === 'nasa_nap');
   const nutritionEvents = dayEvents.filter((e) => e.type.includes('eating') || e.type.includes('fasting'));
   const caffeineEvents = dayEvents.filter((e) => e.type.includes('caffeine'));
@@ -163,7 +154,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   const handleCopyPrepTimers = () => {
     if (!prepDetails) return;
-    const text = `✈️ Pre-Flight Routine (${activeDaySummary.dayLabel}):\n⏰ Wake-Up Alarm: ${prepDetails.wakeUpHbt}\n🚖 ${prepDetails.pickupLabel || 'Leave home'}: ${prepDetails.cabPickupHbt}\n🏢 Base Check-In: ${prepDetails.reportHbt}\n🛫 Flight Departure: ${prepDetails.departureHbt}\n🛌 Bedtime the night before: ${prepDetails.targetBedtimeHbt || '--:--'}`;
+    const text = `✈️ Getting to work (${activeDaySummary.dayLabel}):\n⏰ Wake-up: ${prepDetails.wakeUpHbt}\n🚖 ${prepDetails.pickupLabel || 'Leave home'}: ${prepDetails.cabPickupHbt}\n🏢 Check-in: ${prepDetails.reportHbt}\n🛫 Flight Departure: ${prepDetails.departureHbt}\n🛌 Bedtime the night before: ${prepDetails.targetBedtimeHbt || '--:--'}`;
     navigator.clipboard.writeText(text);
     setCopiedTimers(true);
     setTimeout(() => setCopiedTimers(false), 2500);
@@ -196,8 +187,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       )}
 
       {/* Standby periods on the selected day */}
-      <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} roster={plan.roster} />
-      {renderStandbyEdit && <div className="space-y-3 empty:hidden">{renderStandbyEdit(selectedDate)}</div>}
+      {renderStandbyEdit ? (
+        <div className="space-y-3 empty:hidden">{renderStandbyEdit(selectedDate, events.filter((e) => e.dutyDate === selectedDate && e.type === 'standby'))}</div>
+      ) : (
+        <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} roster={plan.roster} />
+      )}
 
       {/* Flights the person marked as cancelled on this day: kept in the roster, left out of the plan */}
       {cancelledFlights
@@ -241,11 +235,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   <Clock className="h-4 w-4" />
                 </div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-sky-300">
-                  Pre-Flight Departure Runway (Wake-Up ➔ Cab Pickup ➔ Reporting)
+                  Getting to work
                 </h4>
               </div>
               <p className="text-[11px] text-slate-300">
-                Reporting at <strong className="text-white font-mono">{prepDetails.reportHbt}</strong>. With your <strong className="text-amber-300 font-mono">{preferences.cabBufferMinutes}m cab transit</strong> and <strong className="text-sky-300 font-mono">{preferences.groomingMinutes}m grooming</strong>, your cab pickup is at <strong className="text-amber-300 font-mono">{prepDetails.cabPickupHbt}</strong> and alarm is at <strong className="text-sky-300 font-mono">{prepDetails.wakeUpHbt}</strong>.
+                Check-in at <strong className="text-white font-mono">{prepDetails.reportHbt}</strong>. With {preferences.groomingMinutes} min to get ready and {prepDetails.cabBufferMinutes} min of travel, wake at <strong className="text-sky-300 font-mono">{prepDetails.wakeUpHbt}</strong> and leave at <strong className="text-amber-300 font-mono">{prepDetails.cabPickupHbt}</strong>.
               </p>
             </div>
 
@@ -255,11 +249,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <div className="flex items-center gap-2 text-xs">
                   {/* Grooming */}
                   <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1">
-                    <span className="text-[10px] text-slate-400 font-semibold">Grooming:</span>
+                    <span className="text-[10px] text-slate-400 font-semibold">Getting ready:</span>
                     <button
                       onClick={() => onUpdatePreferences({ groomingMinutes: Math.max(30, preferences.groomingMinutes - 15) })}
                       className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15m less grooming"
+                      title="15 min less to get ready"
                     >
                       <Minus className="h-3 w-3" />
                     </button>
@@ -267,7 +261,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     <button
                       onClick={() => onUpdatePreferences({ groomingMinutes: Math.min(120, preferences.groomingMinutes + 15) })}
                       className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15m more grooming"
+                      title="15 min more to get ready"
                     >
                       <Plus className="h-3 w-3" />
                     </button>
@@ -275,11 +269,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
                   {/* Cab Buffer */}
                   <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1">
-                    <span className="text-[10px] text-slate-400 font-semibold">Cab Transit:</span>
+                    <span className="text-[10px] text-slate-400 font-semibold">Travel:</span>
                     <button
                       onClick={() => onUpdatePreferences({ cabBufferMinutes: Math.max(30, preferences.cabBufferMinutes - 15) })}
                       className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15m less cab transit"
+                      title="15 min less travel"
                     >
                       <Minus className="h-3 w-3" />
                     </button>
@@ -287,7 +281,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     <button
                       onClick={() => onUpdatePreferences({ cabBufferMinutes: Math.min(120, preferences.cabBufferMinutes + 15) })}
                       className="text-slate-400 hover:text-white px-1 bg-slate-900 rounded"
-                      title="15m more cab transit"
+                      title="15 min more travel"
                     >
                       <Plus className="h-3 w-3" />
                     </button>
@@ -301,7 +295,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 className="flex items-center gap-1.5 rounded-lg border border-sky-800/60 bg-sky-950/60 hover:bg-sky-900/60 px-3 py-1.5 text-xs font-semibold text-sky-200 transition-colors shadow-sm"
               >
                 {copiedTimers ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-sky-300" />}
-                <span>{copiedTimers ? 'Copied to Clipboard!' : 'Copy Alarm Times'}</span>
+                <span>{copiedTimers ? 'Copied' : 'Copy times'}</span>
               </button>
             </div>
           </div>
@@ -315,20 +309,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   <Bell className="h-3.5 w-3.5 text-sky-400" /> {prepDetails.step1Label || 'Step 1: Prep Alarm'}
                 </span>
                 <span className="text-[10px] font-mono text-sky-300 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/50">
-                  {preferences.groomingMinutes}m prep
+                  {preferences.groomingMinutes} min
                 </span>
               </div>
               <div className="my-2.5">
                 <p className="text-2xl font-black font-mono text-white">
-                  {prepDetails.wakeUpHbt} <span className="text-xs font-normal text-slate-400">HBT</span>
+                  {prepDetails.wakeUpHbt} <span className="text-xs font-normal text-slate-400">home</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1 leading-snug">
                   {prepDetails.step1Description || 'Shower, uniform inspection, flight bag check & briefing review'}
                 </p>
-              </div>
-              <div className="pt-2 border-t border-slate-900 text-[10px] text-sky-400/80 font-medium flex items-center justify-between">
-                <span>Alarm Ready</span>
-                <ArrowRight className="h-3.5 w-3.5 hidden lg:inline text-slate-600" />
               </div>
             </div>
 
@@ -339,20 +329,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   <Car className="h-3.5 w-3.5 text-amber-400" /> Step 2: {prepDetails.pickupLabel || 'Leave home'}
                 </span>
                 <span className="text-[10px] font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50">
-                  {prepDetails.cabBufferMinutes}m travel
+                  {prepDetails.cabBufferMinutes} min
                 </span>
               </div>
               <div className="my-2.5">
                 <p className="text-2xl font-black font-mono text-amber-300">
-                  {prepDetails.cabPickupHbt} <span className="text-xs font-normal text-slate-400">HBT</span>
+                  {prepDetails.cabPickupHbt} <span className="text-xs font-normal text-slate-400">home</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1 leading-snug">
                   {prepDetails.isAwayFromBase ? 'Hotel transport to the airport' : 'Travel from home to the airport'}
                 </p>
-              </div>
-              <div className="pt-2 border-t border-slate-900 text-[10px] text-amber-400/80 font-medium flex items-center justify-between">
-                <span>Transit Buffer</span>
-                <ArrowRight className="h-3.5 w-3.5 hidden lg:inline text-slate-600" />
               </div>
             </div>
 
@@ -360,23 +346,19 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             <div className="flex flex-col justify-between rounded-xl border border-blue-800/60 bg-slate-950 p-3.5 relative shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1 text-[11px] font-bold text-blue-400 uppercase">
-                  <Briefcase className="h-3.5 w-3.5 text-blue-400" /> Step 3: Base Reporting
+                  <Briefcase className="h-3.5 w-3.5 text-blue-400" /> Step 3: Check-in
                 </span>
                 <span className="text-[10px] font-mono text-blue-300 bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-800/50">
-                  60m to STD
+                  {minutesBetween(prepDetails.reportHbt, prepDetails.departureHbt)} min before departure
                 </span>
               </div>
               <div className="my-2.5">
                 <p className="text-2xl font-black font-mono text-blue-300">
-                  {prepDetails.reportHbt} <span className="text-xs font-normal text-slate-400">HBT</span>
+                  {prepDetails.reportHbt} <span className="text-xs font-normal text-slate-400">home</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Security gate, breathalyzer BA test, documents & safety crew briefing
+                  Security, breath test, documents and crew briefing
                 </p>
-              </div>
-              <div className="pt-2 border-t border-slate-900 text-[10px] text-blue-400/80 font-medium flex items-center justify-between">
-                <span>Duty Check-In</span>
-                <ArrowRight className="h-3.5 w-3.5 hidden lg:inline text-slate-600" />
               </div>
             </div>
 
@@ -384,78 +366,20 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             <div className="flex flex-col justify-between rounded-xl border border-slate-700 bg-slate-950 p-3.5 relative shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1 text-[11px] font-bold text-slate-300 uppercase">
-                  <Plane className="h-3.5 w-3.5 text-blue-400" /> Step 4: Wheels Up
-                </span>
-                <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
-                  Take-off
+                  <Plane className="h-3.5 w-3.5 text-blue-400" /> Step 4: Departure
                 </span>
               </div>
               <div className="my-2.5">
                 <p className="text-2xl font-black font-mono text-white">
-                  {prepDetails.departureHbt} <span className="text-xs font-normal text-slate-400">HBT</span>
+                  {prepDetails.departureHbt} <span className="text-xs font-normal text-slate-400">home</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Passenger boarding completed, door arming & scheduled pushback
+                  Scheduled departure of your first flight
                 </p>
-              </div>
-              <div className="pt-2 border-t border-slate-900 text-[10px] text-slate-400 font-medium">
-                Flight En Route
               </div>
             </div>
           </div>
 
-          {/* Reverse Bedtime & Caffeine Guidance Bar */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            {prepDetails.targetBedtimeHbt ? (
-              (() => {
-                const priorDateStr = getPriorDayDateStr(activeDaySummary?.dateStr || '');
-                const priorDateAviation = formatAviationDate(priorDateStr);
-                const priorWeekday = new Date(`${priorDateStr}T12:00:00Z`).toLocaleDateString('en-US', {
-                  weekday: 'short',
-                  timeZone: 'UTC',
-                });
-                const dutyAviation = formatAviationDate(activeDaySummary?.dateStr || '');
-                const dutyWeekday = activeDaySummary ? activeDaySummary.dayLabel.split(',')[0]?.trim() : '';
-
-                return (
-                  <div className="rounded-xl border border-purple-800/60 bg-purple-950/30 p-3 flex items-start gap-2.5 text-xs shadow-sm">
-                    <Moon className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <strong className="text-purple-300 font-bold">Prior-Day Sleep Bedtime:</strong>
-                        <span className="rounded bg-purple-900/60 border border-purple-700/50 px-1.5 py-0.2 text-[9px] font-mono font-bold text-purple-200">
-                          {priorWeekday}, {priorDateAviation} • {prepDetails.targetBedtimeHbt} HBT
-                        </span>
-                      </div>
-                      <p className="text-slate-300 text-[11px] leading-snug">
-                        To wake up refreshed at <strong className="text-white font-mono">{prepDetails.wakeUpHbt} HBT</strong> for duty on <span className="text-sky-300 font-bold">{dutyAviation} ({dutyWeekday})</span>, lights out by <strong className="text-purple-200 font-mono bg-purple-950 px-1.5 py-0.5 rounded border border-purple-800/60">{prepDetails.targetBedtimeHbt} HBT</strong> the evening before (<span className="text-amber-300 font-semibold">{priorDateAviation}</span>) for your {preferences.targetSleepHours}h target.
-                      </p>
-                    </div>
-                  </div>
-                );
-              })()
-            ) : prepDetails.bedtimeExplanation ? (
-              <div className="rounded-xl border border-purple-900/30 bg-purple-950/15 p-3 flex items-center gap-2.5 text-xs">
-                <Moon className="h-4 w-4 text-purple-400 shrink-0" />
-                <div>
-                  <strong className="text-purple-300 font-semibold">Circadian Sleep Schedule: </strong>
-                  <span className="text-slate-300">{prepDetails.bedtimeExplanation}</span>
-                </div>
-              </div>
-            ) : null}
-
-            {prepDetails.caffeineCutoffHbt && (
-              <div className="rounded-xl border border-amber-900/30 bg-amber-950/15 p-3 flex items-center gap-2.5 text-xs">
-                <Coffee className="h-4 w-4 text-amber-400 shrink-0" />
-                <div>
-                  <strong className="text-amber-300 font-semibold">Prior Day Caffeine Cutoff: </strong>
-                  <span className="text-slate-300">
-                    Cease all coffee, chai, and energy drinks by <strong className="text-white font-mono">{prepDetails.caffeineCutoffHbt}</strong> to clear adenosine receptors for deep sleep.
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -466,7 +390,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-indigo-400" />
               <h4 className="font-bold text-sm text-indigo-200">
-                🏨 Station Layover Hub: {activeDaySummary.layoverStation.city} ({activeDaySummary.layoverStation.iata})
+                🏨 Layover: {activeDaySummary.layoverStation.city} ({activeDaySummary.layoverStation.iata})
               </h4>
               <span className="rounded bg-indigo-950 px-2 py-0.5 text-[10px] font-mono text-indigo-300 border border-indigo-800/40">
                 {activeDaySummary.layoverStation.timeZoneDiffStr}
@@ -478,11 +402,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <div className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-center">
-              <span className="text-[9px] uppercase font-bold text-slate-400 block">Hotel Blackout</span>
+              <span className="text-[9px] uppercase font-bold text-slate-400 block">Hotel room</span>
               <span className="font-bold text-emerald-400 text-xs">{activeDaySummary.layoverStation.hotelBlackoutRating}</span>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-center">
-              <span className="text-[9px] uppercase font-bold text-slate-400 block">Room Climate</span>
+              <span className="text-[9px] uppercase font-bold text-slate-400 block">Room temperature</span>
               <span className="font-bold text-sky-300 text-xs">About 18–20 °C</span>
             </div>
           </div>
@@ -491,7 +415,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
       {/* Layer 5: The 4 Clean Biological Pillars for Selected Day */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Pillar 1: Flight Duties & Sectors (or Rest Day Card) */}
+        {/* Flights (or the day-off card); left out on standby and ground-duty days without flights */}
+        {(activeDaySummary?.outsideRoster || isOffDay || actualFlights.length > 0) && (
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
             <div className="flex items-center gap-2">
@@ -499,11 +424,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <Plane className="h-3.5 w-3.5" />
               </div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                1. Flight Duty & Sectors
+                Flights
               </h3>
             </div>
             <span className="text-[11px] font-mono text-slate-400">
-              {activeDaySummary?.outsideRoster ? 'No roster' : isOffDay ? 'Rest Day' : `${flightEvents.filter((e) => e.type === 'flight').length} Sector(s)`}
+              {activeDaySummary?.outsideRoster ? 'No roster' : isOffDay ? 'Day off' : `${actualFlights.length} ${actualFlights.length === 1 ? 'flight' : 'flights'}`}
             </span>
           </div>
 
@@ -529,18 +454,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
                 {/* Standby Callout Button on Rest / Standby Day */}
                 <div className="pt-2 flex items-center justify-between border-t border-emerald-900/40 mt-2">
-                  <span className="text-[10px] text-slate-400">Got called out on standby or rest?</span>
+                  <span className="text-[10px] text-slate-400">Called out on your day off?</span>
                   <button
                     onClick={() => handleOpenTactical('standby_callout')}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all shadow-sm"
                   >
                     <Plus className="h-3 w-3" />
-                    <span>+ Standby Callout: Add Flight</span>
+                    <span>Add a callout flight</span>
                   </button>
                 </div>
               </div>
-            ) : actualFlights.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-500">No flight sectors scheduled today.</p>
             ) : (
               actualFlights.map((flight, idx) => {
                 const sectorNum = idx + 1;
@@ -555,7 +478,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       border: 'border-sky-700/70 border-l-4 border-l-sky-400 hover:border-sky-500',
                       bg: 'bg-gradient-to-r from-sky-950/40 via-slate-950 to-slate-950',
                       badge: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
-                      badgeText: `1ST SECTOR • OUTBOUND (${totalSectors === 1 ? 'Single Leg' : `Leg 1 of ${totalSectors}`})`,
+                      badgeText: totalSectors === 1 ? 'Flight' : `Flight 1 of ${totalSectors}`,
                       timeColor: 'text-sky-300',
                       accentText: 'text-sky-400',
                     }
@@ -564,7 +487,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       border: 'border-emerald-700/70 border-l-4 border-l-emerald-400 hover:border-emerald-500',
                       bg: 'bg-gradient-to-r from-emerald-950/40 via-slate-950 to-slate-950',
                       badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-                      badgeText: `2ND SECTOR • RETURN (Leg 2 of ${totalSectors})`,
+                      badgeText: `Flight 2 of ${totalSectors}`,
                       timeColor: 'text-emerald-300',
                       accentText: 'text-emerald-400',
                     }
@@ -572,7 +495,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       border: 'border-amber-700/70 border-l-4 border-l-amber-400 hover:border-amber-500',
                       bg: 'bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-950',
                       badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-                      badgeText: `${sectorNum}RD SECTOR (Leg ${sectorNum} of ${totalSectors})`,
+                      badgeText: `Flight ${sectorNum} of ${totalSectors}`,
                       timeColor: 'text-amber-300',
                       accentText: 'text-amber-400',
                     };
@@ -616,7 +539,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         {/* Timetable: Home Time vs Local */}
                         <div className="text-right font-mono">
                           <p className={`text-xs font-black ${theme.timeColor}`}>
-                            {flight.startHbtStr} – {flight.endHbtStr} <span className="text-[9px] font-normal text-slate-500">HBT</span>
+                            {flight.startHbtStr} – {flight.endHbtStr} <span className="text-[9px] font-normal text-slate-500">home</span>
                           </p>
                           <p className="text-[10px] text-slate-400">
                             Local: {flight.startLocalStr} – {flight.endLocalStr}
@@ -682,11 +605,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           <button
                             onClick={() => {
                               const leg = getFlightLeg(flight);
-                              if (renderDelayEdit && leg) setDelayOpenFor(delayOpenFor === leg.id ? null : leg.id);
-                              else handleOpenTactical('delay_sector', flight);
+                              if (leg) setDelayOpenFor(delayOpenFor === leg.id ? null : leg.id);
                             }}
                             className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 text-sky-300 border border-slate-800 hover:border-sky-500/40 text-[10px] font-semibold transition-colors flex items-center gap-1"
-                            title="Add flight delay (+30m, +1h) and recalculate circadian buffers"
+                            title="Set, change or remove a delay for this flight"
                           >
                             <Clock className="h-2.5 w-2.5" />
                             <span>Delay</span>
@@ -717,57 +639,33 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       {/* Set, change or remove this flight's delay */}
                       {renderDelayEdit && delayOpenFor && getFlightLeg(flight)?.id === delayOpenFor && <div className="mt-2">{renderDelayEdit(delayOpenFor)}</div>}
 
-                      {/* Smart Debrief & Duty Release Marker (Understated mental picture footer) */}
-                      <div className="mt-2.5 pt-2 border-t border-slate-900/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                        <div className="flex items-center gap-1.5 font-mono">
-                          <span className="text-slate-500 text-[10px]">Debrief & Duty Release:</span>
-                          <strong className="text-indigo-300 font-bold">
-                            {calculateDebriefEndTime(flight.endHbtStr, debriefMinutesByFlight[flight.id] || 30)} HBT
-                          </strong>
-                          <span className="text-slate-600 text-[10px]">•</span>
-                          <span className="text-slate-400 text-[10px]">
-                            Touchdown {flight.endHbtStr} + {debriefMinutesByFlight[flight.id] || 30}m buffer
-                          </span>
-                        </div>
-
-                        {/* Subtle Debrief Buffer Switcher */}
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] text-slate-500 font-mono">Debrief:</span>
-                          {[15, 30, 45].map((mins) => (
-                            <button
-                              key={mins}
-                              onClick={() => setDebriefMinutesByFlight((prev) => ({ ...prev, [flight.id]: mins }))}
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
-                                (debriefMinutesByFlight[flight.id] || 30) === mins
-                                  ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-bold'
-                                  : 'text-slate-500 hover:text-slate-300'
-                              }`}
-                              title={`${mins}m debrief buffer`}
-                            >
-                              {mins}m
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                      {/* Sign-off: once per duty, on its last flight, from the roster (delays included) */}
+                      {(() => {
+                        const leg = getFlightLeg(flight);
+                        if (!leg || !dutyEnds.has(leg.id)) return null;
+                        const fromRoster = !!leg.printed?.release;
+                        return (
+                          <div className="mt-2.5 pt-2 border-t border-slate-900/80 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="text-slate-500 text-[10px]">Sign-off:</span>
+                            <strong className="font-mono text-indigo-300">{rosterClock(plan.roster).time(Date.parse(leg.releaseTimeUtc))} home</strong>
+                            <span className="text-slate-500 text-[10px]">{fromRoster ? 'debrief from your roster' : 'estimated: landing + 30 min (not printed on your roster)'}</span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
-                    {/* Ground Turnaround & Transit Card between consecutive sectors */}
+                    {/* Turnaround between flights */}
                     {idx < actualFlights.length - 1 && (
                       <div className="my-1.5 flex items-center justify-between rounded-xl border border-dashed border-amber-800/60 bg-amber-950/20 px-3.5 py-2 text-xs">
                         <div className="flex items-center gap-2">
                           <Clock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                           <div>
                             <span className="font-bold text-amber-300 text-[11px]">
-                              Ground Turnaround Bridge: Sector 1 ➔ Sector 2
+                              Turnaround in {actualFlights[idx].subtitle.split('to')[1]?.split('•')[0]?.trim() || 'the next airport'}
                             </span>
-                            <p className="text-[10px] text-slate-400">
-                              Transit, security check, cabin restocking & boarding at {actualFlights[idx].subtitle.split('to')[1]?.split('•')[0]?.trim() || 'transit hub'}
-                            </p>
+                            <p className="text-[10px] text-slate-400">Still on duty between flight {idx + 1} and flight {idx + 2}</p>
                           </div>
                         </div>
-                        <span className="rounded bg-amber-950/80 border border-amber-700/50 px-2 py-0.5 font-mono text-[10px] font-black text-amber-300 shrink-0 ml-2">
-                          Turnaround
-                        </span>
                       </div>
                     )}
                   </React.Fragment>
@@ -776,6 +674,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             )}
           </div>
         </div>
+        )}
 
         {/* Pillar 2: Recommended Sleep & Naps */}
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4 space-y-3">
@@ -785,17 +684,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <Moon className="h-3.5 w-3.5" />
               </div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                2. Recommended Sleep & Naps
+                Sleep
               </h3>
             </div>
-            <span className="text-[11px] text-purple-300 font-semibold">
-              Sleep & naps
-            </span>
           </div>
 
           <div className="space-y-2.5">
+            {!isOffDay && prepDetails && !prepDetails.targetBedtimeHbt && prepDetails.bedtimeExplanation && (
+              <p className="text-[11px] text-slate-300">{prepDetails.bedtimeExplanation}</p>
+            )}
             {sleepEvents.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-500">Standard nocturnal sleep.</p>
+              <p className="py-4 text-center text-xs text-slate-500">Your usual night sleep.</p>
             ) : (
               sleepEvents.map((event) => {
                 const nudge = customNudges[event.id] || 0;
@@ -827,20 +726,15 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           </p>
                           {isPriorDayBedtime ? (
                             <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300">
-                              🌙 Prior-Day Bedtime ({startWeekday}, {startDateAviation})
+                              🌙 Bed the evening before ({startWeekday}, {startDateAviation})
                             </span>
                           ) : crossesMidnight ? (
                             <span className="inline-flex items-center gap-1 rounded bg-purple-900/60 border border-purple-700/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-purple-300">
-                              🌙 Crosses Midnight
+                              🌙 Past midnight
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 rounded bg-blue-900/40 border border-blue-700/40 px-1.5 py-0.5 text-[9px] font-mono font-bold text-blue-300">
-                              ☀️ Daytime Rest
-                            </span>
-                          )}
-                          {event.type === 'anchor_sleep' && prepDetails && (
-                            <span className="inline-flex items-center gap-1 rounded bg-purple-900/40 border border-purple-700/50 px-1.5 py-0.5 text-[9px] font-mono font-bold text-purple-300">
-                              ✓ In Sync with Runway
+                              ☀️ Daytime sleep
                             </span>
                           )}
                         </div>
@@ -850,25 +744,25 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         <div className="rounded-lg bg-slate-950/70 border border-purple-900/30 p-2 text-[10px] space-y-1 mt-1.5">
                           <div className="flex items-center justify-between text-slate-300 font-mono">
                             <span className="text-purple-300 font-bold flex items-center gap-1">
-                              🛌 Lights Out (Bedtime):
+                              🛌 Bedtime:
                             </span>
                             <span className="text-white font-extrabold">
-                              {startWeekday}, {startDateAviation} • {event.startHbtStr} HBT{' '}
-                              {isPriorDayBedtime && <span className="text-amber-400 font-sans font-bold">(Evening Before)</span>}
+                              {startWeekday}, {startDateAviation} • {event.startHbtStr}{' '}
+                              {isPriorDayBedtime && <span className="text-amber-400 font-sans font-bold">(evening before)</span>}
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-slate-300 font-mono border-t border-slate-900 pt-1">
                             <span className="text-sky-300 font-bold flex items-center gap-1">
-                              ⏰ Wake-Up Alarm:
+                              ⏰ Wake-up:
                             </span>
                             <span className="text-white font-extrabold">
-                              {endWeekday}, {endDateAviation} • {event.endHbtStr} HBT{' '}
+                              {endWeekday}, {endDateAviation} • {event.endHbtStr}{' '}
                               <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : actualFlights.length ? 'Duty morning' : 'Next morning'})</span>
                             </span>
                           </div>
                           {isPriorDayBedtime && (
                             <p className="text-[10px] text-amber-300/90 pt-1 border-t border-slate-900 font-sans">
-                              💡 <strong>Why the evening before:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.round(event.durationMinutes / 30) / 2}h sleep finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
+                              💡 <strong>Why the evening before:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr}) so that your {Math.round(event.durationMinutes / 30) / 2}h sleep finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
                             </p>
                           )}
                         </div>
@@ -879,7 +773,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           {event.startHbtStr} – {event.endHbtStr}
                         </span>
                         <p className="text-[9px] text-slate-400 font-mono">
-                          {Math.floor(event.durationMinutes / 60)}h {event.durationMinutes % 60}m Rest
+                          {Math.floor(event.durationMinutes / 60)}h {event.durationMinutes % 60}m
                         </p>
                       </div>
                     </div>
@@ -932,17 +826,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <Utensils className="h-3.5 w-3.5" />
               </div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                3. Chrono-Nutrition (Eating Window)
+                Meals
               </h3>
             </div>
-            <span className="text-[11px] text-emerald-300 font-semibold">
-              Meals
-            </span>
           </div>
 
           <div className="space-y-2.5">
             {nutritionEvents.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-500">Standard daytime meal schedule.</p>
+              <p className="py-4 text-center text-xs text-slate-500">Your usual daytime meals.</p>
             ) : (
               nutritionEvents.map((event) => (
                 <div
@@ -959,7 +850,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       <span className="font-mono text-xs font-extrabold text-emerald-200">
                         {event.startHbtStr} – {event.endHbtStr}
                       </span>
-                      <p className="text-[10px] text-slate-500">Home Time</p>
+                      <p className="text-[10px] text-slate-500">Home time</p>
                     </div>
                   </div>
 
@@ -991,17 +882,20 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 <Coffee className="h-3.5 w-3.5" />
               </div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                4. Caffeine & Clearance Cutoff
+                Caffeine
               </h3>
             </div>
-            <span className="text-[11px] text-amber-300 font-semibold">
-              6h Clearance Rule
-            </span>
           </div>
 
           <div className="space-y-2.5">
+            {/* The cut-off before this duty's sleep, when it falls on another day's list */}
+            {!isOffDay && prepDetails?.caffeineCutoffHbt && !caffeineEvents.some((e) => e.type === 'caffeine_cutoff' && e.startHbtStr === prepDetails.caffeineCutoffHbt) && (
+              <p className="rounded-xl border border-red-900/40 bg-red-950/20 p-3 text-xs text-slate-300">
+                Before the sleep ahead of this duty: last caffeine at <strong className="font-mono text-white">{prepDetails.caffeineCutoffHbt}</strong>{prepDetails.targetBedtimeDateStr && prepDetails.targetBedtimeDateStr !== selectedDate ? ' the day before' : ''}.
+              </p>
+            )}
             {caffeineEvents.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-500">Standard caffeine rules apply.</p>
+              <p className="py-4 text-center text-xs text-slate-500">No caffeine limits today beyond your usual cut-off.</p>
             ) : (
               caffeineEvents.map((event) => {
                 const isCutoff = event.type === 'caffeine_cutoff';
@@ -1031,7 +925,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         <span className={`font-mono text-xs font-extrabold ${isCutoff ? 'text-red-300' : 'text-amber-200'}`}>
                           {event.startHbtStr} – {event.endHbtStr}
                         </span>
-                        <p className="text-[10px] text-slate-500">Home Time</p>
+                        <p className="text-[10px] text-slate-500">Home time</p>
                       </div>
                     </div>
 
@@ -1046,7 +940,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         </span>
                       </button>
                       <span className={`text-[10px] font-semibold ${isCutoff ? 'text-red-400' : 'text-amber-400'}`}>
-                        {isCutoff ? 'Zero Caffeine Zone' : 'Safe Consumption'}
+                        {isCutoff ? 'No caffeine' : 'Caffeine is fine'}
                       </span>
                     </div>
                   </div>
@@ -1063,7 +957,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           <div className="flex items-center gap-2.5">
             <Sun className="h-4 w-4 text-amber-400 shrink-0" />
             <div>
-              <strong className="text-amber-200">Morning Phototherapy Tip: </strong>
+              <strong className="text-amber-200">Morning light: </strong>
               <span className="text-slate-300">Some time in daylight this morning helps keep your body clock on home time.</span>
             </div>
           </div>
@@ -1071,7 +965,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             onClick={() => onSelectEvent(lightEvents[0])}
             className="text-[11px] font-semibold text-amber-300 underline underline-offset-2 shrink-0 ml-3"
           >
-            Study Details
+            Why?
           </button>
         </div>
       )}
@@ -1090,7 +984,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             onClick={() => onSelectEvent(alertEvents[0])}
             className="text-[11px] font-semibold text-rose-300 underline underline-offset-2 shrink-0 ml-3"
           >
-            WOCL Protocol
+            Why?
           </button>
         </div>
       )}
@@ -1107,10 +1001,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           }}
           onCancelSector={(flightId) => {
             if (onCancelSector) onCancelSector(flightId);
-            setTacticalModal(null);
-          }}
-          onDelaySector={(flightId, delayMinutes) => {
-            if (onDelaySector) onDelaySector(flightId, delayMinutes);
             setTacticalModal(null);
           }}
           onClose={() => setTacticalModal(null)}

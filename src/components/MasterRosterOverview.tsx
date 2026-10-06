@@ -554,7 +554,7 @@ export const MasterRosterOverview: React.FC<MasterRosterOverviewProps> = ({
                 <span className="col-span-2">Date / Day</span>
                 <span className="col-span-2">Duty Type</span>
                 <span className="col-span-4">Flight / Sectors</span>
-                <span className="col-span-2 text-center">Timings (HBT)</span>
+                <span className="col-span-2 text-center">Times (home)</span>
                 <span className="col-span-2 text-right">Actions</span>
               </div>
 
@@ -666,7 +666,7 @@ export const MasterRosterOverview: React.FC<MasterRosterOverviewProps> = ({
                         )}
                       </div>
 
-                      {/* 4. Timings (HBT): Report, STD, STA, Debrief */}
+                      {/* 4. Times (home): Report, STD, STA, Debrief */}
                       <div className="col-span-2 text-center font-mono text-[11px]">
                         {summary.prepDetails ? (
                           <div className="space-y-0.5">

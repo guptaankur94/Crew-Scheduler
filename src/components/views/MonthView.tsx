@@ -289,7 +289,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
           </ul>
         )}
         <p className="border-t border-slate-800 px-4 py-2.5 text-[11px] text-slate-500 sm:px-5">
-          Times are home time. Flights in brackets are positioning (as passenger). Tap a day to check or correct it, and open it in the Timeline from there.
+          Times are home time. Flights in brackets are positioning (as passenger). Tap a day to check or correct it, and open it in Days from there.
         </p>
       </section>
 

@@ -1,6 +1,6 @@
 # CrewCircadian
 
-A fatigue, rest and pay planner for airline cabin crew. Upload a roster (screenshot, PDF or pasted text) and the app builds a sleep, nap, caffeine and meal plan around your flights, plus a salary estimate.
+A calm rest planner for airline cabin crew. Upload a roster (screenshot, PDF or pasted text), check it once, and the app builds a sleep, nap, caffeine, light and meal plan around your duties, with flying and duty hours for the month. Product rules: see the Product Constitution; the advice rules are in `docs/RULE_BOOK.md`.
 
 > This app gives general wellbeing guidance. It is not medical advice and does not replace your airline's fatigue-management rules or duty-time limits.
 
@@ -16,7 +16,7 @@ npm run dev            # start the app
 
 Open http://localhost:3000. Stop the app with `Ctrl + C`.
 
-The sample roster and all planning screens work straight away. To read your own roster or payslip with AI, create a free key at https://aistudio.google.com/apikey, paste it into `.env` as `GEMINI_API_KEY="..."`, and restart the app. Keep `.env` private; it is excluded from git.
+The sample roster and all planning screens work straight away. To read your own roster with AI, create a free key at https://aistudio.google.com/apikey, paste it into `.env` as `GEMINI_API_KEY="..."`, and restart the app. Keep `.env` private; it is excluded from git.
 
 ## Commands
 
@@ -32,7 +32,7 @@ The sample roster and all planning screens work straight away. To read your own 
 
 - **Browser app** (`src/`): React + TypeScript + Tailwind CSS. All planning maths runs here, in `src/services/circadianCalculator.ts`. Your roster, settings and history are saved in this browser only (`localStorage`).
 - **Server** (`server.ts`, `server/`): a small Express server. It keeps the Gemini key secret, sends uploads to Gemini, and validates what comes back before the browser sees it.
-- **AI**: Google Gemini reads rosters and payslips. It is never trusted blindly: a flight whose date, time or airport cannot be read is left out and reported to you, never guessed.
+- **AI**: Google Gemini only reads rosters; it never writes advice. It is never trusted blindly: a flight whose date, time or airport cannot be read is left out and reported to you, never guessed.
 
 | Path | Purpose |
 |---|---|
@@ -75,3 +75,8 @@ Files and text you upload are sent to Google Gemini to be read. Nothing is store
 - The home base uses one UTC offset for the whole roster, so a home base that observes daylight saving can be an hour out across a clock change.
 - The server has no login. It is safe on your own computer, but add authentication before hosting it on the public internet.
 - Mobile packaging (`capacitor.config.json`) is not set up yet: a phone build needs the server hosted online first.
+- **Every piece of advice comes from a numbered rule** (`CITATIONS` in `src/services/circadianCalculator.ts`) with an evidence grade (strong, moderate, limited, practical, regulation), shown in its Why? sheet. `npm run rulebook` writes `docs/RULE_BOOK.md` for review by a sleep physician; a test fails if the file is out of date.
+- **Caffeine cut-off follows the usual amount** (Settings): 6 h for one coffee or a few cups of chai, 8 h for two coffees, 12 h for more (Gardiner et al. 2025), plus 2 h before a daytime sleep (our stated margin). **No alcohol in the 12 h before check-in or a home standby** (DGCA). **Finish hard workouts 4 h before a night's sleep** (Leota et al. 2025).
+- **Duty-limit notes never say "compliant"**. They are "worth a look" with the paragraph; the rule text carries a checked-on date and switches off if its 6-monthly re-check is more than 30 days overdue (`rulesStatus`).
+- **Golden rosters** (`tests/golden.test.ts`, `tests/fixtures/golden-sep-oct-2026.json`): a real crew member's September and October rosters (names removed) pin down confirmed totals (October flying 49.9 h) and rules every plan must keep (no sleep over a duty, one check-in and one sign-off per duty, cut-offs end at a sleep). Plus a daylight-saving test for London.
+- **No crew names are kept.** The reader no longer returns a name and names saved by earlier versions are dropped when the app loads.

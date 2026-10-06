@@ -394,7 +394,7 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
               {rosterNotStarted ? 'Your roster starts' : 'Next duty'} · {untilText(Date.parse(prep.startUtc) - nowMs)}
             </span>
-            <span className="text-white font-semibold">{weekdayDate(prep.dutyDate!)}</span> · report{' '}
+            <span className="text-white font-semibold">{weekdayDate(prep.dutyDate!)}</span> · check-in{' '}
             <span className="font-mono">{prep.prepDetails?.reportHbt}</span>
             {dutyFlights[0] && <> · {plainTitle(dutyFlights[0])}</>}
           </span>
@@ -473,7 +473,7 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
       </section>
 
       <button onClick={onOpenTimeline} className="px-1 text-xs text-slate-400 underline underline-offset-2 hover:text-slate-200">
-        See other days, change flights and more on the Timeline
+        See other days, change flights and more on Days
       </button>
     </div>
   );

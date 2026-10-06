@@ -36,7 +36,8 @@ export const CalloutForm: React.FC<Props> = ({ roster, date, base, onSave, onCan
   const [error, setError] = useState<string | null>(null);
 
   /** A home-time HH:MM on the callout's day. */
-  const homeTime = (hhmm: string): number | null => airportLocalToUtc(date, hhmm, roster.homeBase, roster.homeBaseTzOffset)?.getTime() ?? null;
+  const homeTime = (hhmm: string): number | null =>
+    airportLocalToUtc(date, hhmm, roster.homeBase, roster.homeBaseTzOffset)?.getTime() ?? null;
 
   const save = () => {
     const flights: FlightLeg[] = [];
@@ -88,14 +89,29 @@ export const CalloutForm: React.FC<Props> = ({ roster, date, base, onSave, onCan
               className={`${input} ${width}`}
             />
           ))}
-          <TimeInput24 value={s.dep} onChange={(v) => setSectors(sectors.map((x, j) => (j === i ? { ...x, dep: v } : x)))} className={`${input} w-20`} ariaLabel={`Sector ${i + 1} departure`} />
+          <TimeInput24
+            value={s.dep}
+            onChange={(v) => setSectors(sectors.map((x, j) => (j === i ? { ...x, dep: v } : x)))}
+            className={`${input} w-20`}
+            ariaLabel={`Sector ${i + 1} departure`}
+          />
           <span>→</span>
-          <TimeInput24 value={s.arr} onChange={(v) => setSectors(sectors.map((x, j) => (j === i ? { ...x, arr: v } : x)))} className={`${input} w-20`} ariaLabel={`Sector ${i + 1} arrival`} />
+          <TimeInput24
+            value={s.arr}
+            onChange={(v) => setSectors(sectors.map((x, j) => (j === i ? { ...x, arr: v } : x)))}
+            className={`${input} w-20`}
+            ariaLabel={`Sector ${i + 1} arrival`}
+          />
         </div>
       ))}
       <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={() => setSectors([...sectors, { flightNumber: '', origin: sectors[sectors.length - 1].destination, destination: '', dep: '', arr: '' }])}
+          onClick={() =>
+            setSectors([
+              ...sectors,
+              { flightNumber: '', origin: sectors[sectors.length - 1].destination, destination: '', dep: '', arr: '' },
+            ])
+          }
           className="inline-flex items-center gap-1 text-slate-400 hover:text-white"
         >
           <Plus className="h-3.5 w-3.5" /> Add another sector

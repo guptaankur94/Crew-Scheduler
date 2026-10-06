@@ -15,6 +15,8 @@ export interface ReviewDays {
   standby: StandbyDuty[];
   otherDuties: OtherDuty[];
   dates: string[];
+  /** Days that read exactly as already saved; hidden unless the person asks to see all days. */
+  unchanged?: string[];
 }
 
 const DAY_WORD: Record<OtherDuty['kind'], string> = { off: 'Day off', leave: 'Leave', sick: 'Sick', training: 'Training', other: 'Other duty' };
@@ -140,6 +142,13 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
     return out.sort();
   }, [days, drafts, standbyByDate, clock]);
   const undated = drafts.filter((d) => !dates.includes(d.date));
+
+  // On a re-upload, days that read exactly as saved are tucked away (unless something on them needs a look)
+  const [showAll, setShowAll] = useState(false);
+  const unchanged = useMemo(() => new Set(days?.unchanged ?? []), [days]);
+  const dayHasIssue = (date: string) => drafts.some((d) => d.date === date && (issues.get(d.key)?.length ?? 0) > 0);
+  const hiddenDates = showAll ? [] : dates.filter((d) => unchanged.has(d) && !dayHasIssue(d));
+  const shownDates = dates.filter((d) => !hiddenDates.includes(d));
 
   const update = (key: string, field: keyof Omit<Draft, 'key' | 'original'>, value: string) =>
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, [field]: value } : d)));
@@ -275,7 +284,17 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
               </div>
             )}
 
-            {dates.map((date) => {
+            {unchanged.size > 0 && (
+              <p className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
+                {showAll
+                  ? `Showing all ${dates.length} days.`
+                  : `${hiddenDates.length} ${hiddenDates.length === 1 ? 'day is' : 'days are'} the same as your saved roster, so only the ${shownDates.length} that differ are shown.`}
+                <button onClick={() => setShowAll(!showAll)} className="font-semibold text-blue-300 underline underline-offset-2 hover:text-white">
+                  {showAll ? 'Show only changed days' : 'Show all days'}
+                </button>
+              </p>
+            )}
+            {shownDates.map((date) => {
               const rows = drafts.filter((d) => d.date === date);
               const sbs = standbyByDate.get(date) ?? [];
               const listed = (days?.otherDuties ?? []).filter((o) => o.date === date);

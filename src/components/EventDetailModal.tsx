@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { CircadianEvent, EvidenceGrade } from '../types/circadian';
 import { X, Award, Lightbulb, Clock, Plus, Minus, CheckCircle2 } from 'lucide-react';
 
@@ -24,16 +24,28 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   onNudge,
   currentNudge,
 }) => {
+  // Escape closes the sheet (a ref keeps the listener from re-binding on every render)
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const open = !!event;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   if (!event) return null;
 
   const { scientificCitation } = event;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={event.title}>
       <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl sm:p-6">
         {/* Close Button */}
         <button
           onClick={onClose}
+          aria-label="Close"
           className="absolute right-4 top-4 rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
         >
           <X className="h-5 w-5" />

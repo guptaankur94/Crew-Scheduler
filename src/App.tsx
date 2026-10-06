@@ -7,7 +7,6 @@ import {
   cancelledFlights,
   reinstateFlight,
   clearStandbyUpdate,
-  delayCandidate,
   delayFor,
   effectiveRoster,
   expectedDutyRelease,
@@ -19,7 +18,6 @@ import {
   retainUpdates,
   setDelay,
   setStandbyTimes,
-  standbyCandidate,
   standbyForFlight,
   standbyUpdate,
   updateLinesByDate,
@@ -48,7 +46,6 @@ import { keepNudgesOutside, RosterUpdateInfo } from './services/rosterDiff';
 import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
-import { TodayView } from './components/views/TodayView';
 import { RosterView } from './components/views/RosterView';
 import { SalaryView } from './components/views/SalaryView';
 import { TodayPreview } from './components/views/TodayPreview';
@@ -166,24 +163,6 @@ export default function App() {
     setActiveView(view);
   };
   const [selectedEvent, setSelectedEvent] = useState<CircadianEvent | null>(null);
-  // The redesigned Today is the default (approved); the classic Today stays available for anyone who prefers it.
-  // A new storage key, so an earlier choice made while the new one was only a preview does not stick.
-  const [todayVersion, setTodayVersion] = useState<'classic' | 'preview'>(() => {
-    try {
-      return localStorage.getItem('crew_today_version_v2') === 'classic' ? 'classic' : 'preview';
-    } catch {
-      return 'preview';
-    }
-  });
-  const chooseTodayVersion = (version: 'classic' | 'preview') => {
-    setTodayVersion(version);
-    try {
-      localStorage.setItem('crew_today_version_v2', version);
-    } catch {
-      // Not saved: the choice simply resets next time
-    }
-  };
-
   // Generate reactive Circadian Plan whenever roster, preferences, or nudges change
   const plan = useMemo(() => {
     // Planned on the roster with the person's updates applied; the saved roster itself is unchanged
@@ -428,12 +407,6 @@ export default function App() {
   // Duty-limit check: the roster as published plus recorded callouts, cancellations and standby changes (not delays)
   const limitsRoster = useMemo(() => effectiveRoster(roster, userUpdates.filter((u) => u.kind !== 'delay')), [roster, userUpdates]);
 
-  // The standby quick edits apply to: one starting within 24 hours, or in progress
-  const todayStandby = standbyCandidate(roster, Date.now());
-
-  // The flight "I'm delayed" applies to: the next one within 24 hours, or the one in progress
-  const delayFlight = delayCandidate(roster, userUpdates, Date.now());
-
   // Tactical Duty Action 2: Delay Sector (adds to any delay already reported)
   const handleDelaySector = (flightId: string, delayMinutes: number) => {
     handleSetDelay(flightId, delayFor(userUpdates, keyOfFlight(roster, flightId, userUpdates)) + delayMinutes);
@@ -457,7 +430,7 @@ export default function App() {
     );
   };
 
-  /** Standby quick edits from Today: times changed, released early (or cancelled), called out, or undo your change. */
+  /** Standby edits from the Timeline: times changed, released early (or cancelled), called out, or undo your change. */
   const handleStandbyChange = (
     standbyId: string,
     change: { kind: 'times'; startUtc: string; endUtc: string } | { kind: 'released'; atUtc: string } | { kind: 'callout'; flights: FlightLeg[] } | { kind: 'clear' }
@@ -616,39 +589,14 @@ export default function App() {
               </span>
             </div>
           )}
-          {activeView === 'today' && (
-            <div className="mb-3 flex justify-end text-xs">
-              <button
-                onClick={() => chooseTodayVersion(todayVersion === 'preview' ? 'classic' : 'preview')}
-                className="font-semibold text-slate-500 hover:text-slate-200"
-              >
-                {todayVersion === 'preview' ? 'Switch to classic Today' : 'Switch to the new Today'}
-              </button>
-            </div>
-          )}
-
-          {/* What moved in the plan after the latest update (both Today versions) */}
+          {/* What moved in the plan after the latest update */}
           {activeView === 'today' && planNotice && Date.now() - Date.parse(planNotice.at) < HEADS_UP_HOURS * 3600000 && (
             <div className="mb-4">
               <PlanChangedCard notice={planNotice} onDismiss={() => showPlanNotice(null)} />
             </div>
           )}
 
-          {/* Quick standby edits for a standby today or in the next 24 hours (both Today versions) */}
-          {activeView === 'today' && todayStandby && (
-            <div className="mb-4">
-              <StandbyCard roster={roster} standby={todayStandby} update={standbyUpdate(userUpdates, keyOfStandby(roster, todayStandby.id))} onChange={handleStandbyChange} />
-            </div>
-          )}
-
-          {/* One-tap "I'm delayed" for the next flight (both Today versions) */}
-          {activeView === 'today' && delayFlight && (
-            <div className="mb-4">
-              <DelayCard roster={roster} flight={delayFlight} delayMinutes={delayFor(userUpdates, keyOfFlight(roster, delayFlight.id, userUpdates))} expectedReleaseUtc={expectedDutyRelease(roster, userUpdates, delayFlight.id)} onSetDelay={handleSetDelay} />
-            </div>
-          )}
-
-          {activeView === 'today' && todayVersion === 'preview' && (
+          {activeView === 'today' && (
             <TodayPreview
               plan={plan}
               onSelectEvent={setSelectedEvent}
@@ -656,18 +604,6 @@ export default function App() {
               onOpenScience={() => setActiveView('science')}
               onOpenSettings={() => setActiveView('settings')}
               onOpenTimeline={() => setActiveView('roster')}
-              onNavigateToUpload={() => setActiveView('upload')}
-            />
-          )}
-
-          {activeView === 'today' && todayVersion === 'classic' && (
-            <TodayView
-              plan={plan}
-              onSelectEvent={setSelectedEvent}
-              onNudgeEvent={handleNudgeEvent}
-              onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
-              customNudges={customNudges}
-              onOpenScience={() => setActiveView('science')}
               onNavigateToUpload={() => setActiveView('upload')}
             />
           )}
@@ -685,6 +621,18 @@ export default function App() {
               onDelaySector={handleDelaySector}
               onDeleteSector={handleDeleteSector}
               onAddStandbyFlight={handleAddStandbyFlight}
+              renderStandbyEdit={(dateStr) => {
+                const clock = rosterClock(roster);
+                return (roster.standbyDuties ?? [])
+                  .filter((s) => standbyHomeDate(s, clock) === dateStr)
+                  .map((s) => <StandbyCard key={s.id} roster={roster} standby={s} update={standbyUpdate(userUpdates, keyOfStandby(roster, s.id))} onChange={handleStandbyChange} />);
+              }}
+              renderDelayEdit={(flightId) => {
+                const flight = allFlights(roster, userUpdates).find((f) => f.id === flightId);
+                return flight ? (
+                  <DelayCard roster={roster} flight={flight} delayMinutes={delayFor(userUpdates, keyOfFlight(roster, flight.id, userUpdates))} expectedReleaseUtc={expectedDutyRelease(roster, userUpdates, flight.id)} onSetDelay={handleSetDelay} />
+                ) : null;
+              }}
               initialDate={timelineJumpDate}
               onOpenMonthSummary={(dateStr) => {
                 setMonthViewMonth(`${dateStr.slice(0, 7)}-01`);

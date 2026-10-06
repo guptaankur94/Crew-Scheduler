@@ -18,7 +18,8 @@ export function generateIcsFile(plan: CircadianPlan): string {
     'X-WR-TIMEZONE:UTC',
   ];
 
-  events.forEach((event: CircadianEvent) => {
+  // Guardrail notes (alcohol before duty, hard exercise before sleep) stay in the app, not in the calendar
+  events.filter((e) => e.type !== 'alcohol_cutoff' && e.type !== 'exercise_cutoff').forEach((event: CircadianEvent) => {
     const dtStart = toIcsDate(event.startUtc);
     const dtEnd = toIcsDate(event.endUtc);
     const summary = `${event.title}`;

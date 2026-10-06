@@ -1,5 +1,5 @@
 import React from 'react';
-import { CircadianEvent } from '../types/circadian';
+import { CircadianEvent, EvidenceGrade } from '../types/circadian';
 import { X, Award, Lightbulb, Clock, Plus, Minus, CheckCircle2 } from 'lucide-react';
 
 interface EventDetailModalProps {
@@ -8,6 +8,15 @@ interface EventDetailModalProps {
   onNudge: (eventId: string, minutes: number) => void;
   currentNudge: number;
 }
+
+const EVIDENCE_LABEL: Record<EvidenceGrade, string> = { strong: 'strong', moderate: 'moderate', limited: 'limited', practical: 'practical', regulation: 'regulation' };
+const EVIDENCE_HELP: Record<EvidenceGrade, string> = {
+  strong: 'Consistent results across trials or reviews.',
+  moderate: 'Supported by some trials or expert guidance.',
+  limited: 'Early or mixed evidence: a gentle guide only.',
+  practical: 'Worked out from your roster and settings.',
+  regulation: 'A legal rule, not a health claim.',
+};
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   event,
@@ -61,6 +70,13 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         {/* Research Study Details */}
         <div className="mt-4 space-y-3">
           <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5">
+            <p className="mb-1.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+              <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono">Rule {scientificCitation.ruleId}</span>
+              <span className="rounded border border-slate-700 px-1.5 py-0.5" title={EVIDENCE_HELP[scientificCitation.evidence]}>
+                Evidence: {EVIDENCE_LABEL[scientificCitation.evidence]}
+              </span>
+              <span>{EVIDENCE_HELP[scientificCitation.evidence]}</span>
+            </p>
             <h4 className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
               <Award className="h-4 w-4" /> {scientificCitation.studyTitle}
             </h4>

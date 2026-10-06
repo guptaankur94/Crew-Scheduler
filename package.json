@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "rulebook": "tsx scripts/rulebook.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

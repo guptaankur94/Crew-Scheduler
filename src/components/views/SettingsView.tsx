@@ -1,3 +1,4 @@
+import { CAFFEINE_HOURS, DAYTIME_SLEEP_EXTRA_HOURS } from '../../services/planEngine';
 import React, { useEffect, useRef, useState } from 'react';
 import { TimeInput24 } from '../TimeInput24';
 import { RecentChanges } from '../RecentChanges';
@@ -5,7 +6,7 @@ import { deleteAllStoredFiles, listStoredFiles } from '../../services/fileStore'
 import { TIME_CONVENTION_LABEL, TimeConvention } from '../../services/rosterTimes';
 import { createBackupFromDevice, deleteAllLocalData, parseBackup, writeRestoredData } from '../../services/backup';
 import { getAiConsentDate, withdrawAiConsent } from '../../services/aiConsent';
-import { Chronotype, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
+import { CaffeineDose, Chronotype, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
 import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
 import {
   Sliders,
@@ -27,6 +28,12 @@ interface SettingsViewProps {
   onRestoreHistoryEntry?: (entry: RosterHistoryEntry) => void;
 }
 
+const CAFFEINE_CHOICES: { dose: CaffeineDose; label: string }[] = [
+  { dose: 'light', label: 'One coffee, or a few cups of chai or tea' },
+  { dose: 'moderate', label: 'Two coffees' },
+  { dose: 'strong', label: 'Three or more coffees, or energy drinks' },
+];
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   preferences,
   roster,
@@ -36,6 +43,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUndoLatest,
   onRestoreHistoryEntry,
 }) => {
+  // Usual caffeine; older saved choices of 6 or 8 hours map to light or moderate
+  const dose: CaffeineDose = preferences.caffeineDose ?? (preferences.caffeineCutoffHours >= 12 ? 'strong' : preferences.caffeineCutoffHours >= 8 ? 'moderate' : 'light');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dataMessage, setDataMessage] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -223,32 +232,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {/* Usual sleep on normal nights, like a phone's sleep schedule: bedtime and wake-up */}
           <UsualSleep preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
 
-          {/* Caffeine cutoff */}
+          {/* Caffeine: the usual amount decides the cut-off before sleep */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-xs uppercase text-slate-300">Last caffeine before sleep</span>
-              <span className="font-mono font-bold text-amber-300 text-sm">
-                {preferences.caffeineCutoffHours} hours before
-              </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-xs uppercase text-slate-300">How much caffeine do you usually have?</span>
+              <span className="shrink-0 font-mono font-bold text-amber-300 text-sm">{CAFFEINE_HOURS[dose]} h before sleep</span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Caffeine can stay in your body for many hours. Choose 8 if you are sensitive to it or drink strong coffee.
-            </p>
-            <div className="flex gap-2 pt-1">
-              {[6, 8].map((hrs) => (
+            <div className="grid gap-2 pt-1">
+              {CAFFEINE_CHOICES.map((c) => (
                 <button
-                  key={hrs}
-                  onClick={() => onUpdatePreferences({ caffeineCutoffHours: hrs })}
-                  className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
-                    preferences.caffeineCutoffHours === hrs
-                      ? 'bg-amber-600 text-white shadow-sm'
-                      : 'border border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                  key={c.dose}
+                  onClick={() => onUpdatePreferences({ caffeineDose: c.dose, caffeineCutoffHours: CAFFEINE_HOURS[c.dose] })}
+                  aria-pressed={dose === c.dose}
+                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${
+                    dose === c.dose ? 'bg-amber-600 text-white shadow-sm' : 'border border-slate-800 bg-slate-900 text-slate-300 hover:text-white'
                   }`}
                 >
-                  {hrs} hours
+                  <span>{c.label}</span>
+                  <span className="font-mono">stop {CAFFEINE_HOURS[c.dose]} h before</span>
                 </button>
               ))}
             </div>
+            <p className="text-[11px] text-slate-400">
+              Chai and tea count too. Before a daytime sleep (after a night duty) the app stops caffeine {DAYTIME_SLEEP_EXTRA_HOURS} hours earlier still,
+              because caffeine disturbs daytime sleep more.
+            </p>
           </div>
         </div>
 

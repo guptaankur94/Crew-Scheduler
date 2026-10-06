@@ -317,6 +317,9 @@ export function generateCircadianPlan(
   const catchUp = shortSleepCatchUpMs(preferences, Date.now());
   const shortNightDate = catchUp ? clock.date(catchUp.loggedAtMs) : undefined;
 
+  // Days a duty ends on (an overnight duty from the evening before)
+  const releaseDates = new Set(roster.flights.map((f) => clock.date(Date.parse(f.releaseTimeUtc))));
+
   const dailySummaries: DailyCircadianSummary[] = sortedDates.map((dateStr, idx) => {
     const dayEvents = events.filter((e) => e.dutyDate === dateStr);
     const dayFlights = dayEvents.filter((e) => e.type === 'flight');
@@ -389,6 +392,9 @@ export function generateCircadianPlan(
       dayLabel: formatDateLabel(`${dateStr}T12:00:00Z`, 0),
       dayNumber: idx + 1,
       isOffDay,
+      // Blank on the roster: no flight, standby or listed day (an OFF, leave, etc. is listed)
+      // (a day an overnight duty ends on is not blank)
+      noDuty: isOffDay && range.rosterDates.has(dateStr) && !(roster.otherDuties ?? []).some((d) => d.date === dateStr) && !releaseDates.has(dateStr),
       dutyType:
         dayFlights.length > 0
           ? 'flight'

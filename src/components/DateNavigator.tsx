@@ -49,6 +49,7 @@ const STATUS = {
   harder: { label: 'Harder', dot: 'bg-amber-400', text: 'text-amber-300', legend: 'Harder duty day' },
   standby: { label: 'Standby', dot: 'bg-purple-400', text: 'text-purple-300', legend: 'Standby' },
   off: { label: 'Off', dot: 'bg-emerald-400', text: 'text-emerald-300', legend: 'Day off' },
+  noDuty: { label: 'No duty', dot: 'bg-slate-400', text: 'text-slate-300', legend: 'No duty (blank on roster)' },
   training: { label: 'Training', dot: 'bg-cyan-400', text: 'text-cyan-300', legend: 'Training' },
   leave: { label: 'Leave', dot: 'bg-teal-600', text: 'text-teal-300', legend: 'Leave' },
   sick: { label: 'Sick', dot: 'bg-rose-400', text: 'text-rose-300', legend: 'Sick' },
@@ -56,7 +57,7 @@ const STATUS = {
 } as const;
 export const DAY_STATUS = STATUS;
 /** Legend order, most to least important. */
-const LEGEND_ORDER = [STATUS.duty, STATUS.harder, STATUS.standby, STATUS.training, STATUS.off, STATUS.leave, STATUS.sick, STATUS.none];
+const LEGEND_ORDER = [STATUS.duty, STATUS.harder, STATUS.standby, STATUS.training, STATUS.off, STATUS.noDuty, STATUS.leave, STATUS.sick, STATUS.none];
 
 /** The one status shown for a day, as a dot and label. */
 export function statusOf(day: DailyCircadianSummary | undefined): Status | null {
@@ -66,7 +67,7 @@ export function statusOf(day: DailyCircadianSummary | undefined): Status | null 
   if (day.dutyType === 'training') return STATUS.training;
   if (day.dutyType === 'leave') return STATUS.leave;
   if (day.dutyType === 'sick') return STATUS.sick;
-  if (day.isOffDay) return STATUS.off;
+  if (day.isOffDay) return day.noDuty ? STATUS.noDuty : STATUS.off;
   if (day.outlook?.level === 'harder') return STATUS.harder;
   return STATUS.duty;
 }

@@ -428,7 +428,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </h3>
             </div>
             <span className="text-[11px] font-mono text-slate-400">
-              {activeDaySummary?.outsideRoster ? 'No roster' : isOffDay ? 'Day off' : `${actualFlights.length} ${actualFlights.length === 1 ? 'flight' : 'flights'}`}
+              {activeDaySummary?.outsideRoster ? 'No roster' : isOffDay ? (activeDaySummary?.noDuty ? 'No duty' : 'Day off') : `${actualFlights.length} ${actualFlights.length === 1 ? 'flight' : 'flights'}`}
             </span>
           </div>
 
@@ -443,10 +443,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-xs space-y-1.5">
                 <div className="flex items-center gap-2 font-bold text-emerald-300">
                   <span className="text-base">🏖️</span>
-                  <span>Day off</span>
+                  <span>{activeDaySummary?.noDuty ? 'No duty' : 'Day off'}</span>
                 </div>
                 <p className="text-slate-300 leading-relaxed text-[11px]">
-                  No flights or duties today. A good day to catch up on any sleep you missed during your last duties.
+                  {activeDaySummary?.noDuty
+                    ? 'Nothing is listed on your roster for this day, so the plan treats it as a free day. If you are not sure, check with crew control.'
+                    : 'No flights or duties today. A good day to catch up on any sleep you missed during your last duties.'}
                 </p>
                 <div className="rounded bg-slate-950/50 p-2 text-[10px] text-emerald-400 font-mono mt-2 border border-emerald-900/30">
                   Tip: keep to your usual home-time sleep and meals today, so your body clock stays steady.
@@ -454,7 +456,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
                 {/* Standby Callout Button on Rest / Standby Day */}
                 <div className="pt-2 flex items-center justify-between border-t border-emerald-900/40 mt-2">
-                  <span className="text-[10px] text-slate-400">Called out on your day off?</span>
+                  <span className="text-[10px] text-slate-400">Called out today?</span>
                   <button
                     onClick={() => handleOpenTactical('standby_callout')}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all shadow-sm"

@@ -51,7 +51,7 @@ export function findingsByDate(roster: RosterData, limits: LimitReport | null, c
     // A day covered by an overnight duty from the evening before is not blank
     for (const f of roster.flights) used.add(clock.date(Date.parse(f.releaseTimeUtc)));
     for (let d = coverage.from; d <= coverage.to; d = clock.addDays(d, 1)) {
-      if (!used.has(d)) add({ date: d, kind: 'blank', level: 'check', message: 'Nothing on the roster for this day: a day off, or a missed entry?' });
+      if (!used.has(d)) add({ date: d, kind: 'blank', level: 'check', message: 'No duty: nothing on the roster for this day. A free day, or a missed entry?' });
     }
   }
 

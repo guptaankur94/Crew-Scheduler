@@ -49,7 +49,7 @@ import {
   getPriorDayDateStr,
 } from '../utils/dateUtils';
 
-interface TimelineViewProps {
+export interface TimelineViewProps {
   plan: CircadianPlan;
   onSelectEvent: (event: CircadianEvent) => void;
   onNudgeEvent: (eventId: string, minutes: number) => void;
@@ -62,6 +62,10 @@ interface TimelineViewProps {
   onDelaySector?: (flightId: string, delayMinutes: number) => void;
   onDeleteSector?: (flightId: string) => void;
   onAddStandbyFlight?: (flight: FlightLeg) => void;
+  /** Edits for the rostered standby on this day (times, released early, callout, back to rostered). */
+  renderStandbyEdit?: (dateStr: string) => React.ReactNode;
+  /** Set, change or remove the delay of this flight. */
+  renderDelayEdit?: (flightId: string) => React.ReactNode;
   initialDate?: string;
   /** Opens the Month screen on the month containing this date. */
   onOpenMonthSummary?: (dateStr: string) => void;
@@ -79,6 +83,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onDelaySector,
   onDeleteSector,
   onAddStandbyFlight,
+  renderStandbyEdit,
+  renderDelayEdit,
   initialDate,
   onOpenMonthSummary,
 }) => {
@@ -89,6 +95,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   // Debrief duration state per flight (default 30 mins)
   const [debriefMinutesByFlight, setDebriefMinutesByFlight] = useState<Record<string, number>>({});
+
+  // The flight whose delay editor is open
+  const [delayOpenFor, setDelayOpenFor] = useState<string | null>(null);
 
   const [tacticalModal, setTacticalModal] = useState<{
     isOpen: boolean;
@@ -188,6 +197,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
       {/* Standby periods on the selected day */}
       <StandbyNotice events={events.filter((e) => e.dutyDate === selectedDate)} onSelectEvent={onSelectEvent} roster={plan.roster} />
+      {renderStandbyEdit && <div className="space-y-3 empty:hidden">{renderStandbyEdit(selectedDate)}</div>}
 
       {/* Flights the person marked as cancelled on this day: kept in the roster, left out of the plan */}
       {cancelledFlights
@@ -670,7 +680,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         <span className="text-[10px] text-slate-500 font-medium">Change this flight:</span>
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handleOpenTactical('delay_sector', flight)}
+                            onClick={() => {
+                              const leg = getFlightLeg(flight);
+                              if (renderDelayEdit && leg) setDelayOpenFor(delayOpenFor === leg.id ? null : leg.id);
+                              else handleOpenTactical('delay_sector', flight);
+                            }}
                             className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 text-sky-300 border border-slate-800 hover:border-sky-500/40 text-[10px] font-semibold transition-colors flex items-center gap-1"
                             title="Add flight delay (+30m, +1h) and recalculate circadian buffers"
                           >
@@ -699,6 +713,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           )}
                         </div>
                       </div>
+
+                      {/* Set, change or remove this flight's delay */}
+                      {renderDelayEdit && delayOpenFor && getFlightLeg(flight)?.id === delayOpenFor && <div className="mt-2">{renderDelayEdit(delayOpenFor)}</div>}
 
                       {/* Smart Debrief & Duty Release Marker (Understated mental picture footer) */}
                       <div className="mt-2.5 pt-2 border-t border-slate-900/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -846,7 +863,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                             </span>
                             <span className="text-white font-extrabold">
                               {endWeekday}, {endDateAviation} • {event.endHbtStr} HBT{' '}
-                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : isOffDay ? 'Next morning' : 'Duty morning'})</span>
+                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : actualFlights.length ? 'Duty morning' : 'Next morning'})</span>
                             </span>
                           </div>
                           {isPriorDayBedtime && (

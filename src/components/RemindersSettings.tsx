@@ -4,6 +4,7 @@ import { CircadianPlan, CrewPreferences } from '../types/circadian';
 import { planReminders, ReminderKind } from '../services/reminders';
 import { rosterClock } from '../services/rosterKeys';
 import { isNativeApp } from '../services/platform';
+import { requestReminderPermission } from '../services/nativeReminders';
 
 /** Reminders and alarms: all off until switched on, with a preview of the next few. */
 
@@ -14,7 +15,7 @@ interface Props {
 }
 
 const KINDS: { kind: ReminderKind; label: string; note: string }[] = [
-  { kind: 'wake', label: 'Wake-up alarm before each duty', note: 'Rings even in Silent mode where your phone allows. Keep a second alarm too.' },
+  { kind: 'wake', label: 'Wake-up alarm before each duty', note: 'A notification with sound at your wake-up time; it follows your phone\'s sound settings. Keep a second alarm too.' },
   { kind: 'leave', label: 'Time to leave', note: '10 minutes before you need to leave home or the hotel.' },
   { kind: 'bedtime', label: 'Wind down before sleep', note: '30 minutes before a planned sleep.' },
   { kind: 'caffeine', label: 'Last caffeine', note: 'When your caffeine cut-off starts.' },
@@ -42,7 +43,12 @@ export const RemindersSettings: React.FC<Props> = ({ plan, preferences, onUpdate
             <input
               type="checkbox"
               checked={!!settings[kind]}
-              onChange={(e) => onUpdatePreferences({ reminders: { ...settings, [kind]: e.target.checked } })}
+              onChange={async (e) => {
+                const on = e.target.checked;
+                // In the phone app, switching one on asks for permission first
+                if (on && native && !(await requestReminderPermission())) return;
+                onUpdatePreferences({ reminders: { ...settings, [kind]: on } });
+              }}
               className="mt-1 h-4 w-4 accent-sky-500"
             />
             <span>

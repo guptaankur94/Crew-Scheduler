@@ -1,3 +1,5 @@
+import { kv } from './kv';
+
 /**
  * Recognises a file that was already imported, so the same roster is not sent to the AI again.
  * Each file's SHA-256 fingerprint is remembered with the saved roster version it produced (its parsedAt).
@@ -20,7 +22,7 @@ export async function fileFingerprint(file: Blob): Promise<string | null> {
 
 function load(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = kv.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -41,7 +43,7 @@ export function rememberImport(fingerprints: (string | null)[], rosterParsedAt: 
     const all = load();
     for (const h of fingerprints) if (h) all[h] = rosterParsedAt;
     const entries = Object.entries(all).slice(-MAX_ENTRIES);
-    localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(entries)));
+    kv.setItem(KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch {
     // Storage full or blocked: the file is simply read again next time
   }

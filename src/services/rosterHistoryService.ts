@@ -1,4 +1,5 @@
 import { RosterData, RosterHistoryEntry, UserUpdate } from '../types/circadian';
+import { kv } from './kv';
 
 const STORAGE_KEY = 'crew_roster_history_v1';
 
@@ -44,23 +45,23 @@ function withoutCrewName(entry: RosterHistoryEntry): RosterHistoryEntry {
 
 export function loadRosterHistory(): RosterHistoryEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kv.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     // The crew member's name is no longer kept; names saved by earlier versions are dropped
     if (Array.isArray(parsed)) return parsed.map(withoutCrewName);
     return [];
   } catch (err) {
-    console.warn('Failed to load roster history from localStorage', err);
+    console.warn('Failed to load roster history', err);
     return [];
   }
 }
 
 export function saveRosterHistory(entries: RosterHistoryEntry[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    kv.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch (err) {
-    console.warn('Failed to save roster history to localStorage', err);
+    console.warn('Failed to save roster history', err);
   }
 }
 
@@ -98,7 +99,7 @@ export function deleteRosterHistoryItem(id: string): RosterHistoryEntry[] {
 
 export function clearRosterHistoryLogs(): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    kv.removeItem(STORAGE_KEY);
   } catch (err) {
     console.warn('Failed to clear roster history', err);
   }

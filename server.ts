@@ -8,6 +8,7 @@ import { sanitizeParsedRoster } from './server/rosterSanitizer';
 import type { SanitizedRoster } from './server/rosterSanitizer';
 import { normalizeUpload, extractJsonFromText } from './server/upload';
 import { createDailyLimit, createRateLimiter } from './server/rateLimit';
+import { allowedOrigins, apiCors, securityHeaders } from './server/security';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +18,13 @@ const PORT = Number(process.env.PORT) || 3000;
 // Only this computer can reach the server unless HOST is set deliberately (e.g. when hosting it online)
 const HOST = process.env.HOST || '127.0.0.1';
 const MAX_RAW_TEXT_CHARS = 100_000;
+
+// Behind a hosting proxy, use the visitor's address (for rate limits) rather than the proxy's. Set TRUST_PROXY=1 there.
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+// Browser protections when serving the built app online (not in development, where live reload needs inline scripts)
+if (process.env.NODE_ENV === 'production') app.use(securityHeaders);
+// Only the web app and the phone app may call the roster reader
+app.use('/api', apiCors(allowedOrigins(process.env.ALLOWED_ORIGINS)));
 
 // Generous body limit for high-resolution roster screenshots
 app.use(express.json({ limit: '25mb' }));

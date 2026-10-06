@@ -189,6 +189,10 @@ export interface CrewPreferences {
   caffeineCutoffHours: number; // hours before night sleep (follows caffeineDose when set)
   /** How much caffeine the person usually has; decides the cut-off (Gardiner et al. 2025). */
   caffeineDose?: CaffeineDose;
+  /** First-run set-up: 'pending' shows the welcome steps; absent or 'done' does not. */
+  onboarding?: 'pending' | 'done';
+  /** Which reminders the person switched on (all off unless chosen). */
+  reminders?: Partial<Record<'wake' | 'leave' | 'bedtime' | 'caffeine', boolean>>;
   preferredNapDuration: 25 | 26 | 45 | 90; // NASA 26m vs full cycle 90m
   groomingMinutes: number; // Time from wake-up to cab pickup (e.g. 60 min)
   cabBufferMinutes: number; // Time from cab pickup to reporting at base (e.g. 60 min)

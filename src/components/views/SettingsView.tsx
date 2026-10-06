@@ -1,3 +1,4 @@
+import { RemindersSettings } from '../RemindersSettings';
 import { CAFFEINE_HOURS, DAYTIME_SLEEP_EXTRA_HOURS } from '../../services/planEngine';
 import React, { useEffect, useRef, useState } from 'react';
 import { TimeInput24 } from '../TimeInput24';
@@ -6,7 +7,7 @@ import { deleteAllStoredFiles, listStoredFiles } from '../../services/fileStore'
 import { TIME_CONVENTION_LABEL, TimeConvention } from '../../services/rosterTimes';
 import { createBackupFromDevice, deleteAllLocalData, parseBackup, writeRestoredData } from '../../services/backup';
 import { getAiConsentDate, withdrawAiConsent } from '../../services/aiConsent';
-import { CaffeineDose, Chronotype, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
+import { CaffeineDose, Chronotype, CircadianPlan, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
 import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
 import {
   Sliders,
@@ -26,9 +27,11 @@ interface SettingsViewProps {
   history?: RosterHistoryEntry[];
   onUndoLatest?: () => void;
   onRestoreHistoryEntry?: (entry: RosterHistoryEntry) => void;
+  /** For the reminders preview. */
+  plan?: CircadianPlan;
 }
 
-const CAFFEINE_CHOICES: { dose: CaffeineDose; label: string }[] = [
+export const CAFFEINE_CHOICES: { dose: CaffeineDose; label: string }[] = [
   { dose: 'light', label: 'One coffee, or a few cups of chai or tea' },
   { dose: 'moderate', label: 'Two coffees' },
   { dose: 'strong', label: 'Three or more coffees, or energy drinks' },
@@ -42,6 +45,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   history = [],
   onUndoLatest,
   onRestoreHistoryEntry,
+  plan,
 }) => {
   // Usual caffeine; older saved choices of 6 or 8 hours map to light or moderate
   const dose: CaffeineDose = preferences.caffeineDose ?? (preferences.caffeineCutoffHours >= 12 ? 'strong' : preferences.caffeineCutoffHours >= 8 ? 'moderate' : 'light');
@@ -260,6 +264,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+
+        {plan && <RemindersSettings plan={plan} preferences={preferences} onUpdatePreferences={onUpdatePreferences} />}
 
         {/* Last night's sleep: a short night moves the next bedtime earlier */}
         <div className="rounded-xl border border-indigo-900/50 bg-indigo-950/20 p-4 space-y-3">
@@ -490,7 +496,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 };
 
 /** Usual bedtime and wake-up on normal nights; the time between them is the sleep the plan aims for. */
-const UsualSleep: React.FC<{ preferences: CrewPreferences; onUpdatePreferences: (u: Partial<CrewPreferences>) => void }> = ({ preferences, onUpdatePreferences }) => {
+export const UsualSleep: React.FC<{ preferences: CrewPreferences; onUpdatePreferences: (u: Partial<CrewPreferences>) => void }> = ({ preferences, onUpdatePreferences }) => {
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   const fmt = (min: number) => `${String(Math.floor((((min % 1440) + 1440) % 1440) / 60)).padStart(2, '0')}:${String((((min % 1440) + 1440) % 1440) % 60).padStart(2, '0')}`;
   const defaultBed = Math.round((23 + ({ lark: -0.75, intermediate: 0, owl: 0.75 }[preferences.chronotype] ?? 0)) * 60);

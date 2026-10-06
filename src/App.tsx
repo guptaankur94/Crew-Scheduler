@@ -402,20 +402,19 @@ export default function App() {
   // Duty-limit check: the roster as published plus recorded callouts, cancellations and standby changes (not delays)
   const limitsRoster = useMemo(() => effectiveRoster(roster, userUpdates.filter((u) => u.kind !== 'delay')), [roster, userUpdates]);
 
-  // Tactical Duty Action 3: Standby callout. It is the person's update, linked to that day's standby,
-  // which then ends at the callout's report time. Without a standby that day it is still kept as a callout.
-  const handleAddStandbyFlight = (calledOut: FlightLeg) => {
+  // Called out on a day with no standby (the standby card handles callouts from a standby). It is the person's
+  // update; if the day does have a standby after all, the callout is linked to it.
+  const handleCallout = (flights: FlightLeg[]) => {
+    if (!flights.length) return;
     markEdited();
-    const sb = standbyForFlight(roster, calledOut);
+    const sb = standbyForFlight(roster, flights[0]);
     const key = sb ? keyOfStandby(roster, sb.id) : undefined;
-    const existing = key ? standbyUpdate(userUpdates, key) : undefined;
-    const flights = existing?.kind === 'callout' ? [...existing.flights, calledOut] : [calledOut];
     commitChange(
       { updates: addCallout(userUpdates, flights, key) },
       {
         actionType: 'manual_edit',
-        title: `Called out: ${calledOut.flightNumber}`,
-        description: `Called out${sb ? ' from standby' : ''} for ${calledOut.flightNumber} (${calledOut.origin} ➔ ${calledOut.destination}). Your rostered standby is kept; the plan uses the callout.`,
+        title: `Called out: ${flights.map((f) => f.flightNumber).join(', ')}`,
+        description: `Called out${sb ? ' from standby' : ''} for ${flights.map((f) => `${f.flightNumber} (${f.origin} ➔ ${f.destination})`).join(', ')}. The plan uses the callout.`,
       }
     );
   };
@@ -608,7 +607,7 @@ export default function App() {
               cancelledFlights={cancelledFlights(roster, userUpdates)}
               onReinstateFlight={handleReinstateFlight}
               onDeleteSector={handleDeleteSector}
-              onAddStandbyFlight={handleAddStandbyFlight}
+              onCallout={handleCallout}
               onOpenSettings={() => setActiveView('settings')}
               renderStandbyEdit={(dateStr, standbyEvents) => {
                 const clock = rosterClock(roster);

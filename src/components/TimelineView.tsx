@@ -22,8 +22,9 @@ import {
   Trash2,
   Bed,
 } from 'lucide-react';
-import { TacticalDutyModal, TacticalModalType } from './TacticalDutyModal';
+import { CancelFlightDialog } from './CancelFlightDialog';
 import { StandbyNotice } from './StandbyNotice';
+import { CalloutForm } from './CalloutForm';
 import { flightSource } from '../services/provenance';
 import { dutyPositions } from '../services/dutyTimes';
 
@@ -45,7 +46,8 @@ export interface TimelineViewProps {
   cancelledFlights?: { flight: FlightLeg; sectorKey: string }[];
   onReinstateFlight?: (sectorKey: string) => void;
   onDeleteSector?: (flightId: string) => void;
-  onAddStandbyFlight?: (flight: FlightLeg) => void;
+  /** Called out on a day without a standby: the flight(s) are the person's update. */
+  onCallout?: (flights: FlightLeg[]) => void;
   /** Edits for the rostered standby on this day (times, released early, callout, back to rostered). */
   renderStandbyEdit?: (dateStr: string, standbyEvents: CircadianEvent[]) => React.ReactNode;
   /** Set, change or remove the delay of this flight. */
@@ -67,7 +69,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   cancelledFlights = [],
   onReinstateFlight,
   onDeleteSector,
-  onAddStandbyFlight,
+  onCallout,
   renderStandbyEdit,
   renderDelayEdit,
   onOpenSettings,
@@ -81,14 +83,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   // Flights that end a duty (they carry the sign-off)
   const dutyEnds = React.useMemo(() => new Set([...dutyPositions(plan.roster.flights)].filter(([, p]) => p.last).map(([id]) => id)), [plan.roster.flights]);
 
-  // The flight whose delay editor is open
+  // The flight whose delay editor is open, and the day whose callout form is open
   const [delayOpenFor, setDelayOpenFor] = useState<string | null>(null);
+  const [calloutOpenFor, setCalloutOpenFor] = useState<string | null>(null);
 
-  const [tacticalModal, setTacticalModal] = useState<{
-    isOpen: boolean;
-    type: TacticalModalType;
-    flight?: FlightLeg;
-  } | null>(null);
+  // The flight being cancelled (with its home-time departure)
+  const [cancelling, setCancelling] = useState<{ flight: FlightLeg; departureHome: string } | null>(null);
 
   // Default to initialDate or day 1
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -122,10 +122,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     return plan.roster.flights.find((f) => f.id === cleanId || f.id === flightEvent.id);
   };
 
-  const handleOpenTactical = (type: TacticalModalType, flightEvent?: CircadianEvent) => {
-    const leg = flightEvent ? getFlightLeg(flightEvent) : undefined;
-    setTacticalModal({ isOpen: true, type, flight: leg });
-  };
 
   // Filter events for the chosen day (using dutyDate link to ensure pre-duty sleep & prep are always paired)
   const dayEvents = events.filter((e) => {
@@ -318,16 +314,33 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 </div>
 
                 {/* Standby Callout Button on Rest / Standby Day */}
-                <div className="pt-2 flex items-center justify-between border-t border-emerald-900/40 mt-2">
-                  <span className="text-[10px] text-slate-400">Called out today?</span>
-                  <button
-                    onClick={() => handleOpenTactical('standby_callout')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all shadow-sm"
-                  >
-                    <Plus className="h-3 w-3" />
-                    <span>Add a callout flight</span>
-                  </button>
-                </div>
+                {onCallout && (
+                  <div className="pt-2 border-t border-emerald-900/40 mt-2 space-y-2">
+                    {calloutOpenFor === selectedDate ? (
+                      <CalloutForm
+                        roster={plan.roster}
+                        date={selectedDate}
+                        base={plan.roster.homeBase}
+                        onSave={(flights) => {
+                          onCallout(flights);
+                          setCalloutOpenFor(null);
+                        }}
+                        onCancel={() => setCalloutOpenFor(null)}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400">Called out today?</span>
+                        <button
+                          onClick={() => setCalloutOpenFor(selectedDate)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all shadow-sm"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>Add a callout flight</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               actualFlights.map((flight, idx) => {
@@ -479,7 +492,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                             <span>Delay</span>
                           </button>
                           <button
-                            onClick={() => handleOpenTactical('cancel_sector', flight)}
+                            onClick={() => {
+                              const leg = getFlightLeg(flight);
+                              if (leg) setCancelling({ flight: leg, departureHome: flight.startHbtStr });
+                            }}
                             className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-rose-950/60 text-rose-300 border border-slate-800 hover:border-rose-500/40 text-[10px] font-semibold transition-colors flex items-center gap-1"
                             title="Mark this flight as cancelled"
                           >
@@ -872,22 +888,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </button>
         </div>
       )}
-      {/* Tactical Duty Action Modal (Real-Time Flight Modifications) */}
-      {tacticalModal && tacticalModal.isOpen && (
-        <TacticalDutyModal
-          type={tacticalModal.type}
-          flight={tacticalModal.flight}
-          defaultDate={activeDaySummary?.dateStr}
-          homeBase={preferences.homeBaseIata}
-          onAddStandbyFlight={(newFlight) => {
-            if (onAddStandbyFlight) onAddStandbyFlight(newFlight);
-            setTacticalModal(null);
+      {/* Cancel a flight (the person's update) */}
+      {cancelling && (
+        <CancelFlightDialog
+          flight={cancelling.flight}
+          departureHome={cancelling.departureHome}
+          homeBase={plan.roster.homeBase}
+          onConfirm={(flightId) => {
+            onCancelSector?.(flightId);
+            setCancelling(null);
           }}
-          onCancelSector={(flightId) => {
-            if (onCancelSector) onCancelSector(flightId);
-            setTacticalModal(null);
-          }}
-          onClose={() => setTacticalModal(null)}
+          onClose={() => setCancelling(null)}
         />
       )}
     </div>

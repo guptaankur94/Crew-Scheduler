@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkDutyLimits } from '../src/services/dutyLimits';
+import { checkDutyLimits, RULE_SETS, rulesStatus } from '../src/services/dutyLimits';
 import type { FlightLeg, RosterData, StandbyDuty } from '../src/types/circadian';
 
 /* Hand-worked cases against DGCA CAR 7-J-I Issue IV (in force) and the Issue V draft. Times in India time. */
@@ -48,7 +48,7 @@ test('a 4-hour break inside the duty: over the basic limit but within it as spli
   const split = [leg('6E 1', 'BLR', 'MAA', '2026-10-05T08:00', 60), leg('6E 2', 'MAA', 'BLR', '2026-10-05T14:30', 60), leg('6E 3', 'BLR', 'HYD', '2026-10-05T16:30', 120), leg('6E 4', 'HYD', 'BLR', '2026-10-05T19:30', 60)];
   const [issue] = checkDutyLimits(roster(split)).issues;
   assert.equal(issue.severity, 'check');
-  assert.equal(issue.title, 'Long duty: OK only as split duty');
+  assert.equal(issue.title, 'Long duty: allowed only as split duty');
 });
 
 test('night-time (WOCL) reduction: reporting at 03:00 cuts the limit by up to 2 hours', () => {
@@ -118,4 +118,14 @@ test('what is not checked is said plainly', () => {
   const report = checkDutyLimits(roster(fourSectors('2026-10-05')));
   assert.ok(report.notChecked.some((s) => /travel to and from the airport/.test(s)));
   assert.equal(report.rules.status, 'in-force');
+});
+
+test('duty-limit rules switch off when their review is more than 30 days overdue', () => {
+  const rules = RULE_SETS['dgca-cc-iv'];
+  const at = (iso: string) => rulesStatus(rules, Date.parse(`${iso}T12:00:00Z`));
+  assert.equal(rules.checkedOn, '2026-10-06');
+  assert.equal(at('2027-04-06').current, true, 'review due, still in grace period');
+  assert.equal(at('2027-05-05').current, true);
+  assert.equal(at('2027-05-07').current, false, 'switched off 30 days after the review was due');
+  assert.equal(at('2027-05-07').switchOffOn, '2027-05-06');
 });

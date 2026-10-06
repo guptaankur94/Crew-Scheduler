@@ -16,6 +16,8 @@ const MIN = 60_000;
 const SAME_DUTY_GAP_MS = 6 * 60 * MIN;
 /** Out-and-back flight times further apart than this are worth a second look (winds alone rarely explain more). */
 const OUT_AND_BACK_TOLERANCE_MINUTES = 90;
+/** A release this long after landing is unusual for cabin crew (the standard allowance is 15–60 min). */
+const LATE_RELEASE_MINUTES = 120;
 
 export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssue[]> {
   const issues = new Map<string, RosterIssue[]>();
@@ -58,6 +60,9 @@ export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssu
     const release = Date.parse(f.releaseTimeUtc);
     if (Number.isFinite(report) && report > dep) add(f.id, 'problem', 'Report time is after departure');
     if (Number.isFinite(release) && release < arr) add(f.id, 'problem', 'Release time is before arrival');
+    else if (Number.isFinite(release) && release - arr > LATE_RELEASE_MINUTES * MIN) {
+      add(f.id, 'check', `Released ${Math.round((release - arr) / MIN)} min after landing: check the release (debrief) time`);
+    }
 
     const prev = sorted[i - 1];
     if (prev) {

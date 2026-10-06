@@ -1,5 +1,7 @@
 import { getAirportTzOffset, lookupAirport } from '../src/data/airports';
 import type { FlightLeg, OtherDuty, StandbyDuty } from '../src/types/circadian';
+import { convertPrinted, normaliseClock, PrintedTimes, TimeConvention } from '../src/services/rosterTimes';
+import { normalizeDutyTimes } from '../src/services/dutyTimes';
 
 export interface SanitizedRoster {
   airline: string;
@@ -17,7 +19,19 @@ export interface SanitizedRoster {
   periodEnd?: string;
   /** Every date that has its own row or cell in the document (including blank and OFF days). */
   visibleDates?: string[];
+  /** Which clock the printed times were read in, and whether the roster itself says so. */
+  timeConvention: TimeConvention;
+  timeConventionStated: boolean;
 }
+
+export interface SanitizeOptions {
+  /** The crew member's setting, used when the roster does not say which clock its times are in. */
+  timeConvention?: TimeConvention;
+  /** The saved home base, used for "home-base time" when the roster does not name one. */
+  homeBase?: string;
+}
+
+const CONVENTIONS: TimeConvention[] = ['local', 'home', 'utc'];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const OTHER_KINDS: OtherDuty['kind'][] = ['off', 'leave', 'sick', 'training', 'other'];
@@ -71,13 +85,17 @@ const cleanCode = (value: unknown): string =>
  * nothing is invented to fill a gap, because a wrong sector produces a wrong rest plan.
  * Returns null when the payload holds no usable flights.
  */
-export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): SanitizedRoster | null {
+export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), options: SanitizeOptions = {}): SanitizedRoster | null {
   if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.flights)) return null;
 
   const warnings: string[] = [];
   const flights: FlightLeg[] = [];
   const declaredHomeBase = cleanCode(parsed.homeBase);
   const batchStamp = now.getTime();
+  // Which clock the printed times are in: as the roster states it, otherwise the crew member's setting
+  const timeConventionStated = CONVENTIONS.includes(parsed.timeConvention);
+  const timeConvention: TimeConvention = timeConventionStated ? parsed.timeConvention : options.timeConvention ?? 'local';
+  const homeBaseForTimes = lookupAirport(declaredHomeBase) ? declaredHomeBase : cleanCode(options.homeBase) || declaredHomeBase;
 
   parsed.flights.forEach((fl: any, i: number) => {
     if (!fl || typeof fl !== 'object') return;
@@ -93,8 +111,29 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       return skip('an airport code could not be read');
     }
 
-    const dep = parseInstant(fl.departureTimeUtc);
-    const arr = parseInstant(fl.arrivalTimeUtc);
+    // Times as printed (preferred): converted here with the airport reference list and the time convention.
+    // Older replies with ready-made UTC times are still accepted.
+    const printed: PrintedTimes | null =
+      typeof fl.date === 'string' && normaliseClock(fl.depTime) && normaliseClock(fl.arrTime)
+        ? {
+            date: fl.date,
+            dep: normaliseClock(fl.depTime)!,
+            arr: normaliseClock(fl.arrTime)!,
+            ...(typeof fl.arrDate === 'string' && DATE_RE.test(fl.arrDate) ? { arrDate: fl.arrDate } : {}),
+            ...(normaliseClock(fl.reportTime) ? { report: normaliseClock(fl.reportTime)! } : {}),
+            ...(normaliseClock(fl.releaseTime) ? { release: normaliseClock(fl.releaseTime)! } : {}),
+          }
+        : null;
+    let converted: ReturnType<typeof convertPrinted> | null = null;
+    if (printed) {
+      converted = convertPrinted(printed, { origin, destination }, timeConvention, homeBaseForTimes, {
+        origin: isPlausibleOffset(fl.originTzOffset) ? fl.originTzOffset : undefined,
+        destination: isPlausibleOffset(fl.destTzOffset) ? fl.destTzOffset : undefined,
+      });
+      if ('error' in converted) return skip(converted.error);
+    }
+    const dep = converted && !('error' in converted) ? new Date(converted.departureTimeUtc) : parseInstant(fl.departureTimeUtc);
+    const arr = converted && !('error' in converted) ? new Date(converted.arrivalTimeUtc) : parseInstant(fl.arrivalTimeUtc);
     if (!dep || !arr) return skip('the departure or arrival time could not be read');
 
     const durationMinutes = Math.round((arr.getTime() - dep.getTime()) / 60000);
@@ -106,14 +145,14 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
 
     if (!rawNumber) warnings.push(`A flight ${origin}→${destination} on ${dep.toISOString().slice(0, 10)} has no readable flight number.`);
 
-    const report = parseInstant(fl.reportTimeUtc);
+    const report = converted && !('error' in converted) ? new Date(converted.reportTimeUtc) : parseInstant(fl.reportTimeUtc);
     const reportLead = report ? (dep.getTime() - report.getTime()) / 60000 : -1;
     const reportTime =
       report && reportLead >= 0 && reportLead <= MAX_REPORT_LEAD_MINUTES
         ? report
         : new Date(dep.getTime() - DEFAULT_REPORT_LEAD_MINUTES * 60000);
 
-    const release = parseInstant(fl.releaseTimeUtc);
+    const release = converted && !('error' in converted) ? new Date(converted.releaseTimeUtc) : parseInstant(fl.releaseTimeUtc);
     const releaseLag = release ? (release.getTime() - arr.getTime()) / 60000 : -1;
     const releaseTime =
       release && releaseLag >= 0 && releaseLag <= MAX_RELEASE_LAG_MINUTES
@@ -150,6 +189,7 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       durationMinutes,
       isPositioning: fl.isPositioning === true ? true : undefined,
       tzUnverified: tzUnverified ? true : undefined,
+      ...(printed ? { printed, timeConvention } : {}),
     });
   });
 
@@ -157,8 +197,19 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
   const standby: StandbyDuty[] = [];
   (Array.isArray(parsed.standby) ? parsed.standby : []).forEach((sb: any, i: number) => {
     if (!sb || typeof sb !== 'object') return;
-    const start = parseInstant(sb.startTimeUtc);
-    const end = parseInstant(sb.endTimeUtc);
+    // Standby as printed (date, start, end) in the same clock as the flights, or ready-made UTC times
+    const sbAirport = cleanCode(sb.airport) || homeBaseForTimes;
+    const sbZone = timeConvention === 'utc' ? null : timeConvention === 'home' ? homeBaseForTimes : sbAirport;
+    const sbAt = (date: unknown, time: unknown): Date | null => {
+      const t = normaliseClock(time);
+      if (typeof date !== 'string' || !DATE_RE.test(date) || !t) return null;
+      if (!sbZone) return parseInstant(`${date}T${t}:00Z`);
+      const offset = getAirportTzOffset(sbZone, new Date(`${date}T${t}:00Z`));
+      return offset === undefined ? null : new Date(Date.parse(`${date}T${t}:00Z`) - offset * 3600000);
+    };
+    let start = sb.date ? sbAt(sb.date, sb.startTime) : parseInstant(sb.startTimeUtc);
+    let end = sb.date ? sbAt(sb.endDate ?? sb.date, sb.endTime) : parseInstant(sb.endTimeUtc);
+    if (start && end && sb.date && !sb.endDate && end <= start) end = new Date(end.getTime() + 24 * 3600000);
     if (!start || !end || end <= start || end.getTime() - start.getTime() > 24 * 3600000) {
       warnings.push('Skipped a standby period: its start or end time could not be read.');
       return;
@@ -192,6 +243,9 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
     : [];
   if (visibleDates.length) Object.assign(period, { visibleDates });
 
+  // Check-in belongs to the first sector of each duty and debrief to the last (rosters print one of each per duty)
+  flights.splice(0, flights.length, ...normalizeDutyTimes(flights));
+
   if (flights.length === 0 && standby.length === 0) return null;
   if (flights.length === 0) {
     const homeBase = IATA_RE.test(declaredHomeBase) ? declaredHomeBase : standby[0].airport;
@@ -206,6 +260,8 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
       standby,
       otherDuties,
       ...period,
+      timeConvention,
+      timeConventionStated,
     };
   }
 
@@ -241,6 +297,8 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date()): Sanit
     standby: standby.map((sb) => ({ ...sb, airport: sb.airport || homeBase })),
     otherDuties,
     ...period,
+    timeConvention,
+    timeConventionStated,
   };
 }
 

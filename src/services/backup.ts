@@ -1,4 +1,6 @@
 import { CrewPreferences, RosterHistoryEntry } from '../types/circadian';
+import { clearImportRecords } from './importRecords';
+import { deleteAllStoredFiles } from './fileStore';
 import { clearAppState, loadRawAppState, PersistedAppState, reviveAppState, reviveRoster, saveAppState } from './appStateStorage';
 import { clearRosterHistoryLogs, loadRosterHistory, saveRosterHistory } from './rosterHistoryService';
 
@@ -68,6 +70,8 @@ export function writeRestoredData(data: RestoredData): void {
 export function deleteAllLocalData(): void {
   clearAppState();
   clearRosterHistoryLogs();
+  clearImportRecords();
+  void deleteAllStoredFiles();
 }
 
 /**

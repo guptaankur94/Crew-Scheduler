@@ -9,6 +9,8 @@ export interface PersistedAppState {
   activePresetId: string;
   /** What the person reported happened (delays), kept apart from the roster. */
   userUpdates?: UserUpdate[];
+  /** Days the person checked on the Month screen: date → signature of the day's entries when checked. */
+  checkedDays?: Record<string, string>;
 }
 
 const isValidIso = (value: unknown): value is string => typeof value === 'string' && !isNaN(Date.parse(value));
@@ -127,6 +129,10 @@ export function reviveAppState(parsed: any, defaultPreferences: CrewPreferences)
     customNudges: nudges,
     activePresetId: typeof parsed.activePresetId === 'string' ? parsed.activePresetId : 'custom-upload',
     userUpdates: Array.isArray(parsed.userUpdates) ? parsed.userUpdates.filter(isValidUpdate) : [],
+    checkedDays:
+      parsed.checkedDays && typeof parsed.checkedDays === 'object'
+        ? (Object.fromEntries(Object.entries(parsed.checkedDays).filter(([d, sig]) => /^\d{4}-\d{2}-\d{2}$/.test(d) && typeof sig === 'string')) as Record<string, string>)
+        : {},
   };
 }
 

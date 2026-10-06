@@ -22,25 +22,28 @@ import {
   standbyCandidate,
   standbyForFlight,
   standbyUpdate,
+  updateLinesByDate,
+  dropUpdatesOn,
 } from './services/userUpdates';
 import { StandbyCard } from './components/StandbyCard';
-import { PlanChangedCard, PlanChangeNotice } from './components/PlanChangedCard';
-import { comparePlans } from './services/planChanges';
+import { DayItems } from './components/DayPanel';
+import { daySignature } from './services/rosterFindings';
+import { flightHomeDate, rosterClock, standbyHomeDate } from './services/rosterKeys';
+import { rereadAsLocal } from './services/rosterTimes';
+import { normalizeDutyTimes } from './services/dutyTimes';
+import { HEADS_UP_HOURS, PlanChangedCard, PlanChangeNotice } from './components/PlanChangedCard';
+import { planHeadsUp } from './services/planChanges';
 import { DelayCard } from './components/DelayCard';
 import { getPresets, RosterPreset } from './data/rosterPresets';
 import { generateCircadianPlan } from './services/circadianCalculator';
 import {
   loadRosterHistory,
-  saveRosterHistory,
   recordRosterAction,
-  deleteRosterHistoryItem,
-  clearRosterHistoryLogs,
-  createEmptyRoster,
   computeRosterDateRange,
   setActiveHistoryItem,
+  createEmptyRoster,
   undoableEntry,
 } from './services/rosterHistoryService';
-import { analyzeRosterMerge } from './services/rosterMerger';
 import { keepNudgesOutside, RosterUpdateInfo } from './services/rosterDiff';
 import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
@@ -90,40 +93,54 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
-  // Default to 30-day full monthly roster
-  const [activePresetId, setActivePresetId] = useState<string>(savedState?.activePresetId ?? presets[0].id);
+  // With no saved data (first visit, or after "Delete all my data") the app starts as a blank slate;
+  // sample rosters are offered on the Rosters page, never loaded without asking
+  const [activePresetId, setActivePresetId] = useState<string>(savedState?.activePresetId ?? 'cleared');
 
   // The roster as the airline published it, and the person's own updates (delays) kept apart from it.
   // Delays saved by earlier versions inside the roster are converted once here.
-  const initial = useMemo(
-    () => migrateLegacyDelays(savedPreset ? savedPreset.roster : savedState?.roster ?? presets[0].roster, savedState?.userUpdates ?? []),
-    []
-  );
+  // Saved rosters from earlier versions are repaired once: check-in only on the first sector of a duty and
+  // debrief only on the last (they had been copied onto every sector)
+  const initial = useMemo(() => {
+    const startRoster = savedPreset ? savedPreset.roster : savedState?.roster ?? createEmptyRoster(DEFAULT_PREFERENCES.homeBaseIata, DEFAULT_PREFERENCES.homeBaseTzOffset);
+    const migrated = migrateLegacyDelays(startRoster, savedState?.userUpdates ?? []);
+    const flights = normalizeDutyTimes(migrated.roster.flights);
+    const repaired = flights === migrated.roster.flights ? 0 : flights.filter((f, i) => f !== migrated.roster.flights[i]).length;
+    return { ...migrated, roster: repaired ? { ...migrated.roster, flights } : migrated.roster, repaired };
+  }, []);
   const [roster, setRoster] = useState<RosterData>(initial.roster);
   const [userUpdates, setUserUpdates] = useState<UserUpdate[]>(initial.updates);
+  // Record the one-time repair in history once (a ref guards against React running effects twice in development)
+  const repairLogged = useRef(false);
+  useEffect(() => {
+    // Only the person's own saved roster (not a sample) gets the note
+    if (!initial.repaired || repairLogged.current || !savedState || savedPreset || presets.some((p) => p.id === savedState.activePresetId)) return;
+    repairLogged.current = true;
+    setHistory(
+      recordRosterAction({
+        actionType: 'manual_edit',
+        title: 'Fixed check-in and debrief times',
+        description: `${initial.repaired} sectors in the middle of a duty had the duty's check-in or debrief copied onto them. Check-in now belongs to the first sector of each duty and debrief to the last.`,
+        airline: initial.roster.airline || 'Airline',
+        homeBase: initial.roster.homeBase,
+        flightsCount: initial.roster.flights.length,
+        dateRange: computeRosterDateRange(initial.roster),
+        isActive: true,
+        rosterSnapshot: initial.roster,
+      })
+    );
+  }, []);
+
+  // Days checked on the Month screen (a tick is kept only while the day's entries stay the same)
+  const [checkedDays, setCheckedDays] = useState<Record<string, string>>(savedState?.checkedDays ?? {});
 
   // Roster Upload & Audit History State
   const [history, setHistory] = useState<RosterHistoryEntry[]>(() => {
     const loaded = loadRosterHistory();
     if (loaded && loaded.length > 0) return loaded;
     
-    // Auto-seed with default loaded preset so history table starts with a valid audit log
-    const initialPreset = presets[0];
-    const initialEntry: RosterHistoryEntry = {
-      id: `hist-default-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      actionType: 'preset',
-      title: initialPreset.name,
-      description: initialPreset.description,
-      airline: initialPreset.roster.airline,
-      homeBase: initialPreset.roster.homeBase,
-      flightsCount: initialPreset.roster.flights.length,
-      dateRange: computeRosterDateRange(initialPreset.roster),
-      isActive: true,
-      rosterSnapshot: initialPreset.roster,
-    };
-    saveRosterHistory([initialEntry]);
-    return [initialEntry];
+    // A fresh start has no history: nothing has happened yet
+    return [];
   });
 
   const [preferences, setPreferences] = useState<CrewPreferences>(savedState?.preferences ?? DEFAULT_PREFERENCES);
@@ -179,7 +196,9 @@ export default function App() {
   const [planNotice, setPlanNotice] = useState<PlanChangeNotice | null>(() => {
     try {
       const raw = localStorage.getItem('crew_plan_notice_v1');
-      return raw ? JSON.parse(raw) : null;
+      const saved = raw ? JSON.parse(raw) : null;
+      // Only a current heads-up (one sentence, under a day old) is shown
+      return saved && typeof saved.sentence === 'string' && Date.now() - Date.parse(saved.at) < HEADS_UP_HOURS * 3600000 ? saved : null;
     } catch {
       return null;
     }
@@ -197,14 +216,14 @@ export default function App() {
     const pending = planBeforeUpdate.current;
     if (!pending) return;
     planBeforeUpdate.current = null;
-    const days = comparePlans(pending.plan, plan, Date.now());
-    showPlanNotice(days.length ? { title: pending.title, at: new Date().toISOString(), days } : null);
+    const sentence = planHeadsUp(pending.plan, plan, Date.now());
+    showPlanNotice(sentence ? { title: pending.title, at: new Date().toISOString(), sentence } : null);
   }, [plan]);
 
   // Keep the latest roster, preferences and adjustments so a reload restores them
   useEffect(() => {
-    saveAppState({ roster, preferences, customNudges, activePresetId, userUpdates });
-  }, [roster, preferences, customNudges, activePresetId, userUpdates]);
+    saveAppState({ roster, preferences, customNudges, activePresetId, userUpdates, checkedDays });
+  }, [roster, preferences, customNudges, activePresetId, userUpdates, checkedDays]);
 
   // A sample roster that has been edited is the user's own data from then on
   const markEdited = () => {
@@ -221,7 +240,8 @@ export default function App() {
     entry: { actionType: RosterHistoryEntry['actionType']; title: string; description?: string; changes?: HistoryDayChange[] },
     options: { undoable?: boolean } = {}
   ) => {
-    const nextRoster = next.roster ?? roster;
+    // Every saved roster keeps check-in on the first sector of a duty and debrief on the last (see dutyTimes)
+    const nextRoster = next.roster ? { ...next.roster, flights: normalizeDutyTimes(next.roster.flights) } : roster;
     let nextUpdates = next.updates ?? userUpdates;
     let description = entry.description;
     // When the roster changes, the person's delays follow their flights; a delay whose flight is gone is dropped
@@ -277,6 +297,13 @@ export default function App() {
   };
 
   // Handle Preset Change
+  /** Leaves the sample: a blank slate until the person uploads their own roster. */
+  const handleRemoveSample = () => {
+    setActivePresetId('cleared');
+    setCustomNudges({});
+    commitRoster(createEmptyRoster(roster.homeBase, roster.homeBaseTzOffset), { actionType: 'cleared', title: 'Sample roster removed' }, { undoable: true });
+  };
+
   const handleSelectPreset = (preset: RosterPreset) => {
     setActivePresetId(preset.id);
     setPreferences((prev) => ({
@@ -299,7 +326,9 @@ export default function App() {
     // A new roster starts fresh; an update keeps the person's adjustments away from the changed days
     setCustomNudges((prev) => (update ? keepNudgesOutside(prev, update.changedDates) : {}));
 
-    commitRoster(parsedRoster, {
+    // Restoring an upload with "also clear my updates": the person's updates on those dates go too
+    const updates = update?.clearUpdatesOn ? dropUpdatesOn(parsedRoster, retainUpdates(parsedRoster, userUpdates).kept, update.clearUpdatesOn) : undefined;
+    commitChange({ roster: parsedRoster, ...(updates ? { updates } : {}) }, {
       actionType: 'upload',
       title: sourceTitle || `Uploaded Roster (${parsedRoster.airline})`,
       description: customDescription || `Read ${parsedRoster.flights.length} flights from your roster`,
@@ -307,24 +336,6 @@ export default function App() {
     });
   };
 
-  // Handle Clearing Active Roster
-  const handleClearActiveRoster = () => {
-    const previousFlightCount = roster.flights.length;
-    const previousTitle = activePresetId.startsWith('monthly')
-      ? 'Preset Schedule'
-      : activePresetId === 'custom-upload'
-      ? 'Uploaded File'
-      : 'Active Schedule';
-
-    const clearedRoster = createEmptyRoster(roster.homeBase, roster.homeBaseTzOffset);
-    setActivePresetId('cleared');
-    setCustomNudges({});
-    commitRoster(clearedRoster, {
-      actionType: 'cleared',
-      title: 'Active Roster Cleared',
-      description: `Cleared ${previousFlightCount} flights (${previousTitle}). Showing baseline circadian rest rhythm.`,
-    });
-  };
 
   // Handle Restoring Roster from History Snapshot
   const handleRestoreRoster = (entry: RosterHistoryEntry) => {
@@ -362,68 +373,9 @@ export default function App() {
     );
   };
 
-  // Handle Adding a Manual Sector
-  const handleAddManualSector = (added: FlightLeg) => {
-    markEdited();
-    const flight: FlightLeg = { ...added, userChange: 'added' };
-    const newFlights = [...roster.flights, flight].sort(
-      (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
-    );
-    commitRoster(
-      { ...roster, flights: newFlights, parsedAt: new Date().toISOString() },
-      {
-        actionType: 'manual_edit',
-        title: `Manual Sector Added: ${flight.flightNumber}`,
-        description: `${flight.flightNumber} (${flight.origin} ➔ ${flight.destination}) on ${flight.departureTimeUtc.slice(0, 10)}. Total: ${newFlights.length} sectors.`,
-      }
-    );
-  };
 
-  // Handle Deleting an Individual History Item
-  const handleDeleteHistoryItem = (id: string) => {
-    const updated = deleteRosterHistoryItem(id);
-    setHistory(updated);
-  };
 
-  // Handle Clearing All History Logs
-  const handleClearAllHistory = () => {
-    clearRosterHistoryLogs();
-    setHistory([]);
-  };
 
-  // Handle Merging Roster Snapshot from History into Continuous Timeline
-  const handleMergeRosterSnapshot = (snapshot: RosterData, title: string) => {
-    if (!snapshot.flights || snapshot.flights.length === 0) return;
-
-    if (roster.flights.length === 0) {
-      handleRestoreRoster({
-        id: `restore-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        actionType: 'upload',
-        title,
-        airline: snapshot.airline,
-        homeBase: snapshot.homeBase,
-        flightsCount: snapshot.flights.length,
-        isActive: true,
-        rosterSnapshot: snapshot,
-      });
-      return;
-    }
-
-    const mergeAnalysis = analyzeRosterMerge(roster.flights, snapshot.flights);
-    if (!mergeAnalysis.hasConflicts) {
-      const mergedFlights = mergeAnalysis.nonConflictingMergedFlights;
-      markEdited();
-      commitRoster(
-        { ...roster, flights: mergedFlights, parsedAt: new Date().toISOString() },
-        {
-          actionType: 'upload',
-          title: `Merged "${title}"`,
-          description: `Extended continuous timeline to ${mergedFlights.length} sectors (${mergeAnalysis.identicalCount} overlapping sectors verified, ${mergeAnalysis.newSectorsCount} new sectors added).`,
-        }
-      );
-    }
-  };
 
   // Tactical Duty Action 1: Cancel Sector. The person's update: the roster keeps the flight as published,
   // the plan leaves it out, and where you rest follows from your remaining duties (home or outstation).
@@ -547,6 +499,56 @@ export default function App() {
     );
   };
 
+  /**
+   * Month screen corrections: the person fixes what the app read for one day (flights, standby, kind of day).
+   * A correction changes the roster itself (it was a reading mistake), is marked as corrected by the person,
+   * and is saved with history and Undo like any other change.
+   */
+  const handleCorrectDay = (date: string, next: DayItems) => {
+    const clock = rosterClock(roster);
+    const onDay = (d: string) => d === date;
+    const before = {
+      flights: roster.flights.filter((f) => onDay(flightHomeDate(f, clock))),
+      standby: (roster.standbyDuties ?? []).filter((s) => onDay(standbyHomeDate(s, clock))),
+    };
+    const lines = [
+      ...before.flights.filter((f) => !next.flights.includes(f)).map((f) => `${f.flightNumber} ${f.origin}→${f.destination} ${clock.time(Date.parse(f.departureTimeUtc))} removed`),
+      ...next.flights.filter((f) => !before.flights.includes(f)).map((f) => `${f.flightNumber} ${f.origin}→${f.destination} ${clock.time(Date.parse(f.departureTimeUtc))}`),
+      ...(next.standby.length !== before.standby.length || next.standby.some((s) => !before.standby.includes(s)) ? ['Standby corrected'] : []),
+    ];
+    markEdited();
+    commitRoster(
+      {
+        ...roster,
+        flights: [...roster.flights.filter((f) => !onDay(flightHomeDate(f, clock))), ...next.flights].sort((a, b) => a.departureTimeUtc.localeCompare(b.departureTimeUtc)),
+        standbyDuties: [...(roster.standbyDuties ?? []).filter((s) => !onDay(standbyHomeDate(s, clock))), ...next.standby].sort((a, b) => a.startUtc.localeCompare(b.startUtc)),
+        otherDuties: [...(roster.otherDuties ?? []).filter((d) => d.date !== date), ...next.otherDuties].sort((a, b) => a.date.localeCompare(b.date)),
+        parsedAt: new Date().toISOString(),
+      },
+      { actionType: 'manual_edit', title: `Corrected ${new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`, description: 'You corrected what the app read for this day.', changes: [{ date, label: 'Corrected by you', lines: lines.length ? lines : ['Day corrected'] }] }
+    );
+  };
+
+  /** One-tap fix from the Month screen: read an airport's times as its local time (e.g. Singapore). */
+  const handleApplyFix = (fix: { kind: 'reread_local'; airport: string; flightIds: string[] }) => {
+    const ids = new Set(fix.flightIds);
+    const flights = roster.flights.map((f) => (ids.has(f.id) ? { ...rereadAsLocal(f, roster.homeBase), correctedByUser: true } : f));
+    markEdited();
+    commitRoster(
+      { ...roster, flights, parsedAt: new Date().toISOString() },
+      { actionType: 'manual_edit', title: `Read ${fix.airport} times as local time`, description: `${fix.flightIds.length} flight times at ${fix.airport} were re-read in ${fix.airport} local time.` }
+    );
+  };
+
+  const handleToggleChecked = (date: string, checked: boolean) => {
+    setCheckedDays((prev) => {
+      const next = { ...prev };
+      if (checked) next[date] = daySignature(roster, date);
+      else delete next[date];
+      return next;
+    });
+  };
+
   // Handle Nudging Event
   const handleNudgeEvent = (eventId: string, minutes: number) => {
     setCustomNudges((prev) => ({
@@ -560,7 +562,7 @@ export default function App() {
     roster: 'Timeline',
     mastersheet: 'Month',
     salary: 'Salary estimate',
-    upload: 'Upload roster',
+    upload: 'Rosters',
     settings: 'Settings',
     science: 'The science',
   };
@@ -600,6 +602,20 @@ export default function App() {
 
         {/* Main Content Workspace per Active View */}
         <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 flex-1">
+          {/* A sample roster is never mistaken for the person's own */}
+          {presets.some((p) => p.id === activePresetId) && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
+              <span>You're viewing a sample roster, not your own.</span>
+              <span className="flex gap-3">
+                <button onClick={() => navigateTo('upload')} className="font-semibold text-blue-300 hover:text-white">
+                  Upload yours
+                </button>
+                <button onClick={handleRemoveSample} className="font-semibold text-slate-400 hover:text-white">
+                  Remove sample
+                </button>
+              </span>
+            </div>
+          )}
           {activeView === 'today' && (
             <div className="mb-3 flex justify-end text-xs">
               <button
@@ -612,7 +628,7 @@ export default function App() {
           )}
 
           {/* What moved in the plan after the latest update (both Today versions) */}
-          {activeView === 'today' && planNotice && (
+          {activeView === 'today' && planNotice && Date.now() - Date.parse(planNotice.at) < HEADS_UP_HOURS * 3600000 && (
             <div className="mb-4">
               <PlanChangedCard notice={planNotice} onDismiss={() => showPlanNotice(null)} />
             </div>
@@ -685,6 +701,13 @@ export default function App() {
               showOriginal={monthShowOriginal}
               onShowOriginalChange={setMonthShowOriginal}
               limitsRoster={limitsRoster}
+              roster={roster}
+              timeConvention={preferences.rosterTimeConvention ?? 'local'}
+              checkedDays={checkedDays}
+              onToggleChecked={handleToggleChecked}
+              onCorrectDay={handleCorrectDay}
+              onApplyFix={handleApplyFix}
+              updateLines={updateLinesByDate(roster, userUpdates)}
               onOpenDay={openDayInTimeline}
               onSelectEvent={setSelectedEvent}
             />
@@ -710,13 +733,9 @@ export default function App() {
                 setMonthShowOriginal(true);
                 setActiveView('mastersheet');
               }}
-              onRestoreRoster={handleRestoreRoster}
-              onClearActiveRoster={handleClearActiveRoster}
-              onDeleteHistoryItem={handleDeleteHistoryItem}
-              onClearAllHistory={handleClearAllHistory}
-              onAddManualSector={handleAddManualSector}
-              onMergeRosterSnapshot={handleMergeRosterSnapshot}
               onUndoLatest={undoEntry ? handleUndoLatest : undefined}
+              timeConvention={preferences.rosterTimeConvention ?? 'local'}
+              onTimeConventionChosen={(c) => setPreferences((p) => ({ ...p, rosterTimeConvention: c }))}
             />
           )}
 
@@ -726,6 +745,9 @@ export default function App() {
               roster={roster}
               onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
               onChangeHomeBase={handleChangeHomeBase}
+              history={history}
+              onUndoLatest={undoEntry ? handleUndoLatest : undefined}
+              onRestoreHistoryEntry={handleRestoreRoster}
             />
           )}
 
@@ -757,7 +779,7 @@ export default function App() {
           { id: 'roster' as NavView, label: 'Timeline', icon: <Calendar className="h-4 w-4" /> },
           { id: 'mastersheet' as NavView, label: 'Month', icon: <CalendarDays className="h-4 w-4" /> },
           { id: 'salary' as NavView, label: 'Salary', icon: <DollarSign className="h-4 w-4" /> },
-          { id: 'upload' as NavView, label: 'Upload', icon: <UploadCloud className="h-4 w-4" /> },
+          { id: 'upload' as NavView, label: 'Rosters', icon: <UploadCloud className="h-4 w-4" /> },
         ].map((tab) => {
           const isActive = activeView === tab.id;
           return (

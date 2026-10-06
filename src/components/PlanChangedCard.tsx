@@ -1,47 +1,30 @@
 import React from 'react';
-import { Sparkles, X } from 'lucide-react';
-import { PlanChangeDay } from '../services/planChanges';
-import { shortRange } from '../services/periodStats';
+import { BellRing, X } from 'lucide-react';
 
-/** Shown on Today after an update: what actually moved in the plan. Calm, dismissable, shown until read. */
+/**
+ * A heads-up on Today after an update: what changes today or tomorrow, in one sentence, so the person can
+ * move an alarm if needed. Disappears after a day, or when dismissed.
+ */
 
 export interface PlanChangeNotice {
   title: string; // the update that caused it, e.g. 'Delayed: 6E 408 +60 min'
   at: string; // ISO
-  days: PlanChangeDay[];
+  sentence: string;
 }
 
-const MAX_DAYS = 3;
+/** How long a heads-up stays before it is no longer news. */
+export const HEADS_UP_HOURS = 24;
 
-export const PlanChangedCard: React.FC<{ notice: PlanChangeNotice; onDismiss: () => void }> = ({ notice, onDismiss }) => {
-  const shown = notice.days.slice(0, MAX_DAYS);
-  const more = notice.days.length - shown.length;
-  return (
-    <section className="rounded-2xl border border-sky-900/60 bg-sky-950/20 p-4 text-sm shadow-sm" aria-label="Your plan changed">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-2 font-semibold text-white">
-            <Sparkles className="h-4 w-4 text-sky-300" /> Your plan changed
-          </p>
-          <p className="text-xs text-slate-400">After: {notice.title}</p>
-        </div>
-        <button onClick={onDismiss} aria-label="Dismiss" className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <dl className="mt-2 space-y-1.5">
-        {shown.map((d) => (
-          <div key={d.date}>
-            <dt className="text-xs font-semibold text-slate-200">{shortRange(d.date, d.date)}</dt>
-            {d.lines.map((line) => (
-              <dd key={line} className="font-mono text-[11px] text-slate-300">
-                {line}
-              </dd>
-            ))}
-          </div>
-        ))}
-      </dl>
-      {more > 0 && <p className="mt-1 text-[11px] text-slate-500">…and {more} more {more === 1 ? 'day' : 'days'}. See the Timeline for details.</p>}
-    </section>
-  );
-};
+export const PlanChangedCard: React.FC<{ notice: PlanChangeNotice; onDismiss: () => void }> = ({ notice, onDismiss }) => (
+  <section className="flex items-start justify-between gap-3 rounded-2xl border border-sky-900/60 bg-sky-950/20 px-4 py-3 text-sm shadow-sm" aria-label="Heads-up">
+    <p className="flex gap-2 text-slate-200">
+      <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+      <span>
+        <strong className="text-white">Heads-up:</strong> {notice.sentence} <span className="text-xs text-slate-500">(after: {notice.title})</span>
+      </span>
+    </p>
+    <button onClick={onDismiss} aria-label="Dismiss" className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white">
+      <X className="h-4 w-4" />
+    </button>
+  </section>
+);

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DailyCircadianSummary } from '../types/circadian';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 /**
  * Calendar-style day picker: a week strip (Monday to Sunday) or a month grid, with one status per day.
@@ -22,6 +22,8 @@ interface DateNavigatorProps {
    * The screen around it provides the month picker.
    */
   month?: string;
+  /** Dates to mark with a small amber triangle (something to check). */
+  markers?: Set<string>;
 }
 
 type Status = { label: string; dot: string; text: string; legend: string };
@@ -78,6 +80,7 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
   onVisibleMonthChange,
   allowMonthView = true,
   month,
+  markers,
 }) => {
   const fixedMonth = !!month;
   const byDate = useMemo(() => new Map(days.map((d) => [d.dateStr, d])), [days]);
@@ -244,6 +247,9 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
                   <span className="h-1.5" />
                 )}
                 {view === 'month' && isToday && <span className="absolute right-1 top-1 h-1 w-1 rounded-full bg-blue-300" />}
+                {markers?.has(dateStr) && (
+                  <AlertTriangle aria-label="Something to check" className="absolute left-1 top-1 h-2.5 w-2.5 text-amber-400" />
+                )}
               </button>
             );
           })}

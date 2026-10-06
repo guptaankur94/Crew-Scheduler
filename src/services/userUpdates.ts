@@ -328,3 +328,40 @@ export function cancelledFlights(roster: RosterData, updates: UserUpdate[]): { f
   const keys = keysById(roster);
   return roster.flights.filter((f) => cancelled.has(keys.get(f.id)!)).map((f) => ({ flight: f, sectorKey: keys.get(f.id)! }));
 }
+
+/** The person's updates per home date, in plain words (for the Month screen's day panel). */
+export function updateLinesByDate(roster: RosterData, updates: UserUpdate[]): Map<string, string[]> {
+  const clock = rosterClock(roster);
+  const out = new Map<string, string[]>();
+  const add = (date: string, line: string) => out.set(date, [...(out.get(date) ?? []), line]);
+  const route = (key: string) => {
+    const [, fn, o, d] = key.split('#')[0].split('|');
+    return `${fn} ${o}→${d}`;
+  };
+  for (const u of updates) {
+    if (u.kind === 'delay') add(u.sectorKey.slice(0, 10), `Delayed +${u.minutes} min: ${route(u.sectorKey)}`);
+    else if (u.kind === 'cancelled') add(u.sectorKey.slice(0, 10), `Cancelled: ${route(u.sectorKey)}`);
+    else if (u.kind === 'standby_times') add(u.standbyKey.slice(0, 10), `Standby moved to ${clock.time(Date.parse(u.startUtc))}–${clock.time(Date.parse(u.endUtc))}`);
+    else if (u.kind === 'standby_released') add(u.standbyKey.slice(0, 10), `Released from standby at ${clock.time(Date.parse(u.atUtc))}`);
+    else if (u.kind === 'callout') {
+      const date = u.standbyKey?.slice(0, 10) ?? (u.flights[0] ? flightHomeDate(u.flights[0], clock) : '');
+      if (date) add(date, `Called out: ${u.flights.map((f) => `${f.flightNumber} ${f.origin}→${f.destination} ${clock.time(Date.parse(f.departureTimeUtc))}`).join(', ')}`);
+    }
+  }
+  return out;
+}
+
+/** Removes the person's updates on the given home dates (when restoring an upload with "also clear my updates"). */
+export function dropUpdatesOn(roster: RosterData, updates: UserUpdate[], dates: string[]): UserUpdate[] {
+  const set = new Set(dates);
+  const clock = rosterClock(roster);
+  return updates.filter((u) => {
+    const date =
+      u.kind === 'delay' || u.kind === 'cancelled'
+        ? u.sectorKey.slice(0, 10)
+        : u.kind === 'callout'
+        ? u.standbyKey?.slice(0, 10) ?? (u.flights[0] ? flightHomeDate(u.flights[0], clock) : '')
+        : u.standbyKey.slice(0, 10);
+    return !set.has(date);
+  });
+}

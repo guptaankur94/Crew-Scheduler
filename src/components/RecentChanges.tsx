@@ -14,6 +14,8 @@ interface Props {
   onUndoLatest?: () => void;
   onOpenFullHistory?: () => void;
   limit?: number;
+  /** Puts the roster back exactly as it was after an earlier change. */
+  onRestore?: (entry: RosterHistoryEntry) => void;
 }
 
 const when = (iso: string) =>
@@ -27,7 +29,7 @@ const KIND: Record<RosterHistoryEntry['actionType'], string> = {
   undo: 'Undo',
 };
 
-export const RecentChanges: React.FC<Props> = ({ history, onUndoLatest, onOpenFullHistory, limit = 5 }) => {
+export const RecentChanges: React.FC<Props> = ({ history, onUndoLatest, onOpenFullHistory, limit = 5, onRestore }) => {
   const [open, setOpen] = useState<string | null>(null);
   const entries = history.slice(0, limit);
   if (!entries.length) return null;
@@ -57,7 +59,7 @@ export const RecentChanges: React.FC<Props> = ({ history, onUndoLatest, onOpenFu
                   aria-expanded={days.length ? isOpen : undefined}
                 >
                   <p className="text-[11px] text-slate-500">
-                    {when(e.timestamp)} · {KIND[e.actionType] ?? 'Change'}
+                    {when(e.timestamp)} · {/^Removed:/.test(e.title) ? 'Removed' : /^Re-read:/.test(e.title) ? 'Re-read' : KIND[e.actionType] ?? 'Change'}
                   </p>
                   <p className="truncate text-sm text-slate-200" title={e.title}>
                     {e.title}
@@ -69,6 +71,11 @@ export const RecentChanges: React.FC<Props> = ({ history, onUndoLatest, onOpenFu
                     </p>
                   )}
                 </button>
+                {i > 0 && onRestore && e.rosterSnapshot && (
+                  <button onClick={() => onRestore(e)} className="shrink-0 text-[11px] font-semibold text-slate-400 hover:text-white" title="Put the roster back as it was after this change">
+                    Restore this point
+                  </button>
+                )}
                 {i === 0 && onUndoLatest && (
                   <button
                     onClick={onUndoLatest}

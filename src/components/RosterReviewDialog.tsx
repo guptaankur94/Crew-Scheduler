@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { FlightLeg } from '../types/circadian';
-import { airportLocalToUtc, getAirportTzOffset, isKnownAirport } from '../data/airports';
+import { getAirportTzOffset, isKnownAirport } from '../data/airports';
+import { convertPrinted, normaliseClock, printedFrom, TIME_CONVENTION_LABEL, TimeConvention } from '../services/rosterTimes';
 import { checkRosterFlights, hasBlockingProblems, RosterIssue } from '../services/rosterChecks';
 import { AlertTriangle, CheckCircle2, Trash2, X } from 'lucide-react';
 import { TimeInput24 } from './TimeInput24';
@@ -23,64 +24,74 @@ export interface Draft {
   arr: string; // HH:mm local at destination
 }
 
-function localParts(iso: string, offsetHours: number): { date: string; time: string } {
-  const d = new Date(Date.parse(iso) + offsetHours * 3600000).toISOString();
-  return { date: d.slice(0, 10), time: d.slice(11, 16) };
-}
-
-export function toDraft(f: FlightLeg): Draft {
-  const dep = localParts(f.departureTimeUtc, f.originTzOffset);
-  const arr = localParts(f.arrivalTimeUtc, f.destTzOffset);
-  return { key: f.id, original: f, flightNumber: f.flightNumber, origin: f.origin, destination: f.destination, date: dep.date, dep: dep.time, arr: arr.time };
+/**
+ * A row as the person sees it: times as printed on the roster, in the clock the roster uses (by default each
+ * airport's local time). Changing the clock setting re-reads the same printed times.
+ */
+export function toDraft(f: FlightLeg, convention: TimeConvention = 'local', homeBase = ''): Draft {
+  const p = f.printed && (f.timeConvention ?? 'local') === convention ? f.printed : printedFrom(f, convention, homeBase || f.origin);
+  return { key: f.id, original: f, flightNumber: f.flightNumber, origin: f.origin, destination: f.destination, date: p.date, dep: p.dep, arr: p.arr };
 }
 
 /** Turns an edited row back into a flight, keeping the roster's report and release buffers. */
-export function fromDraft(d: Draft): FlightLeg | null {
+export function fromDraft(d: Draft, convention: TimeConvention = 'local', homeBase = ''): FlightLeg | null {
   const origin = d.origin.trim().toUpperCase();
   const destination = d.destination.trim().toUpperCase();
+  if (!d.dep || !d.arr || !normaliseClock(d.dep) || !normaliseClock(d.arr)) return null;
   // An unknown airport only keeps the offset it arrived with (already flagged as unverified); a newly typed
   // unknown code gets no time zone at all, so the row cannot be saved until it is corrected
-  const dep = airportLocalToUtc(d.date, d.dep, origin, origin === d.original.origin ? d.original.originTzOffset : undefined);
-  let arr = airportLocalToUtc(d.date, d.arr, destination, destination === d.original.destination ? d.original.destTzOffset : undefined);
-  if (!dep || !arr) return null;
-  for (let i = 0; i < 2 && arr.getTime() <= dep.getTime(); i++) arr = new Date(arr.getTime() + 24 * 3600000);
-
   const o = d.original;
+  const c = convertPrinted({ date: d.date, dep: d.dep, arr: d.arr }, { origin, destination }, convention, homeBase || origin, {
+    origin: origin === o.origin ? o.originTzOffset : undefined,
+    destination: destination === o.destination ? o.destTzOffset : undefined,
+  });
+  if ('error' in c) return null;
+  const dep = Date.parse(c.departureTimeUtc);
+  const arr = Date.parse(c.arrivalTimeUtc);
   const reportLead = Date.parse(o.departureTimeUtc) - Date.parse(o.reportTimeUtc);
   const releaseLag = Date.parse(o.releaseTimeUtc) - Date.parse(o.arrivalTimeUtc);
-  return {
+  const flight: FlightLeg = {
     ...o,
     flightNumber: d.flightNumber.trim().toUpperCase() || o.flightNumber,
     origin,
     destination,
-    departureTimeUtc: dep.toISOString(),
-    arrivalTimeUtc: arr.toISOString(),
-    reportTimeUtc: new Date(dep.getTime() - reportLead).toISOString(),
-    releaseTimeUtc: new Date(arr.getTime() + releaseLag).toISOString(),
-    originTzOffset: getAirportTzOffset(origin, dep) ?? o.originTzOffset,
-    destTzOffset: getAirportTzOffset(destination, arr) ?? o.destTzOffset,
-    durationMinutes: Math.round((arr.getTime() - dep.getTime()) / MIN),
+    departureTimeUtc: c.departureTimeUtc,
+    arrivalTimeUtc: c.arrivalTimeUtc,
+    reportTimeUtc: new Date(dep - reportLead).toISOString(),
+    releaseTimeUtc: new Date(arr + releaseLag).toISOString(),
+    originTzOffset: getAirportTzOffset(origin, new Date(dep)) ?? o.originTzOffset,
+    destTzOffset: getAirportTzOffset(destination, new Date(arr)) ?? o.destTzOffset,
+    durationMinutes: c.durationMinutes,
     tzUnverified: !isKnownAirport(origin) || !isKnownAirport(destination) ? true : undefined,
+    timeConvention: convention,
   };
+  return { ...flight, printed: printedFrom(flight, convention, homeBase || origin) };
 }
 
 interface RosterReviewDialogProps {
   flights: FlightLeg[];
   previews: ReviewPreview[];
   serverWarnings: string[];
-  onConfirm: (flights: FlightLeg[]) => void;
+  onConfirm: (flights: FlightLeg[], convention: TimeConvention) => void;
   onCancel: () => void;
+  /** The clock the roster's times are in (as stated by the roster, or the person's setting). */
+  convention: TimeConvention;
+  /** True when the roster itself says which clock it uses. */
+  conventionStated?: boolean;
+  homeBase: string;
 }
 
 const inputClass =
   'block rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-white focus:border-blue-500 focus:outline-none';
 
-const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previews, serverWarnings, onConfirm, onCancel }) => {
+const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previews, serverWarnings, onConfirm, onCancel, convention: initialConvention, conventionStated, homeBase }) => {
+  // The rows hold times as printed; the clock setting decides how they are read, so changing it re-reads them
+  const [convention, setConvention] = useState<TimeConvention>(initialConvention);
   const [drafts, setDrafts] = useState<Draft[]>(() =>
-    [...flights].sort((a, b) => Date.parse(a.departureTimeUtc) - Date.parse(b.departureTimeUtc)).map(toDraft)
+    [...flights].sort((a, b) => Date.parse(a.departureTimeUtc) - Date.parse(b.departureTimeUtc)).map((f) => toDraft(f, initialConvention, homeBase))
   );
 
-  const built = useMemo(() => drafts.map((d) => ({ draft: d, flight: fromDraft(d) })), [drafts]);
+  const built = useMemo(() => drafts.map((d) => ({ draft: d, flight: fromDraft(d, convention, homeBase) })), [drafts, convention, homeBase]);
   const issues = useMemo(() => {
     const valid = built.filter((b) => b.flight).map((b) => b.flight!) as FlightLeg[];
     const map = checkRosterFlights(valid);
@@ -109,8 +120,24 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
             </h2>
             <p className="mt-1 text-xs text-slate-400">
               We read {drafts.length} flight{drafts.length === 1 ? '' : 's'}. Compare them with your roster and fix anything
-              that is wrong. Times are local at each airport.
+              that is wrong. Times are shown exactly as printed.
             </p>
+            <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+              <span>Times on this roster are in</span>
+              <select
+                value={convention}
+                onChange={(e) => setConvention(e.target.value as TimeConvention)}
+                aria-label="Which clock the roster's times are in"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white"
+              >
+                {(Object.keys(TIME_CONVENTION_LABEL) as TimeConvention[]).map((c) => (
+                  <option key={c} value={c}>
+                    {TIME_CONVENTION_LABEL[c]}
+                  </option>
+                ))}
+              </select>
+              <span className="text-slate-500">{conventionStated ? '(as stated on the roster)' : '(your setting; e.g. a Singapore arrival in Singapore time)'}</span>
+            </label>
             <p className="mt-1 text-xs">
               {problems > 0 && <span className="mr-3 text-rose-300">{problems} need fixing</span>}
               {checks > 0 && <span className="mr-3 text-amber-300">{checks} worth a second look</span>}
@@ -182,12 +209,12 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
                       <input type="date" className={`${inputClass} w-[10.5rem]`} value={d.date} onChange={(e) => update(d.key, 'date', e.target.value)} />
                     </label>
                     <label className="text-[10px] text-slate-400">
-                      Departs (24h, local)
-                      <TimeInput24 className={inputClass} ariaLabel="Departure time, 24-hour, local" value={d.dep} onChange={(v) => update(d.key, 'dep', v)} />
+                      Departs (24h, as printed)
+                      <TimeInput24 className={inputClass} ariaLabel="Departure time, 24-hour, as printed" value={d.dep} onChange={(v) => update(d.key, 'dep', v)} />
                     </label>
                     <label className="text-[10px] text-slate-400">
-                      Arrives (24h, local)
-                      <TimeInput24 className={inputClass} ariaLabel="Arrival time, 24-hour, local" value={d.arr} onChange={(v) => update(d.key, 'arr', v)} />
+                      Arrives (24h, as printed)
+                      <TimeInput24 className={inputClass} ariaLabel="Arrival time, 24-hour, as printed" value={d.arr} onChange={(v) => update(d.key, 'arr', v)} />
                     </label>
                     <button
                       onClick={() => remove(d.key)}
@@ -221,7 +248,7 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
               Don't save
             </button>
             <button
-              onClick={() => onConfirm(built.map((b) => b.flight!).filter(Boolean))}
+              onClick={() => onConfirm(built.map((b) => b.flight!).filter(Boolean), convention)}
               disabled={blocked}
               className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -238,17 +265,25 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
  * Shows the review screen and resolves with the confirmed flights, or null if the user chose not to save.
  * Render `dialog` somewhere in the component.
  */
+/** How the roster's times should be read in the review. */
+export interface ReviewTimes {
+  convention: TimeConvention;
+  stated?: boolean;
+  homeBase: string;
+}
+
 export function useRosterReview() {
   const [pending, setPending] = useState<{
     flights: FlightLeg[];
     previews: ReviewPreview[];
     warnings: string[];
-    resolve: (flights: FlightLeg[] | null) => void;
+    times: ReviewTimes;
+    resolve: (result: { flights: FlightLeg[]; convention: TimeConvention } | null) => void;
   } | null>(null);
 
   const reviewFlights = useCallback(
-    (flights: FlightLeg[], previews: ReviewPreview[], warnings: string[] = []): Promise<FlightLeg[] | null> =>
-      new Promise((resolve) => setPending({ flights, previews, warnings, resolve })),
+    (flights: FlightLeg[], previews: ReviewPreview[], warnings: string[] = [], times: ReviewTimes = { convention: 'local', homeBase: '' }): Promise<{ flights: FlightLeg[]; convention: TimeConvention } | null> =>
+      new Promise((resolve) => setPending({ flights, previews, warnings, times, resolve })),
     []
   );
 
@@ -257,8 +292,11 @@ export function useRosterReview() {
       flights={pending.flights}
       previews={pending.previews}
       serverWarnings={pending.warnings}
-      onConfirm={(flights) => {
-        pending.resolve(flights);
+      convention={pending.times.convention}
+      conventionStated={pending.times.stated}
+      homeBase={pending.times.homeBase}
+      onConfirm={(flights, convention) => {
+        pending.resolve({ flights, convention });
         setPending(null);
       }}
       onCancel={() => {

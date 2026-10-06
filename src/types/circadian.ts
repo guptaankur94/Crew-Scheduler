@@ -31,6 +31,9 @@ export interface FlightLeg {
   userChange?: 'added' | 'callout' | 'delayed'; // set when the person added or changed this flight themselves, not a roster upload
   userDelayMinutes?: number; // total delay the person entered for this flight
   importedFrom?: ImportSource; // the upload this flight came from, so the app can say why it believes it
+  printed?: { date: string; dep: string; arr: string; arrDate?: string; report?: string; release?: string }; // times exactly as printed on the roster
+  timeConvention?: 'local' | 'home' | 'utc'; // which clock the printed times were read in
+  correctedByUser?: boolean; // the person fixed a reading mistake in this flight (Month screen)
   operationalDelay?: { minutes: number; rosteredDepartureUtc: string; rosteredArrivalUtc: string; rosteredReleaseUtc: string }; // set only on the plan's working copy when the person reported a delay; never saved in the roster
 }
 
@@ -72,6 +75,7 @@ export interface OtherDuty {
   kind: 'off' | 'leave' | 'sick' | 'training' | 'other';
   date: string; // YYYY-MM-DD
   code?: string; // as printed, e.g. 'OFF', 'AL', 'SCK', 'SIM'
+  importedFrom?: ImportSource;
 }
 
 export interface LayoverInfo {
@@ -187,6 +191,10 @@ export interface CrewPreferences {
   useMelatoninProtocol?: boolean;
   bunkShiftAssignments?: Record<string, 'shift1' | 'shift2'>;
   payPeriodStartDay?: number; // day of the month the salary window starts (1 = calendar month, up to 28)
+  rosterTimeConvention?: 'local' | 'home' | 'utc'; // how the person's rosters print times (default: each airport's local time)
+  usualBedtime?: string; // 'HH:MM' home time: the person's own bedtime on normal nights (overrides the chronotype default)
+  usualWakeTime?: string; // 'HH:MM' home time; with the bedtime it sets targetSleepHours
+  dutyLimitRules?: 'dgca-cc-iv' | 'dgca-cc-v-draft'; // which DGCA cabin crew rules the duty-limit guide uses (default: the one in force)
 }
 
 export interface SalaryBreakdown {

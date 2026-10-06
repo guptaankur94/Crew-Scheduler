@@ -1,7 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { TimeInput24 } from '../TimeInput24';
+import { RecentChanges } from '../RecentChanges';
+import { deleteAllStoredFiles, listStoredFiles } from '../../services/fileStore';
+import { TIME_CONVENTION_LABEL, TimeConvention } from '../../services/rosterTimes';
 import { createBackupFromDevice, deleteAllLocalData, parseBackup, writeRestoredData } from '../../services/backup';
 import { getAiConsentDate, withdrawAiConsent } from '../../services/aiConsent';
-import { Chronotype, CrewPreferences, RosterData } from '../../types/circadian';
+import { Chronotype, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
 import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
 import {
   Sliders,
@@ -17,6 +21,10 @@ interface SettingsViewProps {
   roster: RosterData;
   onUpdatePreferences: (updated: Partial<CrewPreferences>) => void;
   onChangeHomeBase: (iata: string, tzOffset: number) => void;
+  /** Every change to the roster, with Undo on the newest and restore to an earlier point. */
+  history?: RosterHistoryEntry[];
+  onUndoLatest?: () => void;
+  onRestoreHistoryEntry?: (entry: RosterHistoryEntry) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -24,6 +32,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   roster,
   onUpdatePreferences,
   onChangeHomeBase,
+  history = [],
+  onUndoLatest,
+  onRestoreHistoryEntry,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dataMessage, setDataMessage] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
@@ -53,6 +64,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     writeRestoredData(result);
     window.location.reload();
   };
+
+  const [keptFiles, setKeptFiles] = useState<{ count: number; bytes: number } | null>(null);
+  useEffect(() => {
+    listStoredFiles().then((files) => setKeptFiles({ count: files.length, bytes: files.reduce((s, f) => s + f.size, 0) }));
+  }, []);
 
   const handleDeleteAll = () => {
     deleteAllLocalData();
@@ -175,7 +191,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {/* Chronotype: nudges the usual bedtime */}
         <div className="space-y-2">
           <label className="font-bold uppercase tracking-wider text-slate-300 text-xs">Are you a morning or evening person?</label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 ${preferences.usualBedtime ? 'opacity-50' : ''}`}>
             {([
               { id: 'lark', title: '🌅 Morning person', desc: 'Usual bedtime about 45 minutes earlier (around 22:15).' },
               { id: 'intermediate', title: '🌤️ In between', desc: 'Usual bedtime around 23:00.' },
@@ -197,34 +213,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             })}
           </div>
           <p className="text-[11px] text-slate-500">
-            This only moves your bedtime on nights without an early start. It is approximate: people with the same answer
+            {preferences.usualBedtime ? 'You have set your usual bedtime below, so this choice is not used. ' : ''}This only moves your bedtime on nights without an early start. It is approximate: people with the same answer
             can differ by several hours, so adjust any sleep with "Move this" if it does not suit you.
           </p>
         </div>
 
         {/* Target Sleep Hours & Caffeine Clearance */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Target Sleep Duration */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-xs uppercase text-slate-300">Sleep you need</span>
-              <span className="font-mono font-bold text-purple-300 text-sm">
-                {preferences.targetSleepHours} Hours
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              How much sleep you usually need to feel rested. Most adults need about 7 hours or more.
-            </p>
-            <input
-              type="range"
-              min="6.0"
-              max="9.0"
-              step="0.5"
-              value={preferences.targetSleepHours}
-              onChange={(e) => onUpdatePreferences({ targetSleepHours: parseFloat(e.target.value) })}
-              className="w-full accent-purple-400 cursor-pointer"
-            />
-          </div>
+          {/* Usual sleep on normal nights, like a phone's sleep schedule: bedtime and wake-up */}
+          <UsualSleep preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
 
           {/* Caffeine cutoff */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
@@ -351,7 +348,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* How the roster prints times: decides how printed times are read */}
+        <div className="space-y-2 border-t border-slate-800 pt-4">
+          <label htmlFor="time-convention" className="font-bold uppercase tracking-wider text-slate-300 text-xs">
+            How does your roster show times?
+          </label>
+          <select
+            id="time-convention"
+            value={preferences.rosterTimeConvention ?? 'local'}
+            onChange={(e) => onUpdatePreferences({ rosterTimeConvention: e.target.value as TimeConvention })}
+            className="block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+          >
+            {(Object.keys(TIME_CONVENTION_LABEL) as TimeConvention[]).map((c) => (
+              <option key={c} value={c}>
+                {TIME_CONVENTION_LABEL[c]}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-400">
+            Most rosters print each time in the local time of that airport, so a Singapore arrival is in Singapore time. If your roster says which
+            clock it uses (e.g. "All times UTC"), that is used instead. You can also change it when checking an upload.
+          </p>
+        </div>
+
+        {/* Which DGCA rules the duty-limit guide on the Month screen uses */}
+        <label className="flex items-start gap-2 border-t border-slate-800 pt-4 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={preferences.dutyLimitRules === 'dgca-cc-v-draft'}
+            onChange={(e) => onUpdatePreferences({ dutyLimitRules: e.target.checked ? 'dgca-cc-v-draft' : 'dgca-cc-iv' })}
+          />
+          <span>
+            Preview the draft DGCA duty-limit rules (CAR 7-J-I Issue V, October 2025)
+            <span className="block text-slate-500">The duty-limit guide normally uses the rules in force (Issue IV, since 1 November 2018). The draft is stricter and not in force until DGCA notifies it.</span>
+          </span>
+        </label>
+
       </div>
+
+      {/* Change history: everything that changed the roster, out of the way of everyday use */}
+      {history.length > 0 && (
+        <RecentChanges history={history} limit={50} onUndoLatest={onUndoLatest} onRestore={onRestoreHistoryEntry} />
+      )}
 
       {/* 4. Your data */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
@@ -385,7 +424,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           ) : (
             <span className="flex items-center gap-2 text-xs text-rose-200">
-              Delete your roster, settings and history from this device?
+              Delete your roster, settings, history and kept roster files from this device?
               <button onClick={handleDeleteAll} className="rounded-lg bg-rose-700 px-3 py-1.5 font-bold text-white hover:bg-rose-600">
                 Yes, delete
               </button>
@@ -393,6 +432,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Cancel
               </button>
             </span>
+          )}
+        </div>
+        {/* Original roster files kept on this device, so a roster can be read again without uploading it */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+          <span>
+            Kept roster files: {keptFiles === null ? '…' : `${keptFiles.count} ${keptFiles.count === 1 ? 'file' : 'files'}, ${(keptFiles.bytes / (1024 * 1024)).toFixed(1)} MB`} (on this
+            device only, for "Read again")
+          </span>
+          {!!keptFiles?.count && (
+            <button
+              onClick={async () => {
+                await deleteAllStoredFiles();
+                setKeptFiles({ count: 0, bytes: 0 });
+              }}
+              className="font-semibold text-rose-300 underline underline-offset-2"
+            >
+              Delete kept files
+            </button>
           )}
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
@@ -420,6 +477,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </p>
         )}
       </div>
+    </div>
+  );
+};
+
+/** Usual bedtime and wake-up on normal nights; the time between them is the sleep the plan aims for. */
+const UsualSleep: React.FC<{ preferences: CrewPreferences; onUpdatePreferences: (u: Partial<CrewPreferences>) => void }> = ({ preferences, onUpdatePreferences }) => {
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const fmt = (min: number) => `${String(Math.floor((((min % 1440) + 1440) % 1440) / 60)).padStart(2, '0')}:${String((((min % 1440) + 1440) % 1440) % 60).padStart(2, '0')}`;
+  const defaultBed = Math.round((23 + ({ lark: -0.75, intermediate: 0, owl: 0.75 }[preferences.chronotype] ?? 0)) * 60);
+  const [bed, setBed] = useState(preferences.usualBedtime ?? fmt(defaultBed));
+  const [wake, setWake] = useState(preferences.usualWakeTime ?? fmt(defaultBed + preferences.targetSleepHours * 60));
+  const valid = (t: string) => /^\d{2}:\d{2}$/.test(t) && Number(t.slice(0, 2)) < 24 && Number(t.slice(3)) < 60;
+  const duration = valid(bed) && valid(wake) ? (toMin(wake) - toMin(bed) + 1440) % 1440 : null;
+  const ok = duration !== null && duration >= 4 * 60 && duration <= 12 * 60;
+  const save = (b: string, w: string) => {
+    const d = valid(b) && valid(w) ? (toMin(w) - toMin(b) + 1440) % 1440 : null;
+    if (d === null || d < 4 * 60 || d > 12 * 60) return;
+    onUpdatePreferences({ usualBedtime: b, usualWakeTime: w, targetSleepHours: Math.round((d / 60) * 4) / 4 });
+  };
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
+      <span className="font-bold text-xs uppercase text-slate-300">Your usual sleep</span>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="space-y-1 text-[11px] text-slate-400">
+          <span className="block">Bedtime</span>
+          <TimeInput24 value={bed} onChange={(v) => { setBed(v); save(v, wake); }} ariaLabel="Usual bedtime" className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-sm text-white" />
+        </label>
+        <span className={`pb-2 font-mono text-sm ${ok ? 'text-purple-300' : 'text-rose-300'}`}>
+          {duration === null ? '–' : `${Math.floor(duration / 60)} h ${String(duration % 60).padStart(2, '0')} min`}
+        </span>
+        <label className="space-y-1 text-[11px] text-slate-400">
+          <span className="block">Wake up</span>
+          <TimeInput24 value={wake} onChange={(v) => { setWake(v); save(bed, v); }} ariaLabel="Usual wake-up time" className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-sm text-white" />
+        </label>
+      </div>
+      <p className="text-[11px] text-slate-400">
+        {ok ? 'Used on nights without an early start or a duty. Most adults need about 7 hours or more.' : 'Choose between 4 and 12 hours of sleep.'}
+      </p>
     </div>
   );
 };

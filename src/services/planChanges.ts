@@ -91,3 +91,34 @@ export function comparePlans(before: CircadianPlan, after: CircadianPlan, nowMs:
     .sort(([x], [y]) => x.localeCompare(y))
     .map(([date, lines]) => ({ date, lines: [...new Set(lines)] }));
 }
+
+/**
+ * The heads-up shown on Today after an update: only changes today or tomorrow (when the person may need to
+ * move an alarm), in one or two plain phrases, most important first (wake-up, sleep, nap, caffeine, duty).
+ * Null when nothing meaningful changes soon.
+ */
+export function planHeadsUp(before: CircadianPlan, after: CircadianPlan, nowMs: number): string | null {
+  const clock = rosterClock(after.roster);
+  const today = clock.date(nowMs);
+  const tomorrow = clock.addDays(today, 1);
+  const word = (date: string, evening = false) => (date === today ? (evening ? 'tonight' : 'today') : 'tomorrow');
+  const items: { rank: number; text: string }[] = [];
+  for (const day of comparePlans(before, after, nowMs).filter((d) => d.date === today || d.date === tomorrow)) {
+    for (const line of day.lines) {
+      let m: RegExpMatchArray | null;
+      if ((m = line.match(/^Wake-up alarm (\S+) → (\S+)$/))) items.push({ rank: 0, text: `your wake-up alarm ${word(day.date)} moves to ${m[2]} (was ${m[1]})` });
+      else if ((m = line.match(/^Sleep (\S+)–(\S+) → (\S+)–(\S+)$/))) items.push({ rank: 1, text: `your sleep ${word(day.date, m[3] >= '18:00')} is now ${m[3]}–${m[4]}` });
+      else if ((m = line.match(/^Sleep added (\S+)–(\S+)$/))) items.push({ rank: 1, text: `a sleep was added ${word(day.date, m[1] >= '18:00')}, ${m[1]}–${m[2]}` });
+      else if ((m = line.match(/^Sleep (\S+)–\S+ no longer needed$/))) items.push({ rank: 1, text: `the sleep ${word(day.date, m[1] >= '18:00')} at ${m[1]} is no longer needed` });
+      else if ((m = line.match(/^Nap (\S+)–\S+ → (\S+)–(\S+)$/))) items.push({ rank: 2, text: `your nap ${word(day.date)} moves to ${m[2]}–${m[3]}` });
+      else if ((m = line.match(/^Nap added (\S+)–(\S+)$/))) items.push({ rank: 2, text: `a nap was added ${word(day.date)}, ${m[1]}–${m[2]}` });
+      else if ((m = line.match(/^Nap (\S+)–\S+ no longer needed$/))) items.push({ rank: 2, text: `the nap ${word(day.date)} at ${m[1]} is no longer needed` });
+      else if ((m = line.match(/^Last caffeine \S+ → (\S+)$/))) items.push({ rank: 3, text: `last caffeine ${word(day.date)} is now ${m[1]}` });
+      else if ((m = line.match(/^Now an? (.+) \(was /))) items.push({ rank: 4, text: `${word(day.date) === 'today' ? "today's" : "tomorrow's"} duty is now an ${m[1]}` });
+    }
+  }
+  if (!items.length) return null;
+  const top = items.sort((a, b) => a.rank - b.rank).slice(0, 2).map((i) => i.text);
+  const sentence = top.join('; ');
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1) + '.';
+}

@@ -102,7 +102,7 @@ app.use('/api', apiLimiter.middleware, dailyAiLimit.middleware, (_req: Request, 
 // Endpoint: Parse Roster Screenshot or Raw Text using resilient multi-model Gemini pipeline
 app.post('/api/roster/parse', async (req: Request, res: Response) => {
   try {
-    const { imageBase64, mimeType = 'image/png', rawText } = req.body;
+    const { imageBase64, mimeType = 'image/png', rawText, timeConvention, homeBase } = req.body;
 
     if (!imageBase64 && !rawText) {
       return res.status(400).json({ success: false, error: 'Please provide a roster screenshot image or schedule text.' });
@@ -140,13 +140,12 @@ CRITICAL EXTRACTION RULES:
 - AIRPORTS: Extract 3-letter IATA codes (e.g. DEL, BOM, DXB, LHR, JFK). If city names or 4-letter ICAO codes are shown, convert them to 3-letter IATA codes.
 - MISSING YEAR: Today's date is ${today}. If the year is omitted from the document (e.g. only "01 OCT" or "Mon 14" is visible), choose the year that places the date closest to today.
 - NEVER GUESS: If a flight's date, time or airport cannot be read, leave that field as an empty string rather than inventing a value.
-- TIMESTAMPS IN UTC:
-  * Timings on rosters are usually in local station time or Indian Standard Time (IST/UTC+5.5).
-  * MIXED TIME ZONES: many rosters print each time in the local time of that airport (departure in the origin's local time, arrival in the destination's local time). Unless the roster clearly states that all times are in one zone (e.g. "All times IST" or "UTC"/"Z"), convert each time using that airport's own UTC offset (e.g. Singapore is UTC+8, Dubai UTC+4). Check: an outbound flight and its return should take a similar time.
-  * Convert all departure and arrival times into valid ISO 8601 UTC date-time strings: "YYYY-MM-DDTHH:mm:ssZ".
-  * If Report Time (Check-In) is not stated on the roster, set it to 75 minutes before departure.
-  * Release Time is the debrief / sign-off / check-out time when the roster shows one (for a multi-sector day, it belongs to the last flight of the day). If it is not stated, set it to 30 minutes after arrival.
-  * Set durationMinutes as the flight duration in minutes.
+- TIMES EXACTLY AS PRINTED (do NOT convert time zones):
+  * For each flight return "date" (the departure date as printed, "YYYY-MM-DD"), "depTime" and "arrTime" exactly as printed in 24-hour "HH:MM". If the roster prints the arrival date, also return "arrDate".
+  * "reportTime" is the check-in / reporting time and "releaseTime" the debrief / sign-off / check-out time, as printed ("HH:MM"). For a multi-sector day the release belongs to the last flight. Leave them as empty strings when not printed; never invent them.
+  * Do not add or subtract hours for any time zone. The app converts the times itself.
+  * "timeConvention": if the roster states which clock its times use, return "local" (each airport's local time, e.g. "LT", "All times local"), "home" (all in the home base's time, e.g. "All times IST" for an Indian base) or "utc" ("UTC", "Z", "GMT"). If it does not say, return "unknown".
+  * Standby: return "date", "startTime" and "endTime" as printed (and "endDate" if printed).
 - HOME BASE & AIRLINE:
   * Infer the crew member's home base (the anchor station where trips start and finish, e.g. DEL, BOM, DXB).
   * Identify the airline name (e.g. IndiGo, Air India, Emirates, etc.).
@@ -161,26 +160,26 @@ CRITICAL EXTRACTION RULES:
       "flightNumber": "string",
       "origin": "string",
       "destination": "string",
-      "departureTimeUtc": "YYYY-MM-DDTHH:mm:ssZ",
-      "arrivalTimeUtc": "YYYY-MM-DDTHH:mm:ssZ",
-      "reportTimeUtc": "YYYY-MM-DDTHH:mm:ssZ",
-      "releaseTimeUtc": "YYYY-MM-DDTHH:mm:ssZ",
-      "originTzOffset": 5.5,
-      "destTzOffset": 5.5,
+      "date": "YYYY-MM-DD",
+      "depTime": "HH:MM",
+      "arrTime": "HH:MM",
+      "arrDate": "",
+      "reportTime": "",
+      "releaseTime": "",
       "aircraftType": "string",
-      "durationMinutes": 120,
       "isRedEye": false,
       "isPositioning": false
     }
   ],
   "standby": [
-    { "type": "home", "airport": "DEL", "startTimeUtc": "YYYY-MM-DDTHH:mm:ssZ", "endTimeUtc": "YYYY-MM-DDTHH:mm:ssZ" }
+    { "type": "home", "airport": "DEL", "date": "YYYY-MM-DD", "startTime": "HH:MM", "endTime": "HH:MM" }
   ],
   "otherDuties": [
     { "type": "off", "date": "YYYY-MM-DD", "code": "OFF" }
   ],
   "rosterPeriod": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" },
   "visibleDates": ["YYYY-MM-DD"],
+  "timeConvention": "local | home | utc | unknown",
   "notes": "string"
 }
 `;
@@ -198,7 +197,12 @@ CRITICAL EXTRACTION RULES:
           },
         ];
 
-    const acceptRoster = (text: string): SanitizedRoster | null => sanitizeParsedRoster(extractJsonFromText(text), now);
+    // The crew member's time setting and saved home base, used when the roster does not say which clock it uses
+    const sanitizeOptions = {
+      timeConvention: ['local', 'home', 'utc'].includes(timeConvention) ? timeConvention : undefined,
+      homeBase: typeof homeBase === 'string' && /^[A-Z]{3}$/.test(homeBase) ? homeBase : undefined,
+    };
+    const acceptRoster = (text: string): SanitizedRoster | null => sanitizeParsedRoster(extractJsonFromText(text), now, sanitizeOptions);
 
     // Stage 1: direct structured extraction
     let { result: roster, lastError } = await generateWithFallback({ contents, config: { systemInstruction } }, acceptRoster);

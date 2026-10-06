@@ -68,3 +68,20 @@ test('a late finish from an evening duty gets a full sleep, not a short night cu
   const capped = sleepsAfter(earlyNext, '2026-10-09T00:00')[0];
   assert.ok(Date.parse(capped.endUtc) <= wake, 'ends before the next wake-up');
 });
+
+import { planHeadsUp } from '../src/services/planChanges';
+
+test('the heads-up is one sentence about today or tomorrow, most important first; later changes say nothing', () => {
+  const now = Date.parse('2026-10-03T08:00:00+05:30');
+  const late = roster([leg('6E 408', 'BLR', 'PNQ', '2026-10-03T22:00', 90), leg('6E 391', 'PNQ', 'BLR', '2026-10-04T00:10', 100)]);
+  const delayed = effectiveRoster(late, setDelay(late, [], late.flights[0].id, 90));
+  const sentence = planHeadsUp(plan(late), plan(delayed), now)!;
+  assert.equal(sentence, 'Your sleep tomorrow is now 05:20–10:20; last caffeine today is now 23:20.');
+  assert.ok(sentence.endsWith('.'));
+  // An early report the day after tomorrow is not a heads-up today
+  const later = roster([leg('6E 1', 'BLR', 'DEL', '2026-10-06T10:00', 160)]);
+  const earlier = roster([leg('6E 1', 'BLR', 'DEL', '2026-10-06T06:00', 160)]);
+  assert.equal(planHeadsUp(plan(later), plan(earlier), now), null);
+  // The same change seen the day before: the wake-up alarm comes first
+  assert.match(planHeadsUp(plan(later), plan(earlier), Date.parse('2026-10-05T12:00:00+05:30'))!, /^Your wake-up alarm tomorrow moves to \d\d:\d\d \(was \d\d:\d\d\)/);
+});

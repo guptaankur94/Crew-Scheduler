@@ -69,14 +69,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortLabel: 'Salary',
       icon: <DollarSign className="h-4 w-4" />,
       desc: 'Estimated pay from your roster',
-      badge: `~${salaryBreakdown.currencySymbol.trim()}${Math.round(salaryBreakdown.totalEarnings / 1000)}k`,
+      // No estimate without a roster (a blank slate shows no pay)
+      badge: plan.dailySummaries.some((d) => !d.outsideRoster) ? `~${salaryBreakdown.currencySymbol.trim()}${Math.round(salaryBreakdown.totalEarnings / 1000)}k` : undefined,
     },
     {
       id: 'upload',
-      label: 'Roster & History',
-      shortLabel: 'Upload',
+      label: 'Rosters',
+      shortLabel: 'Rosters',
       icon: <UploadCloud className="h-4 w-4" />,
-      desc: 'Upload, History & Presets',
+      desc: 'Upload, re-read or remove',
     },
     {
       id: 'settings',

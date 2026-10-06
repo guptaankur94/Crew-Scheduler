@@ -54,12 +54,16 @@ export const Header: React.FC<HeaderProps> = ({
     iata: roster.homeBase,
   };
 
-  // Current location: the destination of the last flight that has already landed
+  // Current location: where the last landed flight went, while the roster keeps you there (the next flight
+  // leaves from it) or it landed in the last 48 hours; otherwise home (e.g. after a roster ends mid-trip)
   const nowMs = time.getTime();
-  const activeFlight = [...roster.flights]
-  .filter((f) => Date.parse(f.arrivalTimeUtc) <= nowMs)
-  .sort((a, b) => Date.parse(b.arrivalTimeUtc) - Date.parse(a.arrivalTimeUtc))[0];
-  const isAway = !!activeFlight && activeFlight.destination !== roster.homeBase;
+  const byTime = [...roster.flights].sort((a, b) => Date.parse(a.departureTimeUtc) - Date.parse(b.departureTimeUtc));
+  const activeFlight = [...byTime].reverse().find((f) => Date.parse(f.arrivalTimeUtc) <= nowMs);
+  const nextFlight = byTime.find((f) => Date.parse(f.departureTimeUtc) > nowMs);
+  const isAway =
+    !!activeFlight &&
+    activeFlight.destination !== roster.homeBase &&
+    (nextFlight ? nextFlight.origin === activeFlight.destination : nowMs - Date.parse(activeFlight.arrivalTimeUtc) < 48 * 3600000);
   const localAirport = isAway
     ? {
         city: lookupAirport(activeFlight.destination)?.city || activeFlight.destinationCity || activeFlight.destination,

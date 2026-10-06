@@ -435,13 +435,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
             {isOffDay ? (
               <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-emerald-300 text-sm">
-                  <span>🏖️ Designated Rest & Sleep Banking Day (WKOFF)</span>
+                  <span>🏖️ Day off</span>
                 </div>
                 <p className="text-slate-300 leading-relaxed text-[11px]">
-                  No flights or airport duties scheduled. Essential for restoring neurobehavioral vigilance and repaying sleep debt accumulated from previous flight rotations.
+                  No flights or duties today. A good day to catch up on any sleep you missed during your last duties.
                 </p>
                 <div className="rounded bg-slate-950/60 p-2 text-[10px] text-emerald-400 font-mono border border-emerald-900/30">
-                  Clinical Rule: Keep home base sleep and meal schedule consistent today to prevent circadian drift.
+                  Tip: keep to your usual home-time sleep and meals today, so your body clock stays steady.
                 </div>
               </div>
             ) : flightEvents.length === 0 ? (
@@ -705,12 +705,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
                             </span>
                             <span className="text-white font-extrabold">
                               {endWeekday}, {endDateAviation} • {event.endHbtStr} HBT{' '}
-                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : 'Duty Morning'})</span>
+                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : isOffDay ? 'Next morning' : 'Duty morning'})</span>
                             </span>
                           </div>
                           {isPriorDayBedtime && (
                             <p className="text-[10px] text-amber-300/90 pt-1 border-t border-slate-900 font-sans">
-                              💡 <strong>Operational Strategy:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.floor(event.durationMinutes / 60)}h rest finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
+                              💡 <strong>Why the evening before:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.round(event.durationMinutes / 30) / 2}h sleep finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
                             </p>
                           )}
                         </div>

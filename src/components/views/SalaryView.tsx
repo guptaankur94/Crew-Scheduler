@@ -41,6 +41,7 @@ export const SalaryView: React.FC<SalaryViewProps> = ({ plan, onUpdatePreference
   if (valid && (lastValid.start !== range.start || lastValid.end !== range.end)) setLastValid(range);
 
   const stats = useMemo(() => computePeriodStats(plan, valid ? range : lastValid), [plan, range, lastValid, valid]);
+  const [showRates, setShowRates] = useState(false);
   const days = Math.round((toMs(stats.end) - toMs(stats.start)) / DAY_MS) + 1;
 
   const presets: { label: string; period?: Period }[] = [
@@ -136,7 +137,18 @@ export const SalaryView: React.FC<SalaryViewProps> = ({ plan, onUpdatePreference
         </p>
       </div>
 
-      <SalarySection plan={periodPlan} onUpdatePreferences={onUpdatePreferences} isModal={false} />
+      {/* No roster for these dates: no estimate (pay rates can still be set) */}
+      {stats.rosterDays === 0 && (
+        <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
+          <p>No roster for these dates, so there is no pay estimate. Upload your roster to see one.</p>
+          {!showRates && (
+            <button onClick={() => setShowRates(true)} className="text-xs font-semibold text-slate-400 hover:text-white">
+              Set your pay rates
+            </button>
+          )}
+        </div>
+      )}
+      {(stats.rosterDays > 0 || showRates) && <SalarySection plan={periodPlan} onUpdatePreferences={onUpdatePreferences} isModal={false} />}
     </div>
   );
 };

@@ -493,22 +493,28 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </h3>
             </div>
             <span className="text-[11px] font-mono text-slate-400">
-              {isOffDay ? 'Rest Day' : `${flightEvents.filter((e) => e.type === 'flight').length} Sector(s)`}
+              {activeDaySummary?.outsideRoster ? 'No roster' : isOffDay ? 'Rest Day' : `${flightEvents.filter((e) => e.type === 'flight').length} Sector(s)`}
             </span>
           </div>
 
           <div className="space-y-2.5">
-            {isOffDay ? (
+            {activeDaySummary?.outsideRoster ? (
+              // Not on any roster (e.g. before a roster starts, or after every roster was removed): no duty claims
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-300">
+                <p className="font-bold text-white">No roster for this day</p>
+                <p className="mt-1 leading-relaxed text-slate-400">Your usual home-time sleep, meals and caffeine are shown. Upload your roster to see duties for this day.</p>
+              </div>
+            ) : isOffDay ? (
               <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-xs space-y-1.5">
                 <div className="flex items-center gap-2 font-bold text-emerald-300">
                   <span className="text-base">🏖️</span>
-                  <span>Designated Rest & Sleep Banking Day (WKOFF)</span>
+                  <span>Day off</span>
                 </div>
                 <p className="text-slate-300 leading-relaxed text-[11px]">
-                  No flights or airport duties scheduled. Essential for restoring neurobehavioral vigilance and repaying sleep debt accumulated from previous flight rotations.
+                  No flights or duties today. A good day to catch up on any sleep you missed during your last duties.
                 </p>
                 <div className="rounded bg-slate-950/50 p-2 text-[10px] text-emerald-400 font-mono mt-2 border border-emerald-900/30">
-                  Clinical Rule: Keep home base sleep and meal schedule consistent today to prevent circadian drift.
+                  Tip: keep to your usual home-time sleep and meals today, so your body clock stays steady.
                 </div>
 
                 {/* Standby Callout Button on Rest / Standby Day */}
@@ -840,12 +846,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                             </span>
                             <span className="text-white font-extrabold">
                               {endWeekday}, {endDateAviation} • {event.endHbtStr} HBT{' '}
-                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : 'Duty Morning'})</span>
+                              <span className="text-sky-400 font-sans font-bold">({endWeekday === startWeekday ? 'Today' : isOffDay ? 'Next morning' : 'Duty morning'})</span>
                             </span>
                           </div>
                           {isPriorDayBedtime && (
                             <p className="text-[10px] text-amber-300/90 pt-1 border-t border-slate-900 font-sans">
-                              💡 <strong>Operational Strategy:</strong> Sleep commences the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.floor(event.durationMinutes / 60)}h rest finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
+                              💡 <strong>Why the evening before:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr} HBT) so that your {Math.round(event.durationMinutes / 30) / 2}h sleep finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.
                             </p>
                           )}
                         </div>

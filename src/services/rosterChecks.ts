@@ -10,6 +10,8 @@ import { lookupAirport } from '../data/airports';
 export interface RosterIssue {
   level: 'problem' | 'check';
   message: string;
+  /** Set for issues the app can offer a one-tap fix for. */
+  fix?: { kind: 'reread_local'; airport: string; flightIds: string[] };
 }
 
 const MIN = 60_000;
@@ -21,9 +23,9 @@ const LATE_RELEASE_MINUTES = 120;
 
 export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssue[]> {
   const issues = new Map<string, RosterIssue[]>();
-  const add = (id: string, level: RosterIssue['level'], message: string) => {
+  const add = (id: string, level: RosterIssue['level'], message: string, fix?: RosterIssue['fix']) => {
     const list = issues.get(id) ?? [];
-    list.push({ level, message });
+    list.push(fix ? { level, message, fix } : { level, message });
     issues.set(id, list);
   };
 
@@ -86,8 +88,9 @@ export function checkRosterFlights(flights: FlightLeg[]): Map<string, RosterIssu
       if (zoneGap >= 1 && Math.abs(out - back) > OUT_AND_BACK_TOLERANCE_MINUTES) {
         const h = (m: number) => `${Math.floor(m / 60)}h${String(Math.round(m % 60)).padStart(2, '0')}`;
         const msg = `${prev.origin}→${prev.destination} takes ${h(out)} but the return takes ${h(back)}: the ${prev.destination} times may be in the wrong time zone (${prev.destination} is ${prev.destTzOffset >= 0 ? '+' : ''}${prev.destTzOffset}h from UTC). Check against your roster.`;
-        add(prev.id, 'check', msg);
-        add(f.id, 'check', msg);
+        const fix = { kind: 'reread_local' as const, airport: prev.destination, flightIds: [prev.id, f.id] };
+        add(prev.id, 'check', msg, fix);
+        add(f.id, 'check', msg, fix);
       }
     }
   });

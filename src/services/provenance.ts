@@ -12,7 +12,8 @@ const shorten = (title: string) => (title.length > 36 ? `${title.slice(0, 33)}�
 const fromUpload = (src: ImportSource) => `From ${shorten(src.title)}, uploaded ${when(src.at)}`;
 
 export function flightSource(f: FlightLeg): string | null {
-  const base = baseSource(f);
+  const read = baseSource(f);
+  const base = f.correctedByUser ? (read ? `${read} · corrected by you` : 'Corrected by you') : read;
   if (!f.operationalDelay) return base;
   const delay = `delayed +${f.operationalDelay.minutes} min (you)`;
   return base ? `${base} · ${delay}` : `Rostered flight · ${delay}`;

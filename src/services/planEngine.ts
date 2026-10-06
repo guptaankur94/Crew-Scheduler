@@ -48,7 +48,14 @@ export const SLEEP_LOG_VALID_HOURS = 48;
 export const LATE_BED_UNTIL_HOUR = 4;
 
 /** The usual home-time bedtime for this person. */
+/** Bedtime on normal nights (home time, hours): the person's own when set, else the chronotype default. */
 export function usualBedtimeHour(preferences: CrewPreferences): number {
+  const m = preferences.usualBedtime?.match(/^(\d{2}):(\d{2})$/);
+  if (m) {
+    const h = Number(m[1]) + Number(m[2]) / 60;
+    // Bedtimes after midnight (e.g. 00:30) are counted as the same evening's night
+    return h < 12 ? h + 24 : h;
+  }
   return DEFAULT_BEDTIME_HOUR + (CHRONOTYPE_BEDTIME_SHIFT_HOURS[preferences.chronotype] ?? 0);
 }
 
@@ -307,8 +314,18 @@ export function planRange(duties: Duty[], roster: RosterData, clock: HomeClock, 
   const today = clock.date(now.getTime());
   const lastUsualDay = clock.addDays(today, USUAL_RHYTHM_DAYS_AHEAD - 1);
   if (duties.length === 0) {
-    const dates = Array.from({ length: USUAL_RHYTHM_DAYS_AHEAD }, (_, i) => clock.addDays(today, i));
-    return { dates, startMs: clock.at(today, 0), endMs: clock.at(clock.addDays(today, USUAL_RHYTHM_DAYS_AHEAD), 12), rosterDates: new Set() };
+    // No duties: the roster covers only what it still lists (days off, leave, home standby) or its printed
+    // dates; with nothing at all (e.g. every roster removed) no day is a roster day, a blank slate
+    const listed = [...(roster.otherDuties ?? []).map((d) => d.date), ...(roster.standbyDuties ?? []).map((s) => clock.date(Date.parse(s.startUtc)))].sort();
+    const from = roster.periodStart ?? listed[0];
+    const to = roster.periodEnd ?? listed[listed.length - 1];
+    const rosterDates = new Set<string>();
+    if (from && to) for (let d = from; d <= to; d = clock.addDays(d, 1)) rosterDates.add(d);
+    const first = [today, ...(from ? [from] : [])].sort()[0];
+    const last = [lastUsualDay, ...(to ? [to] : [])].sort().pop()!;
+    const dates: string[] = [];
+    for (let d = first; d <= last; d = clock.addDays(d, 1)) dates.push(d);
+    return { dates, startMs: clock.at(clock.addDays(first, -1), 12), endMs: clock.at(clock.addDays(last, 1), 12), rosterDates };
   }
   const rosterFirst = clock.date(duties[0].startMs);
   let rosterLast = clock.addDays(clock.date(duties[duties.length - 1].endMs), 1);

@@ -166,7 +166,8 @@ export function generateCircadianPlan(
 
     const flightDutyDate = dutyDateByFlight.get(flight.id) ?? clock.date(Date.parse(flight.reportTimeUtc));
 
-    events.push({
+    // Only the first sector of a duty has a check-in of its own (see dutyTimes)
+    if (reportDur > 0) events.push({
       id: `duty-report-${flight.id}`,
       dutyDate: flightDutyDate,
       type: 'duty_ground',
@@ -252,7 +253,8 @@ export function generateCircadianPlan(
     const debriefEnd = flight.releaseTimeUtc;
     const debriefDur = Math.round((new Date(debriefEnd).getTime() - new Date(debriefStart).getTime()) / 60000);
 
-    events.push({
+    // Only the last sector of a duty has a sign-off of its own
+    if (debriefDur > 0) events.push({
       id: `duty-release-${flight.id}`,
       dutyDate: flightDutyDate,
       type: 'duty_ground',
@@ -406,7 +408,8 @@ export function generateCircadianPlan(
       fatigueRiskLevel: level === 'harder' ? 'high' : level === 'watch' ? 'moderate' : 'low',
       keyGuidance: guidance,
       outlook,
-      outsideRoster: roster.flights.length > 0 && !range.rosterDates.has(dateStr),
+      // A day is a roster day only when the roster covers it; with no roster at all, every day is outside it
+      outsideRoster: !range.rosterDates.has(dateStr),
       prepDetails: dayPrepMap.get(dateStr),
       layoverStation,
     };

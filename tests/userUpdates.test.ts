@@ -209,3 +209,13 @@ test('a cancelled flight stays in the roster, leaves the plan, and can be reinst
   u = reinstateFlight(u, cancelledFlights(r, u)[0].sectorKey);
   assert.equal(effectiveRoster(r, u).flights.length, 3);
 });
+
+test('the day panel lists the person\'s updates per day in plain words', async () => {
+  const { updateLinesByDate, cancelFlight } = await import('../src/services/userUpdates');
+  const r = day();
+  let u = setDelay(r, [], r.flights[0].id, 45);
+  u = cancelFlight(r, u, r.flights[2].id);
+  const lines = updateLinesByDate(r, u);
+  assert.deepEqual(lines.get('2026-10-02'), ['Delayed +45 min: 6E408 BLR→PNQ', 'Delayed +45 min: 6E391 PNQ→BLR']);
+  assert.deepEqual(lines.get('2026-10-03'), ['Cancelled: 6E9 BLR→MAA']);
+});

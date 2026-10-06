@@ -449,6 +449,8 @@ export function describeChanges(diff: RosterDiff, clock: HomeClock): HistoryDayC
 export interface RosterUpdateInfo {
   changedDates: string[];
   changes: HistoryDayChange[];
+  /** Restoring an upload with "also clear my updates": the person's updates on these dates are removed. */
+  clearUpdatesOn?: string[];
 }
 
 // ─── Combining several files of one upload ─────────────────────────────────────

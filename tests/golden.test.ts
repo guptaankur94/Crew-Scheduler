@@ -92,3 +92,21 @@ test('daylight saving: a London arrival printed in local time uses summer or win
   assert.equal(at('2026-10-24'), '17:00', 'British Summer Time (UTC+1) before 25 October 2026');
   assert.equal(at('2026-10-26'), '18:00', 'GMT (UTC+0) after the clocks go back');
 });
+
+test('daylight saving: a London-based crew member keeps local wall-clock times across the clocks going back', () => {
+  const leg = (id: string, depZ: string, arrZ: string): FlightLeg => ({
+    id, flightNumber: id, origin: 'LHR', destination: 'MAD', departureTimeUtc: depZ, arrivalTimeUtc: arrZ,
+    reportTimeUtc: new Date(ms(depZ) - 3600000).toISOString(), releaseTimeUtc: new Date(ms(arrZ) + 1800000).toISOString(),
+    originTzOffset: 0, destTzOffset: 1, durationMinutes: 150,
+  });
+  const london: RosterData = {
+    id: 'lhr', airline: 'T', homeBase: 'LHR', homeBaseTzOffset: 1, layovers: [], parsedAt: '', periodStart: '2026-10-22', periodEnd: '2026-10-28',
+    // 07:00 London time on both days: BST (UTC+1) on the 24th, GMT (UTC+0) on the 26th
+    flights: [leg('A', '2026-10-24T06:00:00Z', '2026-10-24T08:30:00Z'), leg('B', '2026-10-26T07:00:00Z', '2026-10-26T09:30:00Z')],
+  };
+  const p = generateCircadianPlan(london, { ...prefs, homeBaseIata: 'LHR', homeBaseTzOffset: 1 });
+  const flights = p.events.filter((e) => e.type === 'flight').map((e) => `${e.dutyDate} ${e.startHbtStr}`);
+  assert.deepEqual(flights, ['2026-10-24 07:00', '2026-10-26 07:00']);
+  const checkIns = p.events.filter((e) => e.type === 'pre_flight_prep').map((e) => e.prepDetails?.reportHbt);
+  assert.deepEqual(checkIns, ['06:00', '06:00']);
+});

@@ -59,7 +59,6 @@ import {
   Calendar,
   UploadCloud,
   DollarSign,
-  Sliders,
   CalendarDays,
 } from 'lucide-react';
 
@@ -407,11 +406,6 @@ export default function App() {
   // Duty-limit check: the roster as published plus recorded callouts, cancellations and standby changes (not delays)
   const limitsRoster = useMemo(() => effectiveRoster(roster, userUpdates.filter((u) => u.kind !== 'delay')), [roster, userUpdates]);
 
-  // Tactical Duty Action 2: Delay Sector (adds to any delay already reported)
-  const handleDelaySector = (flightId: string, delayMinutes: number) => {
-    handleSetDelay(flightId, delayFor(userUpdates, keyOfFlight(roster, flightId, userUpdates)) + delayMinutes);
-  };
-
   // Tactical Duty Action 3: Standby callout. It is the person's update, linked to that day's standby,
   // which then ends at the callout's report time. Without a standby that day it is still kept as a callout.
   const handleAddStandbyFlight = (calledOut: FlightLeg) => {
@@ -618,14 +612,26 @@ export default function App() {
               onCancelSector={handleCancelSector}
               cancelledFlights={cancelledFlights(roster, userUpdates)}
               onReinstateFlight={handleReinstateFlight}
-              onDelaySector={handleDelaySector}
               onDeleteSector={handleDeleteSector}
               onAddStandbyFlight={handleAddStandbyFlight}
-              renderStandbyEdit={(dateStr) => {
+              renderStandbyEdit={(dateStr, standbyEvents) => {
                 const clock = rosterClock(roster);
                 return (roster.standbyDuties ?? [])
                   .filter((s) => standbyHomeDate(s, clock) === dateStr)
-                  .map((s) => <StandbyCard key={s.id} roster={roster} standby={s} update={standbyUpdate(userUpdates, keyOfStandby(roster, s.id))} onChange={handleStandbyChange} />);
+                  .map((s) => {
+                    const event = standbyEvents.find((e) => e.id === `standby-${s.id}`);
+                    return (
+                      <StandbyCard
+                        key={s.id}
+                        roster={roster}
+                        standby={s}
+                        update={standbyUpdate(userUpdates, keyOfStandby(roster, s.id))}
+                        onChange={handleStandbyChange}
+                        advice={event?.subtitle}
+                        onWhy={event ? () => setSelectedEvent(event) : undefined}
+                      />
+                    );
+                  });
               }}
               renderDelayEdit={(flightId) => {
                 const flight = allFlights(roster, userUpdates).find((f) => f.id === flightId);

@@ -4,6 +4,7 @@ import { FlightLeg, RosterData, StandbyDuty, UserUpdate } from '../types/circadi
 import { rosterClock } from '../services/rosterKeys';
 import { airportLocalToUtc } from '../data/airports';
 import { buildManualFlight } from '../services/manualFlight';
+import { standbySource } from '../services/provenance';
 import { TimeInput24, isValidTime24 } from './TimeInput24';
 
 /**
@@ -23,6 +24,9 @@ interface Props {
   standby: StandbyDuty; // rostered standby
   update?: UserUpdate;
   onChange: (standbyId: string, change: StandbyChange) => void;
+  /** What to do during this standby (from the plan), and a link to why. */
+  advice?: string;
+  onWhy?: () => void;
 }
 
 type Mode = 'none' | 'callout' | 'released' | 'times';
@@ -34,7 +38,7 @@ interface SectorDraft {
   arr: string;
 }
 
-export const StandbyCard: React.FC<Props> = ({ roster, standby, update, onChange }) => {
+export const StandbyCard: React.FC<Props> = ({ roster, standby, update, onChange, advice, onWhy }) => {
   const clock = rosterClock(roster);
   const t = (iso: string) => clock.time(Date.parse(iso));
   const date = clock.date(Date.parse(standby.startUtc));
@@ -120,6 +124,13 @@ export const StandbyCard: React.FC<Props> = ({ roster, standby, update, onChange
             {standby.kind === 'home' ? 'Home standby' : 'Airport standby'} {t(standby.startUtc)}–{t(standby.endUtc)}
             <span className="text-xs font-normal text-slate-500">rostered</span>
           </p>
+          {advice && <p className="text-xs text-slate-300">{advice}</p>}
+          {standbySource(standby) && <p className="text-[10px] text-slate-500">Source: {standbySource(standby)}</p>}
+          {onWhy && (
+            <button onClick={onWhy} className="text-[11px] text-slate-400 underline decoration-slate-700 underline-offset-2 hover:text-slate-200">
+              Why?
+            </button>
+          )}
           {status && <p className="text-xs text-amber-300">{status}</p>}
           {status && <p className="text-[11px] text-slate-500">Your plan uses this. The rostered standby stays as published.</p>}
         </div>

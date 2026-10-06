@@ -373,7 +373,7 @@ export function generateCircadianPlan(
         city: lookupAirport(lastDayFlight.destination)?.city || lastDayFlight.destinationCity || lastDayFlight.destination,
       };
       const tzDiff = lastDayFlight.destTzOffset - clock.offsetAt(Date.parse(lastDayFlight.arrivalTimeUtc));
-      const tzDiffStr = tzDiff === 0 ? 'Same as HBT' : `${tzDiff > 0 ? '+' : ''}${tzDiff}h vs Home`;
+      const tzDiffStr = tzDiff === 0 ? 'Same time as home' : `${tzDiff > 0 ? '+' : ''}${tzDiff}h vs home`;
       layoverStation = {
         city: destAirport.city,
         iata: destAirport.iata,

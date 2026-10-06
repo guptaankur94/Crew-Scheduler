@@ -7,13 +7,9 @@ import {
   X,
   PlusCircle,
   AlertTriangle,
-  Clock,
-  Calendar,
-  Sparkles,
-  CheckCircle2,
 } from 'lucide-react';
 
-export type TacticalModalType = 'standby_callout' | 'cancel_sector' | 'delay_sector';
+export type TacticalModalType = 'standby_callout' | 'cancel_sector';
 
 interface TacticalDutyModalProps {
   type: TacticalModalType;
@@ -22,7 +18,6 @@ interface TacticalDutyModalProps {
   homeBase?: string;
   onAddStandbyFlight: (newFlight: FlightLeg) => void;
   onCancelSector: (flightId: string) => void;
-  onDelaySector: (flightId: string, delayMinutes: number) => void;
   onClose: () => void;
 }
 
@@ -33,7 +28,6 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
   homeBase = 'DEL',
   onAddStandbyFlight,
   onCancelSector,
-  onDelaySector,
   onClose,
 }) => {
   // Standby Callout form state
@@ -45,8 +39,7 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
   const [arrTime, setArrTime] = useState('16:45');
   const [formError, setFormError] = useState<string | null>(null);
   
-  // Delay form state
-  const [delayMinutes, setDelayMinutes] = useState(60);
+
 
   const handleStandbySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,12 +61,6 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
     }
 
     onAddStandbyFlight(result.flight);
-    onClose();
-  };
-
-  const handleDelaySubmit = () => {
-    if (!flight) return;
-    onDelaySector(flight.id, delayMinutes);
     onClose();
   };
 
@@ -99,21 +86,14 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
                 <AlertTriangle className="h-5 w-5" />
               </div>
             )}
-            {type === 'delay_sector' && (
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/20 text-sky-400">
-                <Clock className="h-5 w-5" />
-              </div>
-            )}
             <div>
               <h3 className="font-bold text-white text-base">
-                {type === 'standby_callout' && 'Standby Callout: Add Flight Duty'}
-                {type === 'cancel_sector' && 'Tactical Duty Modification: Cancel Sector'}
-                {type === 'delay_sector' && `Flight Delay Adjustment: ${flight?.flightNumber}`}
+                {type === 'standby_callout' && 'Add a callout flight'}
+                {type === 'cancel_sector' && 'Cancel this flight'}
               </h3>
               <p className="text-xs text-slate-400">
-                {type === 'standby_callout' && 'Crew dispatch called you out for a flight. Add it to update sleep & pay.'}
+                {type === 'standby_callout' && 'Crew control called you out for a flight. Add it to update your sleep plan and pay.'}
                 {type === 'cancel_sector' && 'Flight cancelled? Your plan will leave it out.'}
-                {type === 'delay_sector' && 'Recalculate rest and fatigue limits based on new departure time.'}
               </p>
             </div>
           </div>
@@ -270,58 +250,12 @@ export const TacticalDutyModal: React.FC<TacticalDutyModalProps> = ({
                 onClick={handleCancelSubmit}
                 className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition-colors"
               >
-                <span>Confirm Tactical Change</span>
+                <span>Mark as cancelled</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* DELAY SECTOR FORM */}
-        {type === 'delay_sector' && flight && (
-          <div className="space-y-4 text-xs">
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-              <span className="font-mono font-bold text-white text-sm">{flight.flightNumber}</span>
-              <span className="text-slate-400 ml-2">({flight.origin} ➔ {flight.destination})</span>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2">
-                Select Delay Duration:
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {[30, 60, 90, 120].map((mins) => (
-                  <button
-                    key={mins}
-                    onClick={() => setDelayMinutes(mins)}
-                    className={`py-2 rounded-xl font-mono text-xs font-bold border transition-all ${
-                      delayMinutes === mins
-                        ? 'border-sky-500 bg-sky-600 text-white shadow-sm'
-                        : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
-                    }`}
-                  >
-                    +{mins}m
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 rounded-xl border border-slate-800 hover:bg-slate-900 text-slate-300 font-semibold"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelaySubmit}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition-colors"
-              >
-                <Clock className="h-4 w-4" />
-                <span>Apply +{delayMinutes}m Delay</span>
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

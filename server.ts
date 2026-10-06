@@ -179,7 +179,7 @@ CRITICAL EXTRACTION RULES:
     }
   ],
   "standby": [
-    { "type": "home", "airport": "DEL", "date": "YYYY-MM-DD", "startTime": "HH:MM", "endTime": "HH:MM" }
+    { "type": "home", "code": "SBY", "airport": "DEL", "date": "YYYY-MM-DD", "startTime": "HH:MM", "endTime": "HH:MM" }
   ],
   "otherDuties": [
     { "type": "off", "date": "YYYY-MM-DD", "code": "OFF" }

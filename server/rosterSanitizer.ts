@@ -2,6 +2,7 @@ import { getAirportTzOffset, lookupAirport } from '../src/data/airports';
 import type { FlightLeg, OtherDuty, StandbyDuty } from '../src/types/circadian';
 import { convertPrinted, normaliseClock, PrintedTimes, TimeConvention } from '../src/services/rosterTimes';
 import { normalizeDutyTimes } from '../src/services/dutyTimes';
+import { dayKindForCode, standbyKindForCode } from '../src/services/rosterCodes';
 
 export interface SanitizedRoster {
   airline: string;
@@ -44,7 +45,9 @@ function sanitizeOtherDuties(raw: unknown, now: Date, stamp: number): OtherDuty[
     if (!d || typeof d !== 'object' || typeof d.date !== 'string' || !DATE_RE.test(d.date)) return;
     const day = Date.parse(`${d.date}T12:00:00Z`);
     if (!Number.isFinite(day) || Math.abs(day - now.getTime()) > 2 * 365 * 24 * 3600000) return;
-    const kind: OtherDuty['kind'] = OTHER_KINDS.includes(d.type) ? d.type : 'other';
+    // A known printed code decides the kind (the same code always means the same thing); otherwise the reader's choice
+    const code = typeof d.code === 'string' && d.code.trim() ? d.code.trim().slice(0, 12) : undefined;
+    const kind: OtherDuty['kind'] = dayKindForCode(code) ?? (OTHER_KINDS.includes(d.type) ? d.type : 'other');
     const key = `${kind}-${d.date}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -52,7 +55,7 @@ function sanitizeOtherDuties(raw: unknown, now: Date, stamp: number): OtherDuty[
       id: `other-${stamp}-${i}`,
       kind,
       date: d.date,
-      code: typeof d.code === 'string' && d.code.trim() ? d.code.trim().slice(0, 12) : undefined,
+      code,
     });
   });
   return out.sort((a, b) => a.date.localeCompare(b.date));
@@ -221,7 +224,8 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), option
     }
     standby.push({
       id: `standby-${batchStamp}-${i}`,
-      kind: sb.type === 'airport' ? 'airport' : 'home',
+      // A known printed code decides home or airport standby; otherwise the reader's choice
+      kind: standbyKindForCode(typeof sb.code === 'string' ? sb.code : undefined) ?? (sb.type === 'airport' ? 'airport' : 'home'),
       airport: IATA_RE.test(airport) ? airport : '',
       startUtc: start.toISOString(),
       endUtc: end.toISOString(),

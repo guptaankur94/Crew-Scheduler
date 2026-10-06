@@ -221,3 +221,39 @@ test('an in-flight rest choice is saved by stable key, so it still applies after
   assert.equal(reuploaded, first);
   assert.notEqual(napStart(roster([longHaul()]), { ...prefs, bunkShiftAssignments: { [key]: 'shift1' } }), first, 'the choice changes the plan');
 });
+
+// ── Two rosters in one upload, or an older roster uploaded again ──
+
+import { combineFiles } from '../src/services/rosterDiff';
+
+const sepFile = (): UploadContent => ({ flights: september(), periodStart: '2026-09-01', periodEnd: '2026-09-30', visibleDates: [...Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, '0')}`), '2026-10-01', '2026-10-02'] });
+const octFile = (): UploadContent => ({ flights: october(), periodStart: '2026-10-01', periodEnd: '2026-10-31', visibleDates: octDates(1, 31) });
+const octStats = (r: RosterData) => computePeriodStats(generateCircadianPlan(r, prefs), { start: '2026-10-01', end: '2026-10-31' });
+
+test('September and October uploaded together: each date comes from the roster whose own period covers it, in any order', () => {
+  for (const files of [[sepFile(), octFile()], [octFile(), sepFile()]]) {
+    const { content } = combineFiles(files, clock);
+    assert.deepEqual(content.tailDates, [], '1–2 Oct are October’s own dates');
+    const after = importOver(roster([]), content).roster;
+    assert.equal(octStats(after).flyingHours, octoberHours);
+    assert.ok(after.flights.some((f) => f.flightNumber === '6E 105'), 'September kept');
+  }
+});
+
+test('an older roster uploaded again never overwrites the newer roster’s dates (its extra days only fill gaps)', () => {
+  const afterOct = { ...importOver(roster(september()), octFile()).roster, periodStart: '2026-09-01', periodEnd: '2026-10-31' };
+  const { content } = combineFiles([sepFile()], clock);
+  assert.deepEqual(content.tailDates, ['2026-10-01', '2026-10-02']);
+  const scope = importScope(content, afterOct, clock)!;
+  assert.deepEqual(scope.keptAsSaved, ['2026-10-01', '2026-10-02']);
+  const again = importOver(afterOct, content).roster;
+  assert.equal(octStats(again).flyingHours, octoberHours);
+  // With nothing saved for those dates yet, the extra days do fill in
+  assert.ok(importOver(roster([]), content).roster.flights.some((f) => clock.date(Date.parse(f.departureTimeUtc)) === '2026-10-02'));
+});
+
+test('two rosters without printed periods: the one starting later decides the dates both show', () => {
+  const noPeriod = (f: UploadContent): UploadContent => ({ flights: f.flights, visibleDates: f.visibleDates });
+  const { content } = combineFiles([noPeriod(sepFile()), noPeriod(octFile())], clock);
+  assert.equal(octStats(importOver(roster([]), content).roster).flyingHours, octoberHours);
+});

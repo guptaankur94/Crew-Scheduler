@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { CircadianEvent, CircadianPlan } from '../../types/circadian';
 import { ChevronLeft, ChevronRight, ChevronRight as RowArrow, FileSearch, X } from 'lucide-react';
 import { MonthSummary } from '../MonthSummary';
@@ -6,6 +6,9 @@ import { DateNavigator, statusOf } from '../DateNavigator';
 import { MasterRosterOverview } from '../MasterRosterOverview';
 import { computePeriodStats, periodContaining, periodLabel, shiftPeriod } from '../../services/periodStats';
 import { monthDayRows } from '../../services/monthDays';
+import { checkDutyLimits, RuleSetId } from '../../services/dutyLimits';
+import { DutyLimitsCard } from '../DutyLimitsCard';
+import { RosterData } from '../../types/circadian';
 
 /**
  * The Month screen: pick a month, read what kind of month it is, see it as a calendar and as a list
@@ -23,6 +26,8 @@ interface MonthViewProps {
   /** Whether the full roster table is open in place of the month overview. */
   showOriginal: boolean;
   onShowOriginalChange: (show: boolean) => void;
+  /** The roster as published plus the person's recorded changes except delays, for the duty-limit check. */
+  limitsRoster: RosterData;
 }
 
 const DISRUPTION_TAG = {
@@ -46,6 +51,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
   onSelectEvent,
   showOriginal,
   onShowOriginalChange: setShowOriginal,
+  limitsRoster,
 }) => {
   const { dailySummaries, preferences } = plan;
   const todayStr = new Date(Date.now() + preferences.homeBaseTzOffset * 3600000).toISOString().slice(0, 10);
@@ -53,6 +59,30 @@ export const MonthView: React.FC<MonthViewProps> = ({
   const period = useMemo(() => periodContaining(month, 1), [month]);
   const stats = useMemo(() => computePeriodStats(plan, period), [plan, period]);
   const rows = useMemo(() => monthDayRows(plan, stats), [plan, stats]);
+
+  // DGCA duty limits over the whole roster (totals need earlier days), shown for this month
+  const [ruleSet, setRuleSet] = useState<RuleSetId>(() => {
+    try {
+      return localStorage.getItem('crew_limits_rules_v1') === 'dgca-cc-v-draft' ? 'dgca-cc-v-draft' : 'dgca-cc-iv';
+    } catch {
+      return 'dgca-cc-iv';
+    }
+  });
+  const chooseRuleSet = (id: RuleSetId) => {
+    setRuleSet(id);
+    try {
+      localStorage.setItem('crew_limits_rules_v1', id);
+    } catch {
+      // Not remembered: it simply resets next time
+    }
+  };
+  const rosterDays = dailySummaries.filter((d) => !d.outsideRoster).map((d) => d.dateStr);
+  const limits = useMemo(
+    () => checkDutyLimits(limitsRoster, ruleSet, rosterDays.length ? { from: rosterDays[0], to: rosterDays[rosterDays.length - 1] } : undefined),
+    [limitsRoster, ruleSet, rosterDays[0], rosterDays[rosterDays.length - 1]]
+  );
+  const monthIssues = limits.issues.filter((i) => i.date >= period.start && i.date <= period.end);
+  const issueDates = new Set(monthIssues.map((i) => i.date));
 
   // The months the plan covers, so the picker stops at its ends
   const firstMonth = `${(dailySummaries[0]?.dateStr ?? todayStr).slice(0, 7)}-01`;
@@ -109,6 +139,11 @@ export const MonthView: React.FC<MonthViewProps> = ({
       {/* What kind of month this is */}
       <MonthSummary stats={stats} hideTitle />
 
+      {/* DGCA duty limits for this month */}
+      {rosterDays.length > 0 && (
+        <DutyLimitsCard report={limits} monthLabel={periodLabel(period)} issues={monthIssues} ruleSet={ruleSet} onRuleSetChange={chooseRuleSet} />
+      )}
+
       {/* Calendar */}
       <DateNavigator days={dailySummaries} selectedDate="" todayStr={todayStr} onSelect={onOpenDay} month={month} />
 
@@ -153,6 +188,9 @@ export const MonthView: React.FC<MonthViewProps> = ({
                               : OTHER_DAY_LABEL[kind] ?? status.label}
                             {row.code && <span className="text-slate-500">({row.code})</span>}
                           </span>
+                        )}
+                        {issueDates.has(row.dateStr) && (
+                          <span className="rounded-full border border-amber-600/60 bg-amber-950/30 px-2 py-0.5 text-[10px] font-semibold text-amber-200">Check limits</span>
                         )}
                         {row.disruption && (
                           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${DISRUPTION_TAG[row.disruption].className}`}>

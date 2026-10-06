@@ -11,7 +11,7 @@ import {
   ConflictResolutionChoice,
   RosterConflict,
 } from '../../services/rosterMerger';
-import { applyImport, combineScreenshots, describeChanges, diffRoster, hasNoChanges, importScope, rosterClock, RosterUpdateInfo, UploadContent } from '../../services/rosterDiff';
+import { applyImport, combineFiles, describeChanges, diffRoster, hasNoChanges, importScope, rosterClock, RosterUpdateInfo, UploadContent } from '../../services/rosterDiff';
 import { useWhatChanged } from '../WhatChangedDialog';
 import { RecentChanges } from '../RecentChanges';
 import { fileFingerprint, importedWith, rememberImport } from '../../services/importFingerprints';
@@ -207,6 +207,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const importedPeriodRef = useRef<{ start?: string; end?: string }>({});
   // Dates the documents in the current import actually show (blank and OFF days included)
   const importedVisibleRef = useRef<string[]>([]);
+  // Extra days shown beyond a roster's own period: they fill gaps but never replace what is saved
+  const importedTailRef = useRef<string[]>([]);
   const uploadContent = (flights: FlightLeg[]): UploadContent => ({
     flights,
     standby: importedStandbyRef.current,
@@ -214,6 +216,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     periodStart: importedPeriodRef.current.start,
     periodEnd: importedPeriodRef.current.end,
     visibleDates: importedVisibleRef.current,
+    tailDates: importedTailRef.current,
   });
   const hasOwnRoster = currentRoster.flights.length > 0 && !isViewingSample;
 
@@ -416,6 +419,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
     importedOtherRef.current = [];
     importedPeriodRef.current = {};
     importedVisibleRef.current = [];
+    importedTailRef.current = [];
+    // Each file's content kept apart, so overlapping rosters can be decided date by date (see combineFiles)
+    const fileContents: UploadContent[] = [];
     const batchWarnings: string[] = [];
     let detectedAirline = !isViewingSample && currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
     let detectedHomeBase = currentRoster.homeBase || 'DEL';
@@ -467,6 +473,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
           if (Array.isArray(result.data.otherDuties)) importedOtherRef.current.push(...result.data.otherDuties);
           importedPeriodRef.current = mergePeriodBounds(importedPeriodRef.current, result.data.periodStart, result.data.periodEnd);
           if (Array.isArray(result.data.visibleDates)) importedVisibleRef.current.push(...result.data.visibleDates);
+          fileContents.push({
+            flights,
+            standby: Array.isArray(result.data.standby) ? result.data.standby : [],
+            otherDuties: Array.isArray(result.data.otherDuties) ? result.data.otherDuties : [],
+            periodStart: result.data.periodStart,
+            periodEnd: result.data.periodEnd,
+            visibleDates: Array.isArray(result.data.visibleDates) ? result.data.visibleDates : [],
+          });
           breakdown.push({ fileName: currentItem.name, count: flights.length });
           if (Array.isArray(result.data.warnings) && result.data.warnings.length > 0) {
             const fileWarnings: string[] = result.data.warnings;
@@ -506,12 +520,15 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setIsParsingBatch(false);
     setCurrentProcessingIdx(-1);
 
-    // Overlapping screenshots: the same flight, standby or day is kept once (by stable key)
+    // Several files: each date is decided by the roster whose own period covers it (a newer roster wins), and
+    // screenshots of the same roster are merged with each flight, standby or day kept once (by stable key)
     const batchClock = rosterClock(hasOwnRoster ? currentRoster : { homeBase: detectedHomeBase, homeBaseTzOffset: detectedHomeBaseTzOffset });
-    const combined = combineScreenshots(allExtractedFlights, importedStandbyRef.current, importedOtherRef.current, batchClock);
-    allExtractedFlights.splice(0, allExtractedFlights.length, ...combined.flights);
-    importedStandbyRef.current = combined.standby;
-    importedOtherRef.current = combined.otherDuties;
+    const combined = combineFiles(fileContents, batchClock);
+    allExtractedFlights.splice(0, allExtractedFlights.length, ...combined.content.flights);
+    importedStandbyRef.current = combined.content.standby ?? [];
+    importedOtherRef.current = combined.content.otherDuties ?? [];
+    importedVisibleRef.current = combined.content.visibleDates ?? [];
+    importedTailRef.current = combined.content.tailDates ?? [];
     batchWarnings.push(...combined.warnings);
     if (combined.warnings.length) setParseWarnings((prev) => [...prev, ...combined.warnings]);
 
@@ -753,6 +770,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
         importedOtherRef.current = Array.isArray(result.data.otherDuties) ? result.data.otherDuties : [];
         importedPeriodRef.current = mergePeriodBounds({}, result.data.periodStart, result.data.periodEnd);
         importedVisibleRef.current = Array.isArray(result.data.visibleDates) ? result.data.visibleDates : [];
+        importedTailRef.current =
+          combineFiles(
+            [{ flights: result.data.flights || [], standby: importedStandbyRef.current, otherDuties: importedOtherRef.current, periodStart: result.data.periodStart, periodEnd: result.data.periodEnd, visibleDates: importedVisibleRef.current }],
+            rosterClock(currentRoster)
+          ).content.tailDates ?? [];
         const textWarnings: string[] = Array.isArray(result.data.warnings) ? result.data.warnings : [];
         setParseWarnings(textWarnings);
         if (hasOwnRoster && isAlreadyUpToDate(uploadContent(result.data.flights || []))) {

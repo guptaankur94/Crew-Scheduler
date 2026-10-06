@@ -28,6 +28,12 @@ export interface UploadContent {
   periodEnd?: string;
   /** Dates with their own row or cell in the document, from the reader. */
   visibleDates?: string[];
+  /**
+   * Dates shown only as extra days beyond a roster's own printed period (e.g. a September roster that also
+   * shows 1–2 Oct as planned at the time). They fill in dates the saved roster has nothing for, but never
+   * replace what is saved: the roster for those dates is the authority on them.
+   */
+  tailDates?: string[];
 }
 
 const DAY_MS = 86400000;
@@ -60,12 +66,14 @@ export interface ImportScope {
    * there is no list of shown dates to tell whether the day is now free. Asked, never assumed.
    */
   unclearDates: string[];
+  /** Extra days beyond the upload's own period that were left as saved, because the saved roster covers them. */
+  keptAsSaved: string[];
 }
 
 /** A printed period is treated as fully shown when at least this share of its dates are visible. */
 export const FULL_ROSTER_SHARE = 0.9;
 
-export function importScope(upload: UploadContent, saved: RosterData | null, clock: HomeClock): ImportScope | null {
+function importScopeRaw(upload: UploadContent, saved: RosterData | null, clock: HomeClock): Omit<ImportScope, 'keptAsSaved'> | null {
   const itemDates = new Set<string>([
     ...upload.flights.map((f) => flightHomeDate(f, clock)),
     ...(upload.standby ?? []).map((sb) => standbyHomeDate(sb, clock)),
@@ -94,6 +102,19 @@ export function importScope(upload: UploadContent, saved: RosterData | null, clo
   const savedDates = saved ? savedItemDates(saved, clock) : new Set<string>();
   const unclearDates = [...savedDates].filter((d) => d >= from && d <= to && !itemDates.has(d)).sort();
   return { kind: 'items_only', dates, unclearDates };
+}
+
+export function importScope(upload: UploadContent, saved: RosterData | null, clock: HomeClock): ImportScope | null {
+  const raw = importScopeRaw(upload, saved, clock);
+  if (!raw) return null;
+  // A roster's extra days beyond its own period never replace what is saved for those dates. A date counts
+  // as saved when the saved roster has an entry on it or covers it (a free day inside its period).
+  const savedDates = saved ? savedItemDates(saved, clock) : new Set<string>();
+  const insideSavedPeriod = (d: string) => !!saved?.periodStart && !!saved.periodEnd && d >= saved.periodStart && d <= saved.periodEnd;
+  const keep = new Set((upload.tailDates ?? []).filter((d) => savedDates.has(d) || insideSavedPeriod(d)));
+  if (!keep.size) return { ...raw, keptAsSaved: [] };
+  const drop = (list?: string[]) => list?.filter((d) => !keep.has(d));
+  return { ...raw, dates: drop(raw.dates)!, wholePeriod: drop(raw.wholePeriod), unclearDates: drop(raw.unclearDates)!, keptAsSaved: [...keep].sort() };
 }
 
 function savedItemDates(roster: RosterData, clock: HomeClock): Set<string> {
@@ -428,4 +449,60 @@ export function describeChanges(diff: RosterDiff, clock: HomeClock): HistoryDayC
 export interface RosterUpdateInfo {
   changedDates: string[];
   changes: HistoryDayChange[];
+}
+
+// ─── Combining several files of one upload ─────────────────────────────────────
+
+/**
+ * Several files in one upload, e.g. screenshots of one roster, or two rosters (September and October).
+ * Each date is decided by one roster:
+ * - a file "owns" the dates inside its printed period (without a printed period, every date it shows);
+ * - when several files own a date, the roster whose period starts latest wins (the newer roster); files with
+ *   the same period are screenshots of one roster and are merged;
+ * - a date only shown as an extra day beyond some roster's period is taken from the latest such roster and
+ *   marked as a tail date (it fills gaps but never replaces what is saved).
+ */
+export function combineFiles(files: UploadContent[], clock: HomeClock): { content: UploadContent; warnings: string[] } {
+  const info = files.map((f) => {
+    const shown = new Set<string>([
+      ...(f.visibleDates ?? []).filter(isDate),
+      ...f.flights.map((x) => flightHomeDate(x, clock)),
+      ...(f.standby ?? []).map((x) => standbyHomeDate(x, clock)),
+      ...(f.otherDuties ?? []).map((x) => x.date).filter(isDate),
+    ]);
+    const stated = isDate(f.periodStart) && isDate(f.periodEnd) && f.periodStart <= f.periodEnd;
+    const sorted = [...shown].sort();
+    return { f, shown, stated, start: stated ? f.periodStart! : sorted[0] ?? '', owns: (d: string) => (stated ? d >= f.periodStart! && d <= f.periodEnd! : shown.has(d)) };
+  });
+  const allDates = [...new Set(info.flatMap((x) => [...x.shown]))].sort();
+  const winnersByDate = new Map<string, typeof info>();
+  const tailDates: string[] = [];
+  for (const d of allDates) {
+    const owners = info.filter((x) => x.shown.has(d) && x.owns(d));
+    const candidates = owners.length ? owners : info.filter((x) => x.shown.has(d));
+    const latest = candidates.reduce((m, x) => (x.start > m ? x.start : m), '');
+    winnersByDate.set(d, candidates.filter((x) => x.start === latest));
+    if (!owners.length) tailDates.push(d);
+  }
+  const from = <T,>(get: (f: UploadContent) => T[], dateOf: (t: T) => string) =>
+    info.flatMap((x) => get(x.f).filter((t) => winnersByDate.get(dateOf(t))?.includes(x)));
+  const merged = combineScreenshots(
+    from((f) => f.flights, (t) => flightHomeDate(t, clock)),
+    from((f) => f.standby ?? [], (t) => standbyHomeDate(t, clock)),
+    from((f) => f.otherDuties ?? [], (t) => t.date),
+    clock
+  );
+  const starts = info.filter((x) => x.stated).map((x) => x.f.periodStart!).sort();
+  const ends = info.filter((x) => x.stated).map((x) => x.f.periodEnd!).sort();
+  return {
+    content: {
+      flights: merged.flights,
+      standby: merged.standby,
+      otherDuties: merged.otherDuties,
+      ...(starts.length ? { periodStart: starts[0], periodEnd: ends[ends.length - 1] } : {}),
+      visibleDates: [...new Set(info.flatMap((x) => (x.f.visibleDates ?? []).filter(isDate)))].sort(),
+      tailDates,
+    },
+    warnings: merged.warnings,
+  };
 }

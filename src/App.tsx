@@ -473,6 +473,9 @@ export default function App() {
     );
   };
 
+  // Duty-limit check: the roster as published plus recorded callouts, cancellations and standby changes (not delays)
+  const limitsRoster = useMemo(() => effectiveRoster(roster, userUpdates.filter((u) => u.kind !== 'delay')), [roster, userUpdates]);
+
   // The standby quick edits apply to: one starting within 24 hours, or in progress
   const todayStandby = standbyCandidate(roster, Date.now());
 
@@ -681,6 +684,7 @@ export default function App() {
               onChangeMonth={setMonthViewMonth}
               showOriginal={monthShowOriginal}
               onShowOriginalChange={setMonthShowOriginal}
+              limitsRoster={limitsRoster}
               onOpenDay={openDayInTimeline}
               onSelectEvent={setSelectedEvent}
             />

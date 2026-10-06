@@ -133,3 +133,12 @@ test('out and back to another time zone with very different flight times is flag
   ]);
   assert.equal(right.size, 0);
 });
+
+test('a release time long after landing is flagged for a second look', () => {
+  const dep = '2026-09-01T19:21:00Z';
+  const arr = '2026-09-01T21:53:00Z';
+  const issues = checkRosterFlights([
+    { id: 'x', flightNumber: '6E 2187', origin: 'BBI', destination: 'DEL', departureTimeUtc: dep, arrivalTimeUtc: arr, reportTimeUtc: '2026-09-01T18:21:00Z', releaseTimeUtc: '2026-09-02T02:23:00Z', originTzOffset: 5.5, destTzOffset: 5.5, durationMinutes: 152 },
+  ]);
+  assert.match(issues.get('x')![0].message, /Released 270 min after landing/);
+});

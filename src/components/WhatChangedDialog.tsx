@@ -107,6 +107,14 @@ export const WhatChangedDialog: React.FC<Props> = ({ saved, upload, scope, clock
             </div>
           )}
 
+          {/* Extra days beyond this roster's own period, left as saved */}
+          {scope.keptAsSaved.length > 0 && (
+            <p className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+              Kept as saved: {scope.keptAsSaved.map(dayTitle).join(', ')}. This roster only shows {scope.keptAsSaved.length === 1 ? 'that day' : 'those days'} as extra days beyond
+              its own period, and your saved roster already covers {scope.keptAsSaved.length === 1 ? 'it' : 'them'}.
+            </p>
+          )}
+
           {/* Dates the upload does not clearly show */}
           {scope.unclearDates.length > 0 && (
             <div className="space-y-2 rounded-xl border border-amber-800/60 bg-amber-950/20 p-3 text-sm">

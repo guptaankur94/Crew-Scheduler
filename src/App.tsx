@@ -47,6 +47,7 @@ import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
 import { RosterView } from './components/views/RosterView';
+import { Onboarding } from './components/Onboarding';
 import { TodayPreview } from './components/views/TodayPreview';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
@@ -137,7 +138,8 @@ export default function App() {
     return [];
   });
 
-  const [preferences, setPreferences] = useState<CrewPreferences>(savedState?.preferences ?? DEFAULT_PREFERENCES);
+  // A first visit (or after "Delete all my data") starts with the welcome steps
+  const [preferences, setPreferences] = useState<CrewPreferences>(savedState?.preferences ?? { ...DEFAULT_PREFERENCES, onboarding: 'pending' });
 
   const [customNudges, setCustomNudges] = useState<Record<string, number>>(
     savedPreset ? {} : savedState?.customNudges ?? {}
@@ -561,6 +563,15 @@ export default function App() {
           activeViewTitle={viewTitles[activeView]}
         />
 
+        {preferences.onboarding === 'pending' && (
+          <Onboarding
+            preferences={preferences}
+            onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
+            onChangeHomeBase={handleChangeHomeBase}
+            onFinish={(next) => navigateTo(next)}
+          />
+        )}
+
         {/* Main Content Workspace per Active View */}
         <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 flex-1">
           {/* A sample roster is never mistaken for the person's own */}
@@ -685,6 +696,7 @@ export default function App() {
               history={history}
               onUndoLatest={undoEntry ? handleUndoLatest : undefined}
               onRestoreHistoryEntry={handleRestoreRoster}
+              plan={plan}
             />
           )}
 

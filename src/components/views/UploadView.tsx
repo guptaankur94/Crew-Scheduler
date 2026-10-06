@@ -14,6 +14,7 @@ import { useWhatChanged } from '../WhatChangedDialog';
 import { TimeConvention } from '../../services/rosterTimes';
 import { normalizeDutyTimes } from '../../services/dutyTimes';
 import { daySignature } from '../../services/rosterFindings';
+import { apiFetch } from '../../services/platform';
 import { UploadedRosters } from '../UploadedRosters';
 import { fileFingerprint, importedWith, rememberImport } from '../../services/importFingerprints';
 import { addImportRecord, cleanSlate, ImportRecord, loadImportRecords, markRemoved, ownedDates, periodOf, recordsFromHistory, replaceRecordReading, visibleRecords, withoutDates } from '../../services/importRecords';
@@ -573,7 +574,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       try {
         const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(currentItem.file);
 
-        const response = await fetch('/api/roster/parse', {
+        const response = await apiFetch('/api/roster/parse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -793,7 +794,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
     try {
       const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(item.file);
-      const response = await fetch('/api/roster/parse', {
+      const response = await apiFetch('/api/roster/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -853,7 +854,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setParseWarnings([]);
 
     try {
-      const response = await fetch('/api/roster/parse', {
+      const response = await apiFetch('/api/roster/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rawText: text, timeConvention, homeBase: currentRoster.homeBase }),

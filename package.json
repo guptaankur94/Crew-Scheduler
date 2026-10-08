@@ -13,7 +13,10 @@
     "test": "tsx --test tests/*.test.ts",
     "rulebook": "tsx scripts/rulebook.ts",
     "app:sync": "vite build && cap sync",
-    "check": "tsc --noEmit && tsx --test tests/*.test.ts && vite build"
+    "check": "tsc --noEmit && tsx --test tests/*.test.ts && vite build",
+    "phone:live:ios": "cap run ios --live-reload --host localhost --port 3000",
+    "phone:live:android": "cap run android --live-reload --host localhost --port 3000 --forwardPorts 3000:3000",
+    "phone:release-sync": "npm run app:sync"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

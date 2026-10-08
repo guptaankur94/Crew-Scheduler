@@ -3,12 +3,6 @@ import { useAiConsent } from '../AiConsentDialog';
 import { useRosterReview } from '../RosterReviewDialog';
 import { RosterData, RosterHistoryEntry, FlightLeg, OtherDuty, StandbyDuty } from '../../types/circadian';
 import { RosterPreset } from '../../data/rosterPresets';
-import {
-  analyzeRosterMerge,
-  resolveAndMergeFlights,
-  ConflictResolutionChoice,
-  RosterConflict,
-} from '../../services/rosterMerger';
 import { applyImport, combineFiles, describeChanges, diffRoster, hasNoChanges, importScope, rosterClock, RosterUpdateInfo, UploadContent } from '../../services/rosterDiff';
 import { useWhatChanged } from '../WhatChangedDialog';
 import { TimeConvention } from '../../services/rosterTimes';
@@ -16,6 +10,8 @@ import { normalizeDutyTimes } from '../../services/dutyTimes';
 import { daySignature } from '../../services/rosterFindings';
 import { apiFetch } from '../../services/platform';
 import { UploadedRosters } from '../UploadedRosters';
+import { FilePreviewModal } from '../FilePreviewModal';
+import { determineMimeType, prepareFileForUpload } from '../../services/rosterFiles';
 import { fileFingerprint, importedWith, rememberImport } from '../../services/importFingerprints';
 import { addImportRecord, cleanSlate, ImportRecord, loadImportRecords, markRemoved, ownedDates, periodOf, recordsFromHistory, replaceRecordReading, visibleRecords, withoutDates } from '../../services/importRecords';
 import { deleteStoredFile, getStoredFile, keepFile, textFingerprint } from '../../services/fileStore';
@@ -33,19 +29,13 @@ import {
   RefreshCw,
   Clock,
   Trash2,
-  AlertTriangle,
   Files,
   X,
   Plus,
   ArrowRight,
-  UploadCloud,
-  FileCode,
   Eye,
   ZoomIn,
-  ChevronLeft,
-  ChevronRight,
   ShieldCheck,
-  GitMerge,
 } from 'lucide-react';
 
 interface UploadViewProps {
@@ -392,89 +382,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [previewModalIndex, setPreviewModalIndex] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Helper to determine clean MIME type
-  const determineMimeType = (file: File): string => {
-    if (file.type && file.type !== 'image/jpg') {
-      return file.type;
-    }
-    const name = file.name.toLowerCase();
-    if (name.endsWith('.pdf')) return 'application/pdf';
-    if (name.endsWith('.png')) return 'image/png';
-    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
-    if (name.endsWith('.webp')) return 'image/webp';
-    if (name.endsWith('.heic')) return 'image/heic';
-    if (name.endsWith('.heif')) return 'image/heif';
-    return 'image/png';
-  };
-
-  // Helper to optimize and convert images via Canvas before upload
-  const prepareFileForUpload = (file: File): Promise<{ base64Data: string; mimeType: string }> => {
-    return new Promise((resolve) => {
-      const mime = determineMimeType(file);
-
-      // If PDF, read directly
-      if (mime === 'application/pdf') {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve({ base64Data: e.target?.result as string, mimeType: 'application/pdf' });
-        reader.onerror = () => resolve({ base64Data: '', mimeType: 'application/pdf' });
-        reader.readAsDataURL(file);
-        return;
-      }
-
-      // For images, load into an Image element and optimize resolution via canvas
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        try {
-          const maxDim = 2400;
-          let w = img.width;
-          let h = img.height;
-
-          if (w > maxDim || h > maxDim) {
-            if (w > h) {
-              h = Math.round((h * maxDim) / w);
-              w = maxDim;
-            } else {
-              w = Math.round((w * maxDim) / h);
-              h = maxDim;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, w, h);
-            ctx.drawImage(img, 0, 0, w, h);
-            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.92);
-            resolve({ base64Data: optimizedBase64, mimeType: 'image/jpeg' });
-            return;
-          }
-        } catch {
-          // Canvas failed, fallback to raw base64
-        }
-
-        // Fallback: read directly
-        const reader = new FileReader();
-        reader.onload = (e) => resolve({ base64Data: e.target?.result as string, mimeType: mime });
-        reader.readAsDataURL(file);
-      };
-
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        const reader = new FileReader();
-        reader.onload = (e) => resolve({ base64Data: e.target?.result as string, mimeType: mime });
-        reader.readAsDataURL(file);
-      };
-
-      img.src = url;
-    });
-  };
 
   // Stage incoming files for user verification BEFORE processing
   const stageIncomingFiles = (incomingFiles: File[]) => {
@@ -1507,115 +1414,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
         </div>
       )}
 
-      {/* FULL-SCREEN LIGHTBOX / PREVIEW VERIFICATION MODAL */}
+      {/* Full-screen preview of a staged file */}
       {previewModalIndex !== null && fileBatch[previewModalIndex] && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6"
-          onClick={() => setPreviewModalIndex(null)}
-        >
-          <div
-            className="relative flex flex-col w-full max-w-4xl max-h-[90vh] rounded-3xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5 bg-slate-900/80">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 font-mono text-xs font-bold">
-                  {previewModalIndex + 1}/{fileBatch.length}
-                </span>
-                <div className="min-w-0">
-                  <h4 className="font-bold text-white text-sm truncate font-mono">
-                    {fileBatch[previewModalIndex].name}
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    {fileBatch[previewModalIndex].sizeKb} KB • Verify flight numbers, departure/arrival times & dates
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {!isParsingBatch && (
-                  <button
-                    onClick={() => removeFileFromBatch(fileBatch[previewModalIndex].id)}
-                    className="flex items-center gap-1.5 rounded-xl border border-rose-800/60 bg-rose-950/30 hover:bg-rose-900/60 px-2.5 py-1.5 text-xs text-rose-300 font-semibold transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Remove File</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => setPreviewModalIndex(null)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 p-2 text-slate-300 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Image Viewport */}
-            <div className="relative flex-1 overflow-auto bg-slate-950 p-4 flex items-center justify-center min-h-[300px]">
-              {fileBatch[previewModalIndex].previewUrl ? (
-                <img
-                  src={fileBatch[previewModalIndex].previewUrl}
-                  alt={fileBatch[previewModalIndex].name}
-                  className="max-h-[65vh] w-auto max-w-full object-contain rounded-xl shadow-lg border border-slate-800"
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center text-center p-8 space-y-3">
-                  <FileText className="h-16 w-16 text-rose-400" />
-                  <p className="text-white font-bold text-sm">{fileBatch[previewModalIndex].name}</p>
-                  <p className="text-xs text-slate-400 max-w-sm">
-                    This is a PDF roster document. Gemini Aero-OCR will parse the embedded vector tables directly.
-                  </p>
-                </div>
-              )}
-
-              {fileBatch.length > 1 && (
-                <>
-                  <button
-                    onClick={() =>
-                      setPreviewModalIndex((prev) =>
-                        prev !== null ? (prev === 0 ? fileBatch.length - 1 : prev - 1) : null
-                      )
-                    }
-                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/80 hover:bg-slate-800 p-2.5 text-white ring-1 ring-slate-700 backdrop-blur-sm transition-all"
-                    title="Previous file"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setPreviewModalIndex((prev) =>
-                        prev !== null ? (prev === fileBatch.length - 1 ? 0 : prev + 1) : null
-                      )
-                    }
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/80 hover:bg-slate-800 p-2.5 text-white ring-1 ring-slate-700 backdrop-blur-sm transition-all"
-                    title="Next file"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between border-t border-slate-800 px-5 py-3 bg-slate-900/70 text-xs">
-              <span className="text-slate-400">
-                Tip: If text appears blurry, ensure your screenshot was taken at full resolution.
-              </span>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPreviewModalIndex(null)}
-                  className="rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-1.5 font-bold text-white transition-colors"
-                >
-                  Confirm & Close Preview
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <FilePreviewModal items={fileBatch} index={previewModalIndex} onIndexChange={setPreviewModalIndex} onRemove={removeFileFromBatch} busy={isParsingBatch} />
       )}
 
     </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, ArrowRight, Compass } from 'lucide-react';
 import { CrewPreferences } from '../types/circadian';
 import { getAirportTzOffset, lookupAirport } from '../data/airports';
-import { CAFFEINE_CHOICES, UsualSleep } from './views/SettingsView';
+import { CAFFEINE_CHOICES, UsualSleep } from './SleepSettings';
 import { CAFFEINE_HOURS } from '../services/planEngine';
 
 /**

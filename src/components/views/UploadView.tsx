@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useAiConsent } from '../AiConsentDialog';
 import { useRosterReview } from '../RosterReviewDialog';
 import { RosterData, RosterHistoryEntry, FlightLeg, OtherDuty, StandbyDuty } from '../../types/circadian';
@@ -50,6 +50,9 @@ import {
 
 interface UploadViewProps {
   currentRoster: RosterData;
+  /** Files shared to the app from elsewhere ("Share → CrewCircadian"), to stage here once. */
+  incomingFiles?: File[];
+  onIncomingFilesTaken?: () => void;
   presets: RosterPreset[];
   activePresetId: string;
   history: RosterHistoryEntry[];
@@ -138,6 +141,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
   onRosterParsed,
   onViewRosterTimeline,
   onViewMasterSheet,
+  incomingFiles,
+  onIncomingFilesTaken,
   onUndoLatest,
   timeConvention = 'local',
   onTimeConventionChosen,
@@ -493,6 +498,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
     setFileBatch((prev) => [...prev, ...newItems]);
   };
+  // Files shared from another app: staged like files picked here (the person then starts reading them)
+  useEffect(() => {
+    if (!incomingFiles?.length) return;
+    stageIncomingFiles(incomingFiles);
+    onIncomingFilesTaken?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingFiles]);
+
 
   // Remove a single file from the staging queue
   const removeFileFromBatch = (id: string, e?: React.MouseEvent) => {

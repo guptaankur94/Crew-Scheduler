@@ -24,11 +24,9 @@ export async function initStorage(): Promise<void> {
   if (!isNativeApp()) return;
   const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem');
   const where = { directory: Directory.Library };
-  try {
-    await Filesystem.mkdir({ ...where, path: DIR, recursive: true });
-  } catch {
-    // Already there
-  }
+  // Create the folder on first launch only (asking to create an existing one logs an error)
+  const exists = await Filesystem.stat({ ...where, path: DIR }).then(() => true, () => false);
+  if (!exists) await Filesystem.mkdir({ ...where, path: DIR, recursive: true });
   const { files } = await Filesystem.readdir({ ...where, path: DIR });
   for (const f of files) {
     if (!f.name.endsWith('.json')) continue;

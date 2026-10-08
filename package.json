@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "rulebook": "tsx scripts/rulebook.ts",
-    "app:sync": "vite build && cap sync"
+    "app:sync": "vite build && cap sync",
+    "check": "tsc --noEmit && tsx --test tests/*.test.ts && vite build"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

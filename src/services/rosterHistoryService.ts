@@ -1,5 +1,6 @@
 import { RosterData, RosterHistoryEntry, UserUpdate } from '../types/circadian';
 import { kv } from './kv';
+import { compactHistory, expandHistory } from './historyCompact';
 
 const STORAGE_KEY = 'crew_roster_history_v1';
 
@@ -48,9 +49,8 @@ export function loadRosterHistory(): RosterHistoryEntry[] {
     const raw = kv.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    // The crew member's name is no longer kept; names saved by earlier versions are dropped
-    if (Array.isArray(parsed)) return parsed.map(withoutCrewName);
-    return [];
+    // Stored compactly (each flight once); the crew member's name is no longer kept and is dropped if present
+    return expandHistory(parsed).map(withoutCrewName);
   } catch (err) {
     console.warn('Failed to load roster history', err);
     return [];
@@ -59,7 +59,7 @@ export function loadRosterHistory(): RosterHistoryEntry[] {
 
 export function saveRosterHistory(entries: RosterHistoryEntry[]): void {
   try {
-    kv.setItem(STORAGE_KEY, JSON.stringify(entries));
+    kv.setItem(STORAGE_KEY, JSON.stringify(compactHistory(entries)));
   } catch (err) {
     console.warn('Failed to save roster history', err);
   }

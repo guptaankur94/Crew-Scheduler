@@ -16,7 +16,8 @@
     "check": "tsc --noEmit && tsx --test tests/*.test.ts && vite build",
     "phone:live:ios": "cap run ios --live-reload --host localhost --port 3000",
     "phone:live:android": "cap run android --live-reload --host localhost --port 3000 --forwardPorts 3000:3000",
-    "phone:release-sync": "npm run app:sync"
+    "phone:release-sync": "npm run app:sync",
+    "eval:reading": "tsx scripts/reading-eval.ts"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

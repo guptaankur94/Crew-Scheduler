@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+# Real rosters for measuring reading accuracy: personal data, never committed
+reading-eval/

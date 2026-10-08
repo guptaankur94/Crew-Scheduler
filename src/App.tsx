@@ -51,6 +51,7 @@ import { RosterView } from './components/views/RosterView';
 import { Onboarding } from './components/Onboarding';
 import { planReminders } from './services/reminders';
 import { syncReminders } from './services/nativeReminders';
+import { listenForSharedRosters } from './services/sharedRosters';
 import { TodayPreview } from './components/views/TodayPreview';
 import { UploadView } from './components/views/UploadView';
 import { SettingsView } from './components/views/SettingsView';
@@ -530,6 +531,17 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [plan, preferences.reminders]);
 
+  // Roster files shared from another app open on the Rosters page
+  const [sharedFiles, setSharedFiles] = useState<File[] | undefined>(undefined);
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void listenForSharedRosters((files) => {
+      setSharedFiles(files);
+      setActiveView('upload');
+    }).then((s) => (stop = s));
+    return () => stop?.();
+  }, []);
+
   const viewTitles: Record<NavView, string> = {
     today: "Today",
     roster: 'Days',
@@ -690,6 +702,8 @@ export default function App() {
               onRosterParsed={handleRosterParsed}
               onViewRosterTimeline={() => setActiveView('roster')}
               onViewMasterSheet={() => navigateTo('mastersheet')}
+              incomingFiles={sharedFiles}
+              onIncomingFilesTaken={() => setSharedFiles(undefined)}
               onUndoLatest={undoEntry ? handleUndoLatest : undefined}
               timeConvention={preferences.rosterTimeConvention ?? 'local'}
               onTimeConventionChosen={(c) => setPreferences((p) => ({ ...p, rosterTimeConvention: c }))}

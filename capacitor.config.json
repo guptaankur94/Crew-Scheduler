@@ -9,6 +9,10 @@
     "LocalNotifications": {
       "smallIcon": "ic_stat_wake",
       "iconColor": "#3B82F6"
+    },
+    "SystemBars": {
+      "style": "DARK",
+      "initialViewportFitValueHint": "cover"
     }
   }
 }

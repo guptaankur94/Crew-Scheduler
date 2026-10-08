@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useMemo, useEffect, useRef } from 'react';
 import { CircadianEvent, CrewPreferences, RosterData, RosterHistoryEntry, FlightLeg, HistoryDayChange, UserUpdate } from './types/circadian';
 import {
   addCallout,
@@ -47,16 +47,18 @@ import { keepNudgesOutside, RosterUpdateInfo } from './services/rosterDiff';
 import { loadAppState, saveAppState } from './services/appStateStorage';
 import { Header } from './components/Header';
 import { Sidebar, NavView } from './components/Sidebar';
-import { RosterView } from './components/views/RosterView';
 import { Onboarding } from './components/Onboarding';
 import { planReminders } from './services/reminders';
 import { syncReminders } from './services/nativeReminders';
 import { listenForSharedRosters } from './services/sharedRosters';
 import { TodayPreview } from './components/views/TodayPreview';
-import { UploadView } from './components/views/UploadView';
-import { SettingsView } from './components/views/SettingsView';
-import { ScienceView } from './components/views/ScienceView';
-import { MonthView } from './components/views/MonthView';
+
+// Screens other than Today load when first opened, so the app starts with less code
+const RosterView = lazy(() => import('./components/views/RosterView').then((m) => ({ default: m.RosterView })));
+const MonthView = lazy(() => import('./components/views/MonthView').then((m) => ({ default: m.MonthView })));
+const UploadView = lazy(() => import('./components/views/UploadView').then((m) => ({ default: m.UploadView })));
+const SettingsView = lazy(() => import('./components/views/SettingsView').then((m) => ({ default: m.SettingsView })));
+const ScienceView = lazy(() => import('./components/views/ScienceView').then((m) => ({ default: m.ScienceView })));
 import { EventDetailModal } from './components/EventDetailModal';
 import {
   Clock,
@@ -595,6 +597,7 @@ export default function App() {
 
         {/* Main Content Workspace per Active View */}
         <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 flex-1">
+          <Suspense fallback={<p className="py-10 text-center text-sm text-slate-500">Loading…</p>}>
           {/* A sample roster is never mistaken for the person's own */}
           {presets.some((p) => p.id === activePresetId) && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
@@ -728,6 +731,7 @@ export default function App() {
               onBackToToday={() => setActiveView('today')}
             />
           )}
+          </Suspense>
         </main>
 
         {/* Footer */}

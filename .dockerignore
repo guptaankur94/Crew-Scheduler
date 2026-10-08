@@ -1,0 +1,13 @@
+node_modules
+dist
+android
+ios
+assets
+reports
+research_notes
+docs
+tests
+.git
+.env*
+!.env.example
+*.log

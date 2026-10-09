@@ -150,8 +150,8 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
       p.targetBedtimeHbt ? `🛌 Bed by: ${p.targetBedtimeHbt}${p.targetBedtimeDateStr ? ` (${weekdayDate(p.targetBedtimeDateStr)})` : ''}` : null,
       `⏰ Wake up: ${p.wakeUpHbt}`,
       `🚖 ${p.pickupLabel || 'Leave home'}: ${p.cabPickupHbt}`,
-      `🏢 Report: ${p.reportHbt}`,
-      `🛫 Wheels up: ${p.departureHbt}`,
+      `🏢 Check-in: ${p.reportHbt}`,
+      `🛫 Departs: ${p.departureHbt}`,
     ].filter(Boolean);
     navigator.clipboard.writeText(lines.join('\n'));
     setCopied(true);
@@ -278,7 +278,7 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
                     {prep.prepDetails.targetBedtimeDateStr ? ` (${weekdayDate(prep.prepDetails.targetBedtimeDateStr)})` : ''} ·{' '}
                   </>
                 ) : null}
-                Worked back from your report time · home time ({roster.homeBase})
+                Worked back from your check-in · home time ({roster.homeBase})
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -290,12 +290,12 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
                 className="flex items-center gap-1.5 rounded-lg border border-sky-700/60 bg-sky-950/60 hover:bg-sky-900/60 px-3 py-1.5 text-xs font-bold text-sky-200 transition-all shadow-sm"
               >
                 {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5 text-sky-300" />}
-                <span>{copied ? 'Copied' : 'Copy Alarm Times'}</span>
+                <span>{copied ? 'Copied' : 'Copy times'}</span>
               </button>
             </div>
           </div>
 
-          {/* Wake → Leave → Report → Wheels up */}
+          {/* Wake → Leave → Check-in → Departs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {[
               {
@@ -316,17 +316,17 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
               },
               {
                 icon: <Briefcase className="h-3.5 w-3.5 text-blue-400" />,
-                label: 'Report',
+                label: 'Check-in',
                 time: prep.prepDetails.reportHbt,
-                note: reportAirport ? `Check-in at ${reportAirport}` : 'Check-in',
+                note: reportAirport ? `At ${reportAirport}` : 'At the airport',
                 color: 'text-blue-300',
                 border: 'border-blue-800/60',
               },
               {
                 icon: <Plane className="h-3.5 w-3.5 text-blue-400" />,
-                label: 'Wheels up',
+                label: dutyFlights.length ? 'Departs' : 'Standby starts',
                 time: prep.prepDetails.departureHbt,
-                note: dutyFlights.length ? `${dutyFlights.length} flight${dutyFlights.length > 1 ? 's' : ''}` : 'Standby',
+                note: dutyFlights.length ? `${dutyFlights.length} flight${dutyFlights.length > 1 ? 's' : ''}` : 'Airport standby',
                 color: 'text-white',
                 border: 'border-slate-700',
               },

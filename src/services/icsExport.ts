@@ -1,4 +1,5 @@
 import { CircadianEvent, CircadianPlan } from '../types/circadian';
+import { saveOrShareFile } from './saveFile';
 
 // Helper to format ISO date into ICS format: YYYYMMDDTHHmmssZ
 function toIcsDate(isoUtc: string): string {
@@ -74,15 +75,7 @@ export function generateIcsFile(plan: CircadianPlan): string {
   return lines.join('\r\n');
 }
 
-export function downloadIcsFile(plan: CircadianPlan) {
-  const icsContent = generateIcsFile(plan);
-  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `CrewCircadian_${plan.roster.airline}_${new Date().toISOString().slice(0, 10)}.ics`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+/** Downloads the calendar file in a browser; in the phone app opens the share sheet (e.g. to a calendar app). */
+export function downloadIcsFile(plan: CircadianPlan): Promise<void> {
+  return saveOrShareFile(`CrewCircadian_${new Date().toISOString().slice(0, 10)}.ics`, generateIcsFile(plan), 'text/calendar;charset=utf-8');
 }

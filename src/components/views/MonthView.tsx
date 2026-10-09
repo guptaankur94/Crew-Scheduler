@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { CircadianEvent, CircadianPlan } from '../../types/circadian';
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, ChevronRight as RowArrow, PencilLine } from 'lucide-react';
+import { CircadianEvent, CircadianPlan, CrewPreferences } from '../../types/circadian';
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, ChevronRight as RowArrow, FileSpreadsheet, PencilLine } from 'lucide-react';
 import { DayItems, DayPanel } from '../DayPanel';
 import { daySignature, Finding, findingsByDate } from '../../services/rosterFindings';
 import { TimeConvention } from '../../services/rosterTimes';
 import { flightHomeDate, rosterClock } from '../../services/rosterKeys';
+import { HoursReportDialog } from '../HoursReportDialog';
+import { PayEstimateCard } from '../PayEstimateCard';
 import { MonthSummary } from '../MonthSummary';
 import { DateNavigator, statusOf } from '../DateNavigator';
 import { computePeriodStats, periodContaining, periodLabel, shiftPeriod } from '../../services/periodStats';
@@ -34,6 +36,8 @@ interface MonthViewProps {
   checkedDays: Record<string, string>;
   onToggleChecked: (date: string, checked: boolean) => void;
   onCorrectDay: (date: string, next: DayItems) => void;
+  /** Saves the person's own pay rates (pay estimate). */
+  onUpdatePreferences?: (updated: Partial<CrewPreferences>) => void;
   onApplyFix: (fix: NonNullable<Finding['fix']>) => void;
   /** The person's own updates per day, in plain words. */
   updateLines?: Map<string, string[]>;
@@ -64,6 +68,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
   checkedDays,
   onToggleChecked,
   onCorrectDay,
+  onUpdatePreferences,
   onApplyFix,
   updateLines,
 }) => {
@@ -108,6 +113,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
     filter === 'check' ? findings.has(r.dateStr) : filter === 'edited' ? editedDates.has(r.dateStr) : filter === 'unchecked' ? !r.summary.outsideRoster && !isChecked(r.dateStr) : true
   );
   const [panelDate, setPanelDate] = useState<string | null>(null);
+  const [showHours, setShowHours] = useState(false);
 
   // The months the plan covers, so the picker stops at its ends
   const firstMonth = `${(dailySummaries[0]?.dateStr ?? todayStr).slice(0, 7)}-01`;
@@ -137,10 +143,23 @@ export const MonthView: React.FC<MonthViewProps> = ({
             <ChevronRight className="h-5 w-5" />
           </button>
         </div>
+        {rosterDays.length > 0 && (
+          <button
+            onClick={() => setShowHours(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:text-white"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            Hours report
+          </button>
+        )}
       </div>
+      {showHours && <HoursReportDialog plan={plan} period={period} label={periodLabel(period)} onClose={() => setShowHours(false)} />}
 
       {/* What kind of month this is */}
       <MonthSummary stats={stats} hideTitle />
+
+      {/* Pay from the person's own rates, closed by default */}
+      {onUpdatePreferences && rosterDays.length > 0 && <PayEstimateCard stats={stats} preferences={plan.preferences} onUpdatePreferences={onUpdatePreferences} />}
 
       {/* DGCA duty limits: one line; the details are on the days marked ⚠ */}
       {rosterDays.length > 0 && (

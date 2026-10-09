@@ -110,3 +110,16 @@ test('daylight saving: a London-based crew member keeps local wall-clock times a
   const checkIns = p.events.filter((e) => e.type === 'pre_flight_prep').map((e) => e.prepDetails?.reportHbt);
   assert.deepEqual(checkIns, ['06:00', '06:00']);
 });
+
+test('golden: the hours report agrees with the month totals, day by day', async () => {
+  const { hoursReport, hoursReportCsv } = await import('../src/services/hoursReport');
+  const oct = { start: '2026-10-01', end: '2026-10-31' };
+  const report = hoursReport(plan, oct);
+  const stats = computePeriodStats(plan, oct);
+  assert.equal(Number((report.totals.flyingMinutes / 60).toFixed(1)), stats.flyingHours);
+  assert.equal(Number((report.totals.dutyMinutes / 60).toFixed(1)), stats.dutyHours);
+  assert.ok(report.rows.every((r) => r.date >= oct.start && r.date <= oct.end));
+  const csv = hoursReportCsv(report, 'October 2026');
+  assert.match(csv.split('\n')[1], /^Date,Duty,Check-in,Sign-off/);
+  assert.match(csv, /^Total,,,,49:5\d,/m);
+});

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Eye, FileImage, FileText, RefreshCw, Trash2 } from 'lucide-react';
 import { ImportRecord } from '../services/importRecords';
 import { shortRange } from '../services/periodStats';
+import { isNativeApp } from '../services/platform';
+import { saveOrShareFile } from '../services/saveFile';
 
 /**
  * "Your rosters": each uploaded roster with the dates it covers and two actions.
@@ -17,14 +19,14 @@ interface Props {
   onReread: (record: ImportRecord) => void;
   onRemove: (record: ImportRecord) => void;
   /** The kept original files of a roster, as links that open them. */
-  loadOriginal?: (record: ImportRecord) => Promise<{ name: string; url: string }[]>;
+  loadOriginal?: (record: ImportRecord) => Promise<{ name: string; url: string; blob: Blob }[]>;
 }
 
 const uploaded = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 export const UploadedRosters: React.FC<Props> = ({ rosters, busy, onReread, onRemove, loadOriginal }) => {
   const [confirm, setConfirm] = useState<{ id: string; action: 'reread' | 'remove' } | null>(null);
-  const [originals, setOriginals] = useState<{ id: string; files: { name: string; url: string }[] } | null>(null);
+  const [originals, setOriginals] = useState<{ id: string; files: { name: string; url: string; blob: Blob }[] } | null>(null);
   // Links to kept files are released when closed or when this page is left
   useEffect(() => () => originals?.files.forEach((f) => URL.revokeObjectURL(f.url)), [originals]);
   const toggleOriginal = async (record: ImportRecord) => {
@@ -85,12 +87,24 @@ export const UploadedRosters: React.FC<Props> = ({ rosters, busy, onReread, onRe
               {originals?.id === r.id && (
                 <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs">
                   {originals.files.length ? (
-                    <ul className="space-y-1">
+                    <ul className="space-y-3">
                       {originals.files.map((f) => (
-                        <li key={f.url}>
-                          <a href={f.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-300 underline underline-offset-2 hover:text-white">
-                            {f.name}
-                          </a>
+                        <li key={f.url} className="space-y-1">
+                          {/* Images show here; other files (PDFs) open in a new tab, or the share sheet in the phone app */}
+                          {f.blob.type.startsWith('image/') ? (
+                            <>
+                              <p className="text-slate-400">{f.name}</p>
+                              <img src={f.url} alt={`Original roster: ${f.name}`} className="max-h-[70vh] w-full rounded-lg border border-slate-800 bg-white object-contain" />
+                            </>
+                          ) : isNativeApp() ? (
+                            <button onClick={() => void saveOrShareFile(f.name, f.blob, f.blob.type)} className="font-semibold text-blue-300 underline underline-offset-2 hover:text-white">
+                              Open {f.name}
+                            </button>
+                          ) : (
+                            <a href={f.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-300 underline underline-offset-2 hover:text-white">
+                              {f.name}
+                            </a>
+                          )}
                         </li>
                       ))}
                     </ul>

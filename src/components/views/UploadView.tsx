@@ -1343,10 +1343,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
           const files = await Promise.all(
             record.files.filter((f) => f.stored && f.fingerprint).map(async (f) => {
               const stored = await getStoredFile(f.fingerprint!);
-              return stored ? { name: f.name, url: URL.createObjectURL(stored.blob) } : null;
+              return stored ? { name: f.name, url: URL.createObjectURL(stored.blob), blob: stored.blob } : null;
             })
           );
-          return files.filter((f): f is { name: string; url: string } => !!f);
+          return files.filter((f): f is { name: string; url: string; blob: Blob } => !!f);
         }}
       />
 

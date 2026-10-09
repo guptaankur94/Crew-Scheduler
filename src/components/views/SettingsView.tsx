@@ -243,12 +243,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   key={c.dose}
                   onClick={() => onUpdatePreferences({ caffeineDose: c.dose, caffeineCutoffHours: CAFFEINE_HOURS[c.dose] })}
                   aria-pressed={dose === c.dose}
-                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${
+                  className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${
                     dose === c.dose ? 'bg-amber-600 text-white shadow-sm' : 'border border-slate-800 bg-slate-900 text-slate-300 hover:text-white'
                   }`}
                 >
                   <span>{c.label}</span>
-                  <span className="font-mono">stop {CAFFEINE_HOURS[c.dose]} h before</span>
+                  <span className="shrink-0 font-mono">stop {CAFFEINE_HOURS[c.dose]} h before</span>
                 </button>
               ))}
             </div>

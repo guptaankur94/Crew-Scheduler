@@ -114,10 +114,10 @@ export const Onboarding: React.FC<Props> = ({ preferences, onUpdatePreferences, 
               key={c.dose}
               onClick={() => onUpdatePreferences({ caffeineDose: c.dose, caffeineCutoffHours: CAFFEINE_HOURS[c.dose] })}
               aria-pressed={dose === c.dose}
-              className={`${choice(dose === c.dose)} flex justify-between text-left`}
+              className={`${choice(dose === c.dose)} flex flex-wrap justify-between gap-x-3 gap-y-0.5 text-left`}
             >
               <span>{c.label}</span>
-              <span className="font-mono text-xs">stop {CAFFEINE_HOURS[c.dose]} h before sleep</span>
+              <span className="shrink-0 font-mono text-xs">stop {CAFFEINE_HOURS[c.dose]} h before sleep</span>
             </button>
           ))}
         </div>

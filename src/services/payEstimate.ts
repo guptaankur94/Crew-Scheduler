@@ -1,5 +1,5 @@
 import { CrewPreferences } from '../types/circadian';
-import { PeriodStats } from './periodStats';
+import { hoursMinutes, PeriodStats } from './periodStats';
 
 /*
  * PAY ESTIMATE FROM YOUR OWN RATES
@@ -32,11 +32,12 @@ export interface PayEstimate {
   missing: string[];
 }
 
-export function payFromOwnRates(stats: Pick<PeriodStats, 'flyingHours' | 'standbyHours' | 'layoverNights' | 'nightFlights'>, prefs: Pick<CrewPreferences, RateKey>): PayEstimate | null {
-  const quantity: Record<RateKey, { n: number; unit: string }> = {
+export function payFromOwnRates(stats: Pick<PeriodStats, 'flyingMinutes' | 'standbyMinutes' | 'layoverNights' | 'nightFlights'>, prefs: Pick<CrewPreferences, RateKey>): PayEstimate | null {
+  // Hours from exact minutes (46:30 is 46.5 hours), shown as hours:minutes
+  const quantity: Record<RateKey, { n: number; unit: string; shown?: string }> = {
     customBasePay: { n: 1, unit: '' },
-    customHourlyRate: { n: stats.flyingHours, unit: 'h flying' },
-    customStandbyRate: { n: stats.standbyHours, unit: 'h standby' },
+    customHourlyRate: { n: stats.flyingMinutes / 60, unit: 'flying', shown: hoursMinutes(stats.flyingMinutes) },
+    customStandbyRate: { n: stats.standbyMinutes / 60, unit: 'standby', shown: hoursMinutes(stats.standbyMinutes) },
     customLayoverRate: { n: stats.layoverNights, unit: 'layover nights' },
     customNightRate: { n: stats.nightFlights, unit: 'night flights' },
   };
@@ -49,7 +50,7 @@ export function payFromOwnRates(stats: Pick<PeriodStats, 'flyingHours' | 'standb
       continue;
     }
     const q = quantity[f.key];
-    lines.push({ key: f.key, label: f.label, detail: f.key === 'customBasePay' ? 'fixed' : `${q.n} ${q.unit} × ${rate}`, amount: Math.round(q.n * rate) });
+    lines.push({ key: f.key, label: f.label, detail: f.key === 'customBasePay' ? 'fixed' : `${q.shown ?? q.n} ${q.unit} × ${rate}`, amount: Math.round(q.n * rate) });
   }
   if (!lines.length) return null;
   return { lines, total: lines.reduce((s, l) => s + l.amount, 0), missing };

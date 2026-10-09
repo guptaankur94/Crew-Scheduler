@@ -9,6 +9,9 @@ export interface AirportInfo {
   timeZone?: string; // IANA zone (e.g. 'Europe/London') for daylight-saving-aware offsets
 }
 
+/** How a roster time was printed: actual (flown, "A" prefix), estimated ("E" prefix) or scheduled (no prefix). */
+export type TimeKind = 'actual' | 'estimated' | 'scheduled';
+
 export interface FlightLeg {
   id: string;
   flightNumber: string; // e.g. "6E 205" or "EK 001"
@@ -35,6 +38,8 @@ export interface FlightLeg {
   /** Check-in of the duty this flight belongs to. The duty's day is this check-in's date (as rosters print it), even when
    * a flight departs after midnight. Set by normalizeDutyTimes. */
   dutyCheckInUtc?: string;
+  /** Whether the roster printed these times as actual (flown, e.g. "A0007"), estimated ("E0335") or scheduled. */
+  timeKinds?: { dep?: TimeKind; arr?: TimeKind };
   timeConvention?: 'local' | 'home' | 'utc'; // which clock the printed times were read in
   correctedByUser?: boolean; // the person fixed a reading mistake in this flight (Month screen)
   operationalDelay?: { minutes: number; rosteredDepartureUtc: string; rosteredArrivalUtc: string; rosteredReleaseUtc: string }; // set only on the plan's working copy when the person reported a delay; never saved in the roster

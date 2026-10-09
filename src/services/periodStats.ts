@@ -9,6 +9,9 @@ import { calculateSalaryBreakdown } from './salary';
  * period of the day it departs, so a flight crossing midnight at the end of a period is counted once.
  */
 
+/** Hours as hours:minutes, the way airlines write them: 2790 minutes → "46:30". */
+export const hoursMinutes = (minutes: number) => `${Math.floor(minutes / 60)}:${String(Math.round(minutes % 60)).padStart(2, '0')}`;
+
 export interface Period {
   start: string; // YYYY-MM-DD, inclusive
   end: string; // YYYY-MM-DD, inclusive
@@ -25,6 +28,11 @@ export interface PeriodStats extends Period {
   flightsFrom?: string;
   flightsTo?: string;
   flyingHours: number;
+  /** Exact flying (block) minutes, for hours:minutes display. */
+  flyingMinutes: number;
+  /** Of the flying minutes: flights already flown (the roster printed both times as actual), and the rest. Undefined
+   * when the roster shows no actual times. */
+  flown?: { actualMinutes: number; otherMinutes: number };
   /** Flights worked as crew. Positioning (travelling as a passenger) is counted separately. */
   sectors: number;
   positioningSectors: number;
@@ -32,6 +40,7 @@ export interface PeriodStats extends Period {
   daysWithoutFlights: number;
   rosterDays: number;
   standbyHours: number;
+  standbyMinutes: number;
   layoverNights: number;
   /**
    * Layovers ending in the window, by where they are. International means the layover airport is in a different
@@ -70,7 +79,8 @@ export interface PeriodStats extends Period {
   timeZoneTrips: number;
   // Drill-down
   dutyHours: number;
-  longestDuty?: { hours: number; date: string };
+  dutyMinutes: number;
+  longestDuty?: { hours: number; minutes: number; date: string };
   longestRun: { days: number; from?: string; to?: string };
   weekendDaysOff: number;
 }
@@ -259,12 +269,20 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
     flightsFrom: flightDates[0],
     flightsTo: flightDates[flightDates.length - 1],
     flyingHours: Number((flyingMinutes / 60).toFixed(1)),
+    flyingMinutes,
+    flown: flights.some((f) => f.timeKinds?.dep === 'actual' || f.timeKinds?.arr === 'actual')
+      ? (() => {
+          const actualMinutes = flights.filter((f) => !f.isPositioning && f.timeKinds?.dep === 'actual' && f.timeKinds?.arr === 'actual').reduce((sum, f) => sum + f.durationMinutes, 0);
+          return { actualMinutes, otherMinutes: flyingMinutes - actualMinutes };
+        })()
+      : undefined,
     sectors: flights.filter((f) => !f.isPositioning).length,
     positioningSectors: flights.filter((f) => f.isPositioning).length,
     nightFlights,
     daysWithoutFlights,
     rosterDays: rosterDays.length,
     standbyHours: roundedStandby,
+    standbyMinutes: Math.round(standbyHours * 60),
     layoverNights,
     layovers,
     salary: { ...salary, periodStart: period.start, periodEnd: period.end, periodLabel: label },
@@ -280,7 +298,8 @@ export function computePeriodStats(input: PeriodInput, period: Period): PeriodSt
     standbyDaysByKind: { home: standbyDatesOf(['home']), airport: standbyDatesOf(['airport']) },
     timeZoneTrips,
     dutyHours: Number((dutyMinutes.reduce((sum, d) => sum + d.minutes, 0) / 60).toFixed(1)),
-    longestDuty: longest ? { hours: Number((longest.minutes / 60).toFixed(1)), date: longest.date } : undefined,
+    dutyMinutes: Math.round(dutyMinutes.reduce((sum, d) => sum + d.minutes, 0)),
+    longestDuty: longest ? { hours: Number((longest.minutes / 60).toFixed(1)), minutes: Math.round(longest.minutes), date: longest.date } : undefined,
     longestRun: longestRunOf(dutyDates),
     weekendDaysOff,
   };

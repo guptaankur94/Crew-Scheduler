@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { coverageNote, flightRangeNote, monthNarrative, PeriodStats, shortRange } from '../services/periodStats';
+import { coverageNote, flightRangeNote, monthNarrative, PeriodStats, shortRange, hoursMinutes } from '../services/periodStats';
 import { ChevronDown } from 'lucide-react';
 
 /**
@@ -104,8 +104,12 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) 
             <Tile
               large
               title="Flying hours"
-              value={`${stats.flyingHours}h`}
-              lines={[`Total duty hours ${stats.dutyHours}h (report to release)`, muted(flightRangeNote(stats))]}
+              value={hoursMinutes(stats.flyingMinutes)}
+              lines={[
+                stats.flown && `${hoursMinutes(stats.flown.actualMinutes)} flown (actual times) · ${hoursMinutes(stats.flown.otherMinutes)} still scheduled`,
+                `Total duty hours ${hoursMinutes(stats.dutyMinutes)} (check-in to sign-off)`,
+                muted(`Hours:minutes · ${flightRangeNote(stats)}`),
+              ]}
             />
             <Tile
               large
@@ -164,7 +168,7 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) 
                       ]
                         .filter(Boolean)
                         .join(' · '),
-                      `${stats.standbyHours}h in total`,
+                      `${hoursMinutes(stats.standbyMinutes)} in total`,
                     ]
                   : ['No standby this month']
               }
@@ -188,10 +192,10 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ stats, hideTitle }) 
               <div className="mt-3 space-y-3 text-xs">
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
                   {[
-                    ['Duty hours (report to release)', `${stats.dutyHours}h`],
+                    ['Duty hours (check-in to sign-off)', hoursMinutes(stats.dutyMinutes)],
                     [
                       'Longest duty',
-                      stats.longestDuty ? `${stats.longestDuty.hours}h (${shortRange(stats.longestDuty.date, stats.longestDuty.date)})` : '—',
+                      stats.longestDuty ? `${hoursMinutes(stats.longestDuty.minutes)} (${shortRange(stats.longestDuty.date, stats.longestDuty.date)})` : '—',
                     ],
                     [
                       'Longest run of duty days',

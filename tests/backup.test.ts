@@ -65,3 +65,18 @@ test('broken entries inside a backup are dropped, not trusted', () => {
   assert.equal(result.state, null);
   assert.equal(result.history.length, 1);
 });
+
+test('a password-protected backup opens only with the right password', async () => {
+  const { encryptBackup, decryptBackup, isEncryptedBackup } = await import('../src/services/backup');
+  const plain = buildBackup({ roster: { flights: [] } }, [], new Date('2026-10-09T00:00:00Z'));
+  const locked = await encryptBackup(plain, 'blue sky 42');
+  assert.ok(isEncryptedBackup(locked));
+  assert.ok(!locked.includes('roster'), 'nothing readable inside');
+  assert.equal(await decryptBackup(locked, 'wrong'), null);
+  assert.equal(await decryptBackup(locked, 'blue sky 42'), plain);
+  assert.equal(isEncryptedBackup(plain), false);
+  // A real backup is hundreds of kilobytes
+  const big = buildBackup({ roster: { flights: Array.from({ length: 3000 }, (_, i) => ({ id: `f${i}`, flightNumber: `6E ${i}` })) } }, [], new Date());
+  assert.ok(big.length > 100_000);
+  assert.equal(await decryptBackup(await encryptBackup(big, 'pw123456'), 'pw123456'), big);
+});

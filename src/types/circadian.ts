@@ -209,6 +209,8 @@ export interface CrewPreferences {
   // Wearable sleep sync override (Apple Health / Oura / Garmin)
   actualLastSleepHours?: number; // hours slept last night, as entered by the user
   actualLastSleepLoggedAt?: string; // ISO time the entry was made; it stops applying after 48 hours
+  /** One-tap answers to "Did you get this sleep?", by the planned sleep's start (UTC). Never scored. Last 60 kept. */
+  sleepFeedback?: Record<string, 'yes' | 'partly' | 'no'>;
   useMelatoninProtocol?: boolean;
   bunkShiftAssignments?: Record<string, 'shift1' | 'shift2'>;
   payPeriodStartDay?: number; // day of the month the salary window starts (1 = calendar month, up to 28)

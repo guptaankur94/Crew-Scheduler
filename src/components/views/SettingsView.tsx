@@ -1,11 +1,12 @@
 import { RemindersSettings } from '../RemindersSettings';
+import { saveOrShareFile } from '../../services/saveFile';
 import { CAFFEINE_CHOICES, UsualSleep } from '../SleepSettings';
 import { CAFFEINE_HOURS, DAYTIME_SLEEP_EXTRA_HOURS } from '../../services/planEngine';
 import React, { useEffect, useRef, useState } from 'react';
 import { RecentChanges } from '../RecentChanges';
 import { deleteAllStoredFiles, listStoredFiles } from '../../services/fileStore';
 import { TIME_CONVENTION_LABEL, TimeConvention } from '../../services/rosterTimes';
-import { createBackupFromDevice, deleteAllLocalData, parseBackup, writeRestoredData } from '../../services/backup';
+import { createBackupFromDevice, decryptBackup, deleteAllLocalData, encryptBackup, isEncryptedBackup, parseBackup, writeRestoredData } from '../../services/backup';
 import { getAiConsentDate, withdrawAiConsent } from '../../services/aiConsent';
 import { CaffeineDose, Chronotype, CircadianPlan, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
 import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
@@ -49,14 +50,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [aiConsentDate, setAiConsentDate] = useState(() => getAiConsentDate());
 
-  const handleExport = () => {
-    const blob = new Blob([createBackupFromDevice()], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `crewcircadian-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  // Optional password protection for backups, and a password asked for when restoring a protected one
+  const [protect, setProtect] = useState(false);
+  const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [locked, setLocked] = useState<string | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState('');
+
+  const handleExport = async () => {
+    if (protect && (password.length < 8 || password !== password2)) {
+      setDataMessage({ text: password.length < 8 ? 'Choose a password of at least 8 characters.' : 'The two passwords do not match.', tone: 'error' });
+      return;
+    }
+    const backup = createBackupFromDevice();
+    const content = protect ? await encryptBackup(backup, password) : backup;
+    await saveOrShareFile(`crewcircadian-backup-${new Date().toISOString().slice(0, 10)}${protect ? '-protected' : ''}.json`, content, 'application/json');
+    if (protect) {
+      setPassword('');
+      setPassword2('');
+    }
     setDataMessage({ text: 'Backup saved. Keep the file somewhere safe, such as your files app or email.', tone: 'ok' });
   };
 
@@ -64,7 +76,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const result = parseBackup(await file.text(), preferences);
+    const text = await file.text();
+    if (isEncryptedBackup(text)) {
+      setLocked(text);
+      setUnlockPassword('');
+      setDataMessage(null);
+      return;
+    }
+    restoreFrom(text);
+  };
+
+  const unlockAndRestore = async () => {
+    if (!locked) return;
+    const plain = await decryptBackup(locked, unlockPassword);
+    if (!plain) {
+      setDataMessage({ text: 'That password does not open this backup.', tone: 'error' });
+      return;
+    }
+    setLocked(null);
+    restoreFrom(plain);
+  };
+
+  const restoreFrom = (text: string) => {
+    const result = parseBackup(text, preferences);
     if ('error' in result) {
       setDataMessage({ text: result.error, tone: 'error' });
       return;
@@ -424,6 +458,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             Restore from a backup
           </button>
           <input ref={fileInputRef} type="file" accept="application/json,.json" onChange={handleRestore} className="hidden" />
+          <div className="basis-full space-y-2 text-xs text-slate-300">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={protect} onChange={(e) => setProtect(e.target.checked)} className="h-4 w-4 accent-blue-500" />
+              Protect the backup with a password (safe to email or keep in a cloud drive)
+            </label>
+            {protect && (
+              <div className="flex flex-wrap gap-2">
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (8+ characters)" aria-label="Backup password" className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white" />
+                <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} placeholder="Same password again" aria-label="Backup password again" className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white" />
+                <span className="basis-full text-slate-500">If you forget the password, the backup cannot be opened. It is not stored anywhere.</span>
+              </div>
+            )}
+            {locked && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+                <span>This backup is password-protected.</span>
+                <input type="password" value={unlockPassword} onChange={(e) => setUnlockPassword(e.target.value)} placeholder="Password" aria-label="Password to open the backup" className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white" />
+                <button onClick={unlockAndRestore} className="rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white hover:bg-blue-500">
+                  Open and restore
+                </button>
+                <button onClick={() => setLocked(null)} className="font-semibold text-slate-400 hover:text-white">
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
           {!confirmDelete ? (
             <button
               onClick={() => setConfirmDelete(true)}

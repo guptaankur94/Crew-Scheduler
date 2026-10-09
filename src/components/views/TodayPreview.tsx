@@ -3,6 +3,7 @@ import { CircadianEvent, CircadianPlan, CrewPreferences } from '../../types/circ
 import { getNowNext, hasLocalTime, nextLine, nowLine, plainTitle } from '../../services/nowNext';
 import { StandbyNotice } from '../StandbyNotice';
 import { TodayGlance } from '../TodayGlance';
+import { SleepCheck } from '../SleepCheck';
 import { bunkChoiceForEvent, sectorKeyForEvent } from '../../services/rosterKeys';
 import { formatAviationDate } from '../../utils/dateUtils';
 import {
@@ -253,6 +254,9 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
           </div>
         )}
       </section>
+
+      {/* After a planned sleep: did you get it? (one tap, asked once) */}
+      <SleepCheck plan={plan} nowMs={nowMs} onUpdatePreferences={onUpdatePreferences} />
 
       {/* Today in one line: the kind of day, check-in and sign-off */}
       <TodayGlance plan={plan} todayStr={todayStr} nowMs={nowMs} />

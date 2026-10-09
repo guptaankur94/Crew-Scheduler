@@ -680,6 +680,7 @@ export default function App() {
           {activeView === 'mastersheet' && (
             <MonthView
               plan={plan}
+              onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
               month={monthViewMonth}
               onChangeMonth={setMonthViewMonth}
               limitsRoster={limitsRoster}

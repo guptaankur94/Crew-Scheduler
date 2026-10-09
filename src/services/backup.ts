@@ -87,3 +87,51 @@ export async function requestPersistentStorage(): Promise<boolean> {
     return false;
   }
 }
+
+// ─── Password-protected backups ────────────────────────────────────────────────
+// AES-256-GCM with a key from the password (PBKDF2-SHA-256, 310,000 rounds, random salt). Without the password the
+// file cannot be read, so it is safe to email or keep in a cloud drive. The password is never stored.
+
+const ITERATIONS = 310_000;
+// In chunks: spreading a large file's bytes into one call overflows the stack
+const b64 = (bytes: Uint8Array) => {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+};
+const unb64 = (s: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function keyFrom(password: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
+/** Wraps a backup in password protection. */
+export async function encryptBackup(backupJson: string, password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await keyFrom(password, salt), new TextEncoder().encode(backupJson)));
+  return JSON.stringify({ app: BACKUP_APP, encrypted: true, v: 1, kdf: 'PBKDF2-SHA256', iterations: ITERATIONS, salt: b64(salt), iv: b64(iv), data: b64(data) });
+}
+
+/** True when the file is a password-protected backup. */
+export function isEncryptedBackup(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.app === BACKUP_APP && parsed?.encrypted === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Opens a password-protected backup; returns the plain backup, or null if the password is wrong. */
+export async function decryptBackup(text: string, password: string): Promise<string | null> {
+  try {
+    const p = JSON.parse(text);
+    const key = await keyFrom(password, unb64(p.salt));
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(p.iv) }, key, unb64(p.data));
+    return new TextDecoder().decode(plain);
+  } catch {
+    return null;
+  }
+}

@@ -4,4 +4,5 @@
     <string name="title_activity_main">CrewCircadian</string>
     <string name="package_name">com.crewcircadian.app</string>
     <string name="custom_url_scheme">com.crewcircadian.app</string>
+    <string name="widget_description">Your next step: wake-up, leave home, sleep</string>
 </resources>

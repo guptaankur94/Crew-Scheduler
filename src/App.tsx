@@ -51,6 +51,7 @@ import { Onboarding } from './components/Onboarding';
 import { planReminders } from './services/reminders';
 import { syncReminders } from './services/nativeReminders';
 import { listenForSharedRosters } from './services/sharedRosters';
+import { updateWidget } from './services/widgetSteps';
 import { TodayPreview } from './components/views/TodayPreview';
 
 // Screens other than Today load when first opened, so the app starts with less code
@@ -527,9 +528,12 @@ export default function App() {
     }));
   };
 
-  // Phone app: keep the phone's reminders in step with the plan (re-planned whenever the plan or choices change)
+  // Phone app: keep the phone's reminders and the home-screen widget in step with the plan (re-planned whenever the plan or choices change)
   useEffect(() => {
-    const timer = setTimeout(() => void syncReminders(planReminders(plan, preferences.reminders ?? {}, Date.now())).catch(() => {}), 1500);
+    const timer = setTimeout(() => {
+      void syncReminders(planReminders(plan, preferences.reminders ?? {}, Date.now())).catch(() => {});
+      void updateWidget(plan, Date.now());
+    }, 1500);
     return () => clearTimeout(timer);
   }, [plan, preferences.reminders]);
 

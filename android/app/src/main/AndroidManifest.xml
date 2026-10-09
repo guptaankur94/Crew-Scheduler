@@ -36,6 +36,13 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+        <!-- Home-screen widget: the next step -->
+        <receiver android:name=".NextStepWidget" android:exported="false" android:label="CrewCircadian next step">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_next_step_info" />
+        </receiver>
         <receiver android:name=".WakeAlarmReceiver" android:exported="false" />
         <receiver android:name=".WakeAlarmBootReceiver" android:exported="false">
             <intent-filter>

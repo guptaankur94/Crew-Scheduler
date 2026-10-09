@@ -57,3 +57,12 @@ test('each reminder gets a stable phone ID, the same every time it is planned', 
   assert.equal(reminderNumber('wake-x'), reminderNumber('wake-x'));
   assert.ok(ids.every((n) => Number.isInteger(n) && n >= 0 && n < 2 ** 31));
 });
+
+test('the home-screen widget gets the next steps in order: wake-up, leave, check-in, sleep', async () => {
+  const { widgetSteps } = await import('../src/services/widgetSteps');
+  const steps = widgetSteps(plan, now);
+  assert.ok(steps.length > 0 && steps.every((s) => s.atMs > now));
+  assert.deepEqual(steps.map((s) => s.atMs), [...steps.map((s) => s.atMs)].sort((a, b) => a - b));
+  const duty = steps.filter((s) => ['Wake up', 'Leave home', 'Check-in'].includes(s.label)).slice(0, 3);
+  assert.deepEqual(duty.map((s) => `${s.label} ${s.time}`), ['Wake up 04:15', 'Leave home 05:15', 'Check-in 06:15']);
+});

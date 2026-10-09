@@ -80,6 +80,11 @@ export function fromDraft(d: Draft, convention: TimeConvention = 'local', homeBa
     durationMinutes: c.durationMinutes,
     tzUnverified: !isKnownAirport(origin) || !isKnownAirport(destination) ? true : undefined,
     timeConvention: convention,
+    // A time changed here is no longer as printed, so its actual/estimated marker no longer applies
+    timeKinds: o.timeKinds && {
+      dep: o.printed && d.dep === o.printed.dep && d.date === o.printed.date ? o.timeKinds.dep : undefined,
+      arr: o.printed && d.arr === o.printed.arr ? o.timeKinds.arr : undefined,
+    },
   };
   return { ...flight, printed: printedFrom(flight, convention, homeBase || origin) };
 }
@@ -209,6 +214,11 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
                       <Trash2 className="h-3.5 w-3.5" /> Remove
                     </button>
                   </div>
+                  {(d.original.timeKinds?.dep || d.original.timeKinds?.arr) && (
+                    <p className="mt-2 text-[11px] text-slate-400">
+                      As marked on the roster: departure {d.original.timeKinds?.dep ?? 'scheduled'}, arrival {d.original.timeKinds?.arr ?? 'scheduled'}.
+                    </p>
+                  )}
                   {dayOf(d) !== d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date) && (
                     <p className="mt-2 text-[11px] text-slate-400">
                       Listed under {dayHeading(dayOf(d))}, the check-in day: this flight departs after midnight, on {dayHeading(d.date)}.

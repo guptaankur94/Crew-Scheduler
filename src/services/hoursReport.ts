@@ -18,13 +18,19 @@ export interface HoursRow {
   checkIn?: string;
   signOff?: string;
   flyingMinutes: number;
+  /** Of the flying minutes: flights already flown (both times printed as actual). */
+  flownMinutes: number;
   dutyMinutes: number;
   standbyMinutes: number;
+  /** How the day's flight times were printed: all actual (flown), some estimated, or scheduled. */
+  times: 'actual' | 'estimated' | 'scheduled' | '';
 }
 
 export interface HoursReport {
   rows: HoursRow[];
-  totals: { flyingMinutes: number; dutyMinutes: number; standbyMinutes: number };
+  totals: { flyingMinutes: number; flownMinutes: number; dutyMinutes: number; standbyMinutes: number };
+  /** True when the roster marks any times as actual, so flown and scheduled can be told apart. */
+  hasActuals: boolean;
 }
 
 export function hoursReport(plan: CircadianPlan, period: Period): HoursReport {
@@ -34,14 +40,20 @@ export function hoursReport(plan: CircadianPlan, period: Period): HoursReport {
   const byDate = new Map<string, HoursRow>();
   const row = (date: string) => {
     let r = byDate.get(date);
-    if (!r) byDate.set(date, (r = { date, route: '', flyingMinutes: 0, dutyMinutes: 0, standbyMinutes: 0 }));
+    if (!r) byDate.set(date, (r = { date, route: '', flyingMinutes: 0, flownMinutes: 0, dutyMinutes: 0, standbyMinutes: 0, times: '' }));
     return r;
   };
 
   for (const f of roster.flights) {
     const date = clock.date(Date.parse(f.departureTimeUtc));
     if (!inPeriod(date) || f.isPositioning) continue;
-    row(date).flyingMinutes += f.durationMinutes;
+    const r = row(date);
+    r.flyingMinutes += f.durationMinutes;
+    const flown = f.timeKinds?.dep === 'actual' && f.timeKinds?.arr === 'actual';
+    if (flown) r.flownMinutes += f.durationMinutes;
+    const kind = flown ? 'actual' : f.timeKinds?.dep === 'estimated' || f.timeKinds?.arr === 'estimated' ? 'estimated' : 'scheduled';
+    // A day with any estimated time reads 'estimated'; otherwise 'actual' only when every flight was flown
+    r.times = r.times === 'estimated' || kind === 'estimated' ? 'estimated' : r.times === 'scheduled' || kind === 'scheduled' ? 'scheduled' : 'actual';
   }
   for (const d of groupDuties(roster.flights, roster.homeBase, roster.standbyDuties ?? [])) {
     const date = clock.date(d.startMs);
@@ -62,8 +74,9 @@ export function hoursReport(plan: CircadianPlan, period: Period): HoursReport {
   }
 
   const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-  const sum = (k: 'flyingMinutes' | 'dutyMinutes' | 'standbyMinutes') => rows.reduce((s, r) => s + r[k], 0);
-  return { rows, totals: { flyingMinutes: sum('flyingMinutes'), dutyMinutes: sum('dutyMinutes'), standbyMinutes: sum('standbyMinutes') } };
+  const sum = (k: 'flyingMinutes' | 'flownMinutes' | 'dutyMinutes' | 'standbyMinutes') => rows.reduce((s, r) => s + r[k], 0);
+  const hasActuals = roster.flights.some((f) => f.timeKinds?.dep === 'actual' || f.timeKinds?.arr === 'actual');
+  return { rows, totals: { flyingMinutes: sum('flyingMinutes'), flownMinutes: sum('flownMinutes'), dutyMinutes: sum('dutyMinutes'), standbyMinutes: sum('standbyMinutes') }, hasActuals };
 }
 
 /** 7:45 style hours and minutes. */
@@ -74,9 +87,10 @@ export function hoursReportCsv(report: HoursReport, label: string): string {
   const q = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = [
     [`CrewCircadian hours report: ${label} (home time)`],
-    ['Date', 'Duty', 'Check-in', 'Sign-off', 'Flying (h:mm)', 'Duty (h:mm)', 'Standby (h:mm)'],
-    ...report.rows.map((r) => [r.date, r.route, r.checkIn ?? '', r.signOff ?? '', hhmm(r.flyingMinutes), hhmm(r.dutyMinutes), hhmm(r.standbyMinutes)]),
-    ['Total', '', '', '', hhmm(report.totals.flyingMinutes), hhmm(report.totals.dutyMinutes), hhmm(report.totals.standbyMinutes)],
+    ['Date', 'Duty', 'Check-in', 'Sign-off', 'Flying (h:mm)', 'Times', 'Duty (h:mm)', 'Standby (h:mm)'],
+    ...report.rows.map((r) => [r.date, r.route, r.checkIn ?? '', r.signOff ?? '', hhmm(r.flyingMinutes), r.flyingMinutes ? r.times : '', hhmm(r.dutyMinutes), hhmm(r.standbyMinutes)]),
+    ['Total', '', '', '', hhmm(report.totals.flyingMinutes), '', hhmm(report.totals.dutyMinutes), hhmm(report.totals.standbyMinutes)],
+    ...(report.hasActuals ? [['Flown (actual times)', '', '', '', hhmm(report.totals.flownMinutes)], ['Still scheduled or estimated', '', '', '', hhmm(report.totals.flyingMinutes - report.totals.flownMinutes)]] : []),
     [],
     ['Estimates from your roster as saved in CrewCircadian, including your own updates. Check against your airline\'s records.'],
   ];

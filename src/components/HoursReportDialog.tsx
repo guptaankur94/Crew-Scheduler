@@ -30,6 +30,7 @@ export const HoursReportDialog: React.FC<Props> = ({ plan, period, label, onClos
       `Hours, ${label} (home time)`,
       ...report.rows.map((r) => `${r.date}  ${r.route}${r.checkIn ? `  ${r.checkIn}–${r.signOff}` : ''}  flying ${hhmm(r.flyingMinutes) || '0:00'}  duty ${hhmm(r.dutyMinutes) || '0:00'}${r.standbyMinutes ? `  standby ${hhmm(r.standbyMinutes)}` : ''}`),
       `Total: flying ${hhmm(report.totals.flyingMinutes) || '0:00'}, duty ${hhmm(report.totals.dutyMinutes) || '0:00'}, standby ${hhmm(report.totals.standbyMinutes) || '0:00'}`,
+      ...(report.hasActuals ? [`Flown so far (actual times): ${hhmm(report.totals.flownMinutes) || '0:00'}; still scheduled or estimated: ${hhmm(report.totals.flyingMinutes - report.totals.flownMinutes) || '0:00'}`] : []),
     ].join('\n');
 
   return (
@@ -66,7 +67,10 @@ export const HoursReportDialog: React.FC<Props> = ({ plan, period, label, onClos
                   <td className="px-3 py-1.5 font-sans text-slate-300">{r.route}</td>
                   <td className="px-3 py-1.5">{r.checkIn}</td>
                   <td className="whitespace-nowrap px-3 py-1.5">{r.signOff}</td>
-                  <td className="px-3 py-1.5 text-right">{hhmm(r.flyingMinutes)}</td>
+                  <td className="px-3 py-1.5 text-right" title={r.times ? `Times printed as ${r.times}` : undefined}>
+                    {hhmm(r.flyingMinutes)}
+                    {report.hasActuals && r.flyingMinutes > 0 && <span className="ml-1 font-sans text-[10px] text-slate-500">{r.times === 'actual' ? 'flown' : r.times === 'estimated' ? 'est.' : 'sched.'}</span>}
+                  </td>
                   <td className="px-3 py-1.5 text-right">{hhmm(r.dutyMinutes)}</td>
                   <td className="px-3 py-1.5 text-right">{hhmm(r.standbyMinutes)}</td>
                 </tr>
@@ -88,6 +92,14 @@ export const HoursReportDialog: React.FC<Props> = ({ plan, period, label, onClos
                 <td className="px-3 py-2 text-right">{hhmm(report.totals.dutyMinutes) || '0:00'}</td>
                 <td className="px-3 py-2 text-right">{hhmm(report.totals.standbyMinutes) || '0:00'}</td>
               </tr>
+              {report.hasActuals && (
+                <tr className="font-sans text-xs font-normal text-slate-300">
+                  <td className="px-3 pb-2" colSpan={7}>
+                    Flown so far (actual times): <strong className="font-mono text-white">{hhmm(report.totals.flownMinutes) || '0:00'}</strong> · still scheduled or estimated:{' '}
+                    <strong className="font-mono text-white">{hhmm(report.totals.flyingMinutes - report.totals.flownMinutes) || '0:00'}</strong>
+                  </td>
+                </tr>
+              )}
             </tfoot>
           </table>
         </div>

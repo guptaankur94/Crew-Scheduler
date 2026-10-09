@@ -150,6 +150,8 @@ CRITICAL EXTRACTION RULES:
 - NEVER GUESS: If a flight's date, time or airport cannot be read, leave that field as an empty string rather than inventing a value.
 - TIMES EXACTLY AS PRINTED (do NOT convert time zones):
   * For each flight return "date" (the departure date as printed, "YYYY-MM-DD"), "depTime" and "arrTime" exactly as printed in 24-hour "HH:MM". If the roster prints the arrival date, also return "arrDate".
+  * Some rosters mark a time with a letter: "A0007" is an ACTUAL time (already flown), "E0335" an ESTIMATED time; no letter means scheduled. Return the clock only in "depTime"/"arrTime" ("00:07") and the kind in "depKind"/"arrKind": "actual", "estimated" or "scheduled".
+  * A "+1" after a time means the day after the day the duty is listed under. "date" is always the DEPARTURE date: if the departure time has "+1", "date" is the next day (e.g. listed under 01, "A0007+1" → date 02, depTime "00:07"). Set "arrDate" only if the arrival is on a later day than the departure.
   * "reportTime" is the check-in / reporting time and "releaseTime" the debrief / sign-off / check-out time, as printed ("HH:MM"). For a multi-sector day the release belongs to the last flight. Leave them as empty strings when not printed; never invent them.
   * Do not add or subtract hours for any time zone. The app converts the times itself.
   * "timeConvention": if the roster states which clock its times use, return "local" (each airport's local time, e.g. "LT", "All times local"), "home" (all in the home base's time, e.g. "All times IST" for an Indian base) or "utc" ("UTC", "Z", "GMT"). If it does not say, return "unknown".
@@ -170,6 +172,8 @@ CRITICAL EXTRACTION RULES:
       "date": "YYYY-MM-DD",
       "depTime": "HH:MM",
       "arrTime": "HH:MM",
+      "depKind": "scheduled",
+      "arrKind": "scheduled",
       "arrDate": "",
       "reportTime": "",
       "releaseTime": "",

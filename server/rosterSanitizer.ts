@@ -1,5 +1,5 @@
 import { getAirportTzOffset, lookupAirport } from '../src/data/airports';
-import type { FlightLeg, OtherDuty, StandbyDuty } from '../src/types/circadian';
+import type { FlightLeg, OtherDuty, StandbyDuty, TimeKind } from '../src/types/circadian';
 import { convertPrinted, normaliseClock, PrintedTimes, TimeConvention } from '../src/services/rosterTimes';
 import { normalizeDutyTimes } from '../src/services/dutyTimes';
 import { dayKindForCode, standbyKindForCode } from '../src/services/rosterCodes';
@@ -35,6 +35,16 @@ const CONVENTIONS: TimeConvention[] = ['local', 'home', 'utc'];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const OTHER_KINDS: OtherDuty['kind'][] = ['off', 'leave', 'sick', 'training', 'other'];
+
+/** A printed time with its roster marker: "A0007" → 00:07, actual; "E0335" → 03:35, estimated; "0205+1" → 02:05. */
+export function readMarkedTime(value: unknown): { clock: string | null; kind?: TimeKind } {
+  if (typeof value !== 'string') return { clock: null };
+  const m = value.trim().match(/^([AaEeSs])?\s*([0-9]{1,2}[:.h]?[0-9]{2})\s*(?:\+\s*\d)?$/);
+  if (!m) return { clock: normaliseClock(value) };
+  const letter = m[1]?.toUpperCase();
+  return { clock: normaliseClock(m[2]), kind: letter === 'A' ? 'actual' : letter === 'E' ? 'estimated' : letter === 'S' ? 'scheduled' : undefined };
+}
+const kindOf = (v: unknown): TimeKind | undefined => (v === 'actual' || v === 'estimated' || v === 'scheduled' ? v : undefined);
 
 /** Days the roster lists without flying: one entry per day and kind, with sensible dates only. */
 function sanitizeOtherDuties(raw: unknown, now: Date, stamp: number): OtherDuty[] {
@@ -115,12 +125,24 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), option
 
     // Times as printed (preferred): converted here with the airport reference list and the time convention.
     // Older replies with ready-made UTC times are still accepted.
+    // A time may carry the roster's marker: "A0007" (actual, flown), "E0335" (estimated); "+1" means the next day
+    const depRead = readMarkedTime(fl.depTime);
+    const arrRead = readMarkedTime(fl.arrTime);
+    // "+1" applied to the arrival but not the departure (e.g. listed under 01: departs 00:07 +1, lands 03:56 +1) would
+    // make a flight of over 24 hours, which none is: the departure is on the arrival's day too
+    if (typeof fl.date === 'string' && DATE_RE.test(fl.date) && typeof fl.arrDate === 'string' && DATE_RE.test(fl.arrDate) && fl.arrDate > fl.date && depRead.clock && arrRead.clock && arrRead.clock >= depRead.clock) {
+      fl = { ...fl, date: fl.arrDate };
+    }
+    const timeKinds = {
+      dep: kindOf(fl.depKind) ?? depRead.kind,
+      arr: kindOf(fl.arrKind) ?? arrRead.kind,
+    };
     const printed: PrintedTimes | null =
-      typeof fl.date === 'string' && normaliseClock(fl.depTime) && normaliseClock(fl.arrTime)
+      typeof fl.date === 'string' && depRead.clock && arrRead.clock
         ? {
             date: fl.date,
-            dep: normaliseClock(fl.depTime)!,
-            arr: normaliseClock(fl.arrTime)!,
+            dep: depRead.clock,
+            arr: arrRead.clock,
             ...(typeof fl.arrDate === 'string' && DATE_RE.test(fl.arrDate) ? { arrDate: fl.arrDate } : {}),
             ...(normaliseClock(fl.reportTime) ? { report: normaliseClock(fl.reportTime)! } : {}),
             ...(normaliseClock(fl.releaseTime) ? { release: normaliseClock(fl.releaseTime)! } : {}),
@@ -192,6 +214,7 @@ export function sanitizeParsedRoster(parsed: any, now: Date = new Date(), option
       isPositioning: fl.isPositioning === true ? true : undefined,
       tzUnverified: tzUnverified ? true : undefined,
       ...(printed ? { printed, timeConvention } : {}),
+      ...(timeKinds.dep || timeKinds.arr ? { timeKinds } : {}),
     });
   });
 

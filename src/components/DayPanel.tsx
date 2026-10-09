@@ -69,7 +69,7 @@ const DAY_KINDS: { value: OtherDuty['kind'] | 'none'; label: string }[] = [
 
 const input = 'rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-white focus:border-blue-500 focus:outline-none';
 
-export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention, checked, onToggleChecked, onSave, onApplyFix, onOpenTimeline, onClose, updates = [] }) => {
+export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention: settingConvention, checked, onToggleChecked, onSave, onApplyFix, onOpenTimeline, onClose, updates = [] }) => {
   // Keyboard: focus moves into the panel when it opens, Escape closes it, and focus returns where it was
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -89,6 +89,9 @@ export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention, 
   const clock = rosterClock(roster);
   const homeBase = roster.homeBase;
   const dayFlights = roster.flights.filter((f) => flightHomeDate(f, clock) === date).sort((a, b) => a.departureTimeUtc.localeCompare(b.departureTimeUtc));
+  // Times are shown and edited in the clock this day's roster was read in (e.g. "All times in base (BLR)"), so they
+  // match the roster exactly; otherwise in the person's setting
+  const convention: TimeConvention = dayFlights.find((f) => f.timeConvention)?.timeConvention ?? settingConvention;
   const dayStandby = (roster.standbyDuties ?? []).filter((s) => standbyHomeDate(s, clock) === date);
   const dayOther = (roster.otherDuties ?? []).filter((d) => d.date === date);
 
@@ -100,6 +103,8 @@ export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention, 
     return { key: f.id, original: f, flightNumber: f.flightNumber, origin: f.origin, destination: f.destination, date: p.date, dep: p.dep, arr: p.arr, report: p.report ?? '', release: p.release ?? '', positioning: !!f.isPositioning };
   };
   const [flights, setFlights] = useState<FlightDraft[]>(() => dayFlights.map(toDraft));
+  // Each flight's date as it was when the panel opened (a flight departing after midnight keeps its date)
+  const [openedDates] = useState<Record<string, string>>(() => Object.fromEntries(flights.map((f) => [f.key, f.date])));
   const [standby, setStandby] = useState<StandbyDraft[]>(() =>
     dayStandby.map((s) => ({ key: s.id, original: s, kind: s.kind, start: clock.time(Date.parse(s.startUtc)), end: clock.time(Date.parse(s.endUtc)) }))
   );
@@ -246,7 +251,7 @@ export const DayPanel: React.FC<Props> = ({ date, roster, findings, convention, 
                       onChange={(e) => e.target.value && setFlight(d.key, { date: e.target.value })}
                       className={input}
                     />
-                    {d.date !== date && <span className="text-amber-300">moves to {d.date}</span>}
+                    {d.date !== (openedDates[d.key] ?? date) && <span className="text-amber-300">moves to {d.date}</span>}
                   </label>
                   <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
                     {(

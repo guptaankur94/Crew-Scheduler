@@ -32,6 +32,9 @@ export interface FlightLeg {
   userDelayMinutes?: number; // total delay the person entered for this flight
   importedFrom?: ImportSource; // the upload this flight came from, so the app can say why it believes it
   printed?: { date: string; dep: string; arr: string; arrDate?: string; report?: string; release?: string }; // times exactly as printed on the roster
+  /** Check-in of the duty this flight belongs to. The duty's day is this check-in's date (as rosters print it), even when
+   * a flight departs after midnight. Set by normalizeDutyTimes. */
+  dutyCheckInUtc?: string;
   timeConvention?: 'local' | 'home' | 'utc'; // which clock the printed times were read in
   correctedByUser?: boolean; // the person fixed a reading mistake in this flight (Month screen)
   operationalDelay?: { minutes: number; rosteredDepartureUtc: string; rosteredArrivalUtc: string; rosteredReleaseUtc: string }; // set only on the plan's working copy when the person reported a delay; never saved in the roster

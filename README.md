@@ -80,3 +80,9 @@ Files and text you upload are sent to Google Gemini to be read. Nothing is store
 - **Duty-limit notes never say "compliant"**. They are "worth a look" with the paragraph; the rule text carries a checked-on date and switches off if its 6-monthly re-check is more than 30 days overdue (`rulesStatus`).
 - **Golden rosters** (`tests/golden.test.ts`, `tests/fixtures/golden-sep-oct-2026.json`): a real crew member's September and October rosters (names removed) pin down confirmed totals (October flying 49.9 h) and rules every plan must keep (no sleep over a duty, one check-in and one sign-off per duty, cut-offs end at a sleep). Plus a daylight-saving test for London.
 - **No crew names are kept.** The reader no longer returns a name and names saved by earlier versions are dropped when the app loads.
+- **Phone apps** (`ios/`, `android/`, Capacitor 8; `docs/PHONE_APP.md`): data saved as files the phone does not clear; a true wake-up alarm (Android AlarmManager, iOS AlarmKit) that rings on silent; reminders; Share → CrewCircadian; saving files via the share sheet; Android home-screen widget.
+- **Month extras**: Hours report (day by day, totals match the summary; spreadsheet or text) and a pay estimate from the crew member's own rates only.
+- **Today**: a one-tap "Did you get your planned sleep?" (no scores); a short answer moves tonight's bedtime earlier.
+- **Backups** can be password-protected (AES-256-GCM).
+- **Tools**: `npm run check` (types, tests, build), `npm run eval:reading` (roster-reading accuracy on real rosters kept out of Git), `npm run rulebook`, `npm run phone:live:android`. Hosting: `Dockerfile`, `docs/HOSTING.md`. Store drafts: `docs/STORE_LISTING.md`.
+

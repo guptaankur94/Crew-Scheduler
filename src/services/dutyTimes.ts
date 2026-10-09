@@ -9,6 +9,9 @@ import { FlightLeg } from '../types/circadian';
  * debrief onto every sector (e.g. a BLR→PNQ that lands at 05:43 "released" at 08:49, the debrief after the
  * PNQ→BLR return), which made sign-off look hours after landing.
  *
+ * Each flight also carries its duty's check-in (dutyCheckInUtc): a duty belongs to the day of its check-in, as rosters
+ * print it, so a 22:20 check-in for a 00:07 departure is a duty on the 22:20 day, not the next day.
+ *
  * Sectors belong to one duty when the next departure is less than SAME_DUTY_GAP_HOURS after the previous
  * landing (crew need at least 10–12 hours of rest between duties, so a shorter gap is a turnaround or a
  * split duty). Applied whenever a roster is read or changed; running it twice changes nothing.
@@ -65,12 +68,14 @@ export function normalizeDutyTimes(flights: FlightLeg[]): FlightLeg[] {
       const isLast = i === chain.length - 1;
       const reportTimeUtc = new Date(isFirst ? report : Date.parse(f.departureTimeUtc)).toISOString();
       const releaseTimeUtc = new Date(isLast ? release : Date.parse(f.arrivalTimeUtc)).toISOString();
-      if (reportTimeUtc === f.reportTimeUtc && releaseTimeUtc === f.releaseTimeUtc) return;
+      // Every flight in the duty carries the duty's check-in: the duty belongs to that day
+      const dutyCheckInUtc = new Date(report).toISOString();
+      if (reportTimeUtc === f.reportTimeUtc && releaseTimeUtc === f.releaseTimeUtc && dutyCheckInUtc === f.dutyCheckInUtc) return;
       // Printed times: a sector in the middle has no check-in or debrief of its own
       const printed = f.printed
         ? (({ report: r, release: rel, ...rest }) => ({ ...rest, ...(isFirst && r ? { report: r } : {}), ...(isLast && rel ? { release: rel } : {}) }))(f.printed)
         : undefined;
-      fixed.set(f.id, { ...f, reportTimeUtc, releaseTimeUtc, ...(printed ? { printed } : {}) });
+      fixed.set(f.id, { ...f, reportTimeUtc, releaseTimeUtc, dutyCheckInUtc, ...(printed ? { printed } : {}) });
     });
   }
   return fixed.size ? flights.map((f) => fixed.get(f.id) ?? f) : flights;

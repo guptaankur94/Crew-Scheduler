@@ -25,8 +25,8 @@ test('a Singapore turnaround read in the wrong clock is flagged on its day, with
   assert.equal(findingsByDate(fixed, null).size, 0);
 });
 
-test('a release long after landing is flagged; it belongs to the home date of the flight', () => {
-  const day = findingsByDate(roster([lateRelease()]), null).get('2026-10-08');
+test('a release long after landing is flagged on the duty\'s day: its check-in day (23:51 on 7 Oct, departing 00:51 on 8 Oct)', () => {
+  const day = findingsByDate(roster([lateRelease()]), null).get('2026-10-07');
   assert.match(day![0].message, /Released 270 min after landing/);
 });
 
@@ -36,7 +36,7 @@ test('blank days are flagged only when the roster lists days off (so a blank day
   assert.equal([...findingsByDate(roster(flights), null, cov).values()].flat().filter((f) => f.kind === 'blank').length, 0, 'no OFF days listed: no noise');
   const listed = roster(flights, { otherDuties: [{ id: 'o', kind: 'off', date: '2026-10-06' }] });
   const blanks = [...findingsByDate(listed, null, cov).entries()].filter(([, l]) => l.some((f) => f.kind === 'blank')).map(([d]) => d);
-  assert.deepEqual(blanks, ['2026-10-07', '2026-10-09'], '6 Oct off, 8 Oct duty (BBI departure after midnight IST)');
+  assert.deepEqual(blanks, ['2026-10-09'], '6 Oct off, 7 Oct duty (checks in 23:51), 8 Oct the same duty ends after midnight');
 });
 
 test('duty-limit findings appear on their day', () => {

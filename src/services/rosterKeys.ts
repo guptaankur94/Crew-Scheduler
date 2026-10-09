@@ -26,11 +26,17 @@ export function normalizeFlightNumber(fn: string): string {
   return m ? `${m[1]}${String(Number(m[2]))}${m[3]}` : compact;
 }
 
-export const flightHomeDate = (f: FlightLeg, clock: HomeClock) => clock.date(Date.parse(f.departureTimeUtc));
+/**
+ * The day a flight belongs to: its duty's check-in date in home time, as the roster prints it (a 22:20 check-in for a
+ * 00:07 departure is on the 22:20 day). Falls back to the flight's own check-in, then its departure.
+ */
+export const flightHomeDate = (f: FlightLeg, clock: HomeClock) => clock.date(Date.parse(f.dutyCheckInUtc ?? f.reportTimeUtc ?? f.departureTimeUtc));
+/** The home date the flight departs: part of a sector's identity, so it never changes when duties are regrouped. */
+export const departureHomeDate = (f: FlightLeg, clock: HomeClock) => clock.date(Date.parse(f.departureTimeUtc));
 export const standbyHomeDate = (sb: StandbyDuty, clock: HomeClock) => clock.date(Date.parse(sb.startUtc));
 
 const baseSectorKey = (f: FlightLeg, clock: HomeClock) =>
-  `${flightHomeDate(f, clock)}|${normalizeFlightNumber(f.flightNumber)}|${f.origin.toUpperCase()}|${f.destination.toUpperCase()}`;
+  `${departureHomeDate(f, clock)}|${normalizeFlightNumber(f.flightNumber)}|${f.origin.toUpperCase()}|${f.destination.toUpperCase()}`;
 
 /** Keys for a list of flights, in the list's order. Repeats of the same key on a day are numbered by time. */
 export function sectorKeys(flights: FlightLeg[], clock: HomeClock): string[] {

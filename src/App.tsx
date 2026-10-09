@@ -107,8 +107,11 @@ export default function App() {
     const startRoster = savedPreset ? savedPreset.roster : savedState?.roster ?? createEmptyRoster(DEFAULT_PREFERENCES.homeBaseIata, DEFAULT_PREFERENCES.homeBaseTzOffset);
     const migrated = migrateLegacyDelays(startRoster, savedState?.userUpdates ?? []);
     const flights = normalizeDutyTimes(migrated.roster.flights);
-    const repaired = flights === migrated.roster.flights ? 0 : flights.filter((f, i) => f !== migrated.roster.flights[i]).length;
-    return { ...migrated, roster: repaired ? { ...migrated.roster, flights } : migrated.roster, repaired };
+    // Only changed check-in or debrief times count as a repair; adding each flight's duty check-in (which day the
+    // duty belongs to) happens quietly
+    const old = migrated.roster.flights;
+    const repaired = flights.filter((f, i) => f.reportTimeUtc !== old[i].reportTimeUtc || f.releaseTimeUtc !== old[i].releaseTimeUtc).length;
+    return { ...migrated, roster: flights === old ? migrated.roster : { ...migrated.roster, flights }, repaired };
   }, []);
   const [roster, setRoster] = useState<RosterData>(initial.roster);
   const [userUpdates, setUserUpdates] = useState<UserUpdate[]>(initial.updates);

@@ -47,7 +47,10 @@ test('separate duties stay separate; a single-sector duty keeps its own times; r
     sector('e', 'BLR', 'DEL', '2026-10-08', '17:00', '18:00', '20:40', '21:10'), // 8h45 after landing: a new duty
   ];
   const once = normalizeDutyTimes(read);
-  assert.equal(once, read, 'nothing to change: the same array back');
+  // Times are already right; the only addition is each flight's duty check-in
+  assert.deepEqual(once.map((f) => [f.reportTimeUtc, f.releaseTimeUtc]), read.map((f) => [f.reportTimeUtc, f.releaseTimeUtc]));
+  assert.deepEqual(once.map((f) => f.dutyCheckInUtc), [read[0].reportTimeUtc, read[1].reportTimeUtc]);
+  assert.equal(normalizeDutyTimes(once), once, 'running it again changes nothing: the same array back');
   const messy = normalizeDutyTimes([sector('a', 'BLR', 'PNQ', '2026-10-02', '03:45', '04:12', '05:43', '08:49'), sector('b', 'PNQ', 'BLR', '2026-10-02', '03:45', '06:38', '08:19', '08:49')]);
   assert.equal(normalizeDutyTimes(messy), messy, 'idempotent');
 });

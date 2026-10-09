@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { FlightLeg, OtherDuty, StandbyDuty } from '../types/circadian';
 import { rosterClock, standbyHomeDate } from '../services/rosterKeys';
 import { shortRange } from '../services/periodStats';
+import { normalizeDutyTimes } from '../services/dutyTimes';
 import { getAirportTzOffset, isKnownAirport } from '../data/airports';
 import { convertPrinted, normaliseClock, printedFrom, TIME_CONVENTION_LABEL, TimeConvention } from '../services/rosterTimes';
 import { checkRosterFlights, hasBlockingProblems, RosterIssue } from '../services/rosterChecks';
@@ -123,6 +124,17 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
 
   // Every date, in order: each day's flights under its heading; days without flights say what the roster shows
   const clock = useMemo(() => rosterClock({ homeBase, homeBaseTzOffset: getAirportTzOffset(homeBase, new Date()) ?? 5.5 }), [homeBase]);
+  // A duty belongs to its check-in day (as the roster prints it): a 22:20 check-in for a 00:07 departure is listed under
+  // the 22:20 day, with a note that the flight departs after midnight
+  const dutyDayById = useMemo(() => {
+    const flights = built.map((b) => b.flight).filter(Boolean) as FlightLeg[];
+    return new Map(normalizeDutyTimes(flights).map((f) => [f.id, clock.date(Date.parse(f.dutyCheckInUtc ?? f.reportTimeUtc))]));
+  }, [built, clock]);
+  const dayOf = (d: Draft) => {
+    const id = built.find((b) => b.draft === d)?.flight?.id;
+    return (id && dutyDayById.get(id)) || d.date;
+  };
+
   const standbyByDate = useMemo(() => {
     const map = new Map<string, StandbyDuty[]>();
     for (const sb of days?.standby ?? []) {
@@ -133,7 +145,7 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
   }, [days, clock]);
   const dates = useMemo(() => {
     const valid = /^\d{4}-\d{2}-\d{2}$/;
-    const all = [...(days?.dates ?? []), ...drafts.map((d) => d.date), ...standbyByDate.keys(), ...(days?.otherDuties ?? []).map((o) => o.date)].filter((d) => valid.test(d)).sort();
+    const all = [...(days?.dates ?? []), ...drafts.map(dayOf), ...standbyByDate.keys(), ...(days?.otherDuties ?? []).map((o) => o.date)].filter((d) => valid.test(d)).sort();
     if (!all.length) return [];
     const out: string[] = [];
     // Fill the gaps so a blank day shows as "No duty" (capped, in case a date was mistyped years away)
@@ -141,12 +153,12 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
     for (const d of all) if (!out.includes(d)) out.push(d);
     return out.sort();
   }, [days, drafts, standbyByDate, clock]);
-  const undated = drafts.filter((d) => !dates.includes(d.date));
+  const undated = drafts.filter((d) => !dates.includes(dayOf(d)));
 
   // On a re-upload, days that read exactly as saved are tucked away (unless something on them needs a look)
   const [showAll, setShowAll] = useState(false);
   const unchanged = useMemo(() => new Set(days?.unchanged ?? []), [days]);
-  const dayHasIssue = (date: string) => drafts.some((d) => d.date === date && (issues.get(d.key)?.length ?? 0) > 0);
+  const dayHasIssue = (date: string) => drafts.some((d) => dayOf(d) === date && (issues.get(d.key)?.length ?? 0) > 0);
   const hiddenDates = showAll ? [] : dates.filter((d) => unchanged.has(d) && !dayHasIssue(d));
   const shownDates = dates.filter((d) => !hiddenDates.includes(d));
 
@@ -197,6 +209,11 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
                       <Trash2 className="h-3.5 w-3.5" /> Remove
                     </button>
                   </div>
+                  {dayOf(d) !== d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date) && (
+                    <p className="mt-2 text-[11px] text-slate-400">
+                      Listed under {dayHeading(dayOf(d))}, the check-in day: this flight departs after midnight, on {dayHeading(d.date)}.
+                    </p>
+                  )}
                   {rowIssues.length > 0 && (
                     <ul className="mt-2 space-y-0.5 text-[11px]">
                       {rowIssues.map((i, n) => (
@@ -295,7 +312,7 @@ const RosterReviewDialog: React.FC<RosterReviewDialogProps> = ({ flights, previe
               </p>
             )}
             {shownDates.map((date) => {
-              const rows = drafts.filter((d) => d.date === date);
+              const rows = drafts.filter((d) => dayOf(d) === date);
               const sbs = standbyByDate.get(date) ?? [];
               const listed = (days?.otherDuties ?? []).filter((o) => o.date === date);
               return (

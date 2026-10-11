@@ -36,6 +36,10 @@ interface TodayPreviewProps {
   onOpenSettings: () => void;
   onOpenTimeline: () => void;
   onNavigateToUpload?: () => void;
+  /** Shown at the top of the Duty screen: only Now → Next, the sleep check, the day in one line and the next-duty heads-up (the day's steps follow below). */
+  asHeader?: boolean;
+  /** Opens a day on the Duty screen. */
+  onOpenDate?: (dateStr: string) => void;
 }
 
 const HOUR = 3600000;
@@ -92,6 +96,8 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
   onOpenScience,
   onOpenSettings,
   onOpenTimeline,
+  asHeader,
+  onOpenDate,
   onNavigateToUpload,
 }) => {
   const { events, dailySummaries, preferences, roster } = plan;
@@ -262,10 +268,10 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
       <TodayGlance plan={plan} todayStr={todayStr} nowMs={nowMs} />
 
       {/* Standby, only when there is some today */}
-      <StandbyNotice events={events.filter((e) => e.dutyDate === todayStr)} onSelectEvent={onSelectEvent} roster={roster} />
+      {!asHeader && <StandbyNotice events={events.filter((e) => e.dutyDate === todayStr)} onSelectEvent={onSelectEvent} roster={roster} />}
 
       {/* 2. Next duty: full runway within 24 hours, otherwise a one-line heads-up */}
-      {showRunway && prep?.prepDetails ? (
+      {asHeader && prep && prep.dutyDate === todayStr ? null : !asHeader && showRunway && prep?.prepDetails ? (
         <section className="rounded-2xl border border-sky-800/80 bg-gradient-to-b from-sky-950/40 via-slate-900 to-slate-950 p-4 sm:p-5 shadow-sm space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-sky-900/50 pb-3">
             <div className="space-y-0.5">
@@ -391,7 +397,7 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
         </section>
       ) : prep ? (
         <button
-          onClick={onOpenTimeline}
+          onClick={() => (onOpenDate && prep.dutyDate ? onOpenDate(prep.dutyDate) : onOpenTimeline())}
           className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-left hover:border-slate-700"
         >
           <span className="text-sm text-slate-300">
@@ -429,7 +435,9 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
         )
       )}
 
-      {/* 3. Rest of today: one list in time order */}
+      {/* 3. Rest of today: one list in time order (on the Duty screen the day's steps show this) */}
+      {!asHeader && (
+      <>
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex items-center justify-between px-1">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
@@ -479,6 +487,8 @@ export const TodayPreview: React.FC<TodayPreviewProps> = ({
       <button onClick={onOpenTimeline} className="px-1 text-xs text-slate-400 underline underline-offset-2 hover:text-slate-200">
         See other days, change flights and more on Days
       </button>
+      </>
+      )}
     </div>
   );
 };

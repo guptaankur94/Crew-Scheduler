@@ -39,18 +39,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems: { id: NavView; label: string; shortLabel: string; icon: React.ReactNode; badge?: string; desc: string }[] = [
     {
-      id: 'today',
-      label: "Today's Duty",
-      shortLabel: 'Today',
-      icon: <Clock className="h-4 w-4" />,
-      desc: 'What to do next'
-    },
-    {
       id: 'roster',
-      label: 'Days',
-      shortLabel: 'Days',
-      icon: <Calendar className="h-4 w-4" />,
-      desc: 'Your days, step by step',
+      label: 'Duty',
+      shortLabel: 'Duty',
+      icon: <Clock className="h-4 w-4" />,
+      desc: 'Today and any day, step by step',
     },
     {
       id: 'mastersheet',

@@ -55,6 +55,8 @@ export interface TimelineViewProps {
   initialDate?: string;
   /** Opens the Month screen on the month containing this date. */
   onOpenMonthSummary?: (dateStr: string) => void;
+  /** What to do now, shown above the steps when today is selected; it can open another day. */
+  renderToday?: (openDate: (dateStr: string) => void) => React.ReactNode;
 }
 
 export const TimelineView: React.FC<TimelineViewProps> = ({
@@ -73,6 +75,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   onOpenSettings,
   initialDate,
   onOpenMonthSummary,
+  renderToday,
 }) => {
   const { events, dailySummaries, preferences } = plan;
 
@@ -108,6 +111,26 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const selectedMonthName = selectedDate
     ? new Date(`${selectedDate}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' })
     : '';
+
+  const openDate = (dateStr: string) => {
+    setSelectedDate(dateStr);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const [copied, setCopied] = useState(false);
+  const copyTimes = () => {
+    const p = prepDetails;
+    if (!p) return;
+    const lines = [
+      `✈️ Duty ${activeDaySummary?.dayLabel ?? selectedDate} (home time)`,
+      `⏰ Wake up: ${p.wakeUpHbt}`,
+      `🚖 ${p.pickupLabel || 'Leave home'}: ${p.cabPickupHbt}`,
+      `🏢 Check-in: ${p.reportHbt}`,
+      `🛫 Departs: ${p.departureHbt}`,
+    ];
+    navigator.clipboard?.writeText(lines.join('\n'));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const backToToday = () => {
     setSelectedDate(todayStr);
@@ -321,6 +344,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         </div>
       )}
 
+      {/* Today: what to do now */}
+      {renderToday && selectedDate === todayStr && renderToday(openDate)}
+
       {/* Nudge back to today after looking at another day */}
       {todayInPlan && selectedDate !== todayStr && (
         <button
@@ -460,6 +486,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         Change in Settings
                       </button>
                     )}
+                    <button onClick={copyTimes} className="font-semibold text-sky-300 underline underline-offset-2 hover:text-white">
+                      {copied ? 'Copied' : 'Copy times'}
+                    </button>
                   </p>
                 </div>
               )}

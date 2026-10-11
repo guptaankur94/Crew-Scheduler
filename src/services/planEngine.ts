@@ -26,8 +26,19 @@ export const HOTEL_TRANSFER_MINUTES = 45;
 export const WIND_DOWN_MINUTES = 30;
 /** Nap before a night duty, finished when getting ready starts so grogginess passes before driving or duty. */
 export const PRE_NIGHT_DUTY_NAP_MINUTES = 90;
-/** Nap after an early duty. */
-export const POST_EARLY_DUTY_NAP_MINUTES = 60;
+/**
+ * AFTER AN EARLY DUTY (Hilditch, Dorrian & Banks 2017; Brooks & Lack 2006; Banks et al. 2010): an earlier, longer
+ * night rather than a long nap. A short nap (10–20 min) helps with little grogginess; a long evening nap uses up
+ * the tiredness that makes an early night easy. The 18:00 cut-off and the size of the earlier bedtime are our own
+ * rules of thumb, pending review by a sleep physician.
+ */
+export const POST_EARLY_DUTY_NAP_MINUTES = 20;
+/** The optional nap after an early duty is finished by this home-time hour. */
+export const POST_EARLY_DUTY_NAP_LATEST_HOUR = 18;
+/** The night after an early duty starts this much earlier than usual... */
+export const EARLY_NIGHT_ADVANCE_HOURS = 1.5;
+/** ...but not before this home-time hour. */
+export const EARLY_NIGHT_EARLIEST_HOUR = 21;
 /** Longest first sleep after a night duty, so the following night's sleep still works. */
 export const RECOVERY_SLEEP_MAX_HOURS = 5;
 /**
@@ -109,6 +120,7 @@ export interface PlanCitations {
   recovery_sleep: ScientificCitation;
   nasa_nap_26: ScientificCitation;
   pre_duty_90_nap: ScientificCitation;
+  after_early_duty: ScientificCitation;
   chrono_nutrition_window: ScientificCitation;
   gut_rest_night: ScientificCitation;
   caffeine_cutoff: ScientificCitation;
@@ -126,6 +138,8 @@ interface Block {
 
 interface SleepBlock extends Block {
   catchUp?: boolean;
+  /** The first night after an early duty, started earlier than usual. */
+  earlyNight?: boolean;
   kind: 'night' | 'before_duty' | 'recovery' | 'nap_before_night' | 'nap_after_early';
   id: string;
   windowStart: number;
@@ -426,12 +440,12 @@ function planGapSleeps(gap: Gap, preferences: CrewPreferences, clock: HomeClock)
   const targetMs = preferences.targetSleepHours * HOUR;
   const nextCategory = gap.next ? dutyCategory(gap.next.startMs, clock) : undefined;
   const prevCategory = gap.prev ? dutyCategory(gap.prev.startMs, clock) : undefined;
-  const add = (kind: SleepBlock['kind'], startMs: number, endMs: number) => {
+  const add = (kind: SleepBlock['kind'], startMs: number, endMs: number, earlyNight = false) => {
     const b = clip({ startMs, endMs }, gap.start, gap.end);
     if (!b) return;
     const isNap = kind === 'nap_before_night' || kind === 'nap_after_early';
     if (b.endMs - b.startMs < (isNap ? 20 : 60) * MIN) return;
-    out.push({ ...b, kind, id: `${isNap ? 'nap' : 'sleep'}-${new Date(startMs).toISOString().slice(0, 16)}`, windowStart: gap.start, windowEnd: gap.end });
+    out.push({ ...b, kind, ...(earlyNight ? { earlyNight } : {}), id: `${isNap ? 'nap' : 'sleep'}-${new Date(startMs).toISOString().slice(0, 16)}`, windowStart: gap.start, windowEnd: gap.end });
   };
 
   // After a night duty (reported in the evening or overnight): sleep as soon as possible.
@@ -468,15 +482,22 @@ function planGapSleeps(gap: Gap, preferences: CrewPreferences, clock: HomeClock)
     if (napStart >= cursor) add('nap_before_night', napStart, gap.end);
   }
 
-  // Regular home-time nights in between
+  // Regular home-time nights in between. The first night after an early duty starts earlier and keeps its
+  // usual wake-up, so it is longer: that is where the recovery happens.
+  let earlyNightPending = gap.prev !== undefined && prevCategory === 'early_morning';
   let date = clock.date(cursor - 12 * HOUR);
   while (true) {
     const nightStart = clock.at(date, usualBedtimeHour(preferences));
     if (nightStart >= gap.end) break;
     const night = { startMs: nightStart, endMs: nightStart + targetMs };
     const clashesWithLast = lastSleep && night.endMs > lastSleep.startMs - 2 * HOUR;
+    const early = earlyNightPending && nightStart > gap.start && nightStart - gap.start < 12 * HOUR;
+    if (early) earlyNightPending = false;
     if (!clashesWithLast && night.endMs > cursor) {
-      add('night', Math.max(night.startMs, cursor), night.endMs);
+      const start = early
+        ? Math.max(nightStart - EARLY_NIGHT_ADVANCE_HOURS * HOUR, clock.at(date, EARLY_NIGHT_EARLIEST_HOUR))
+        : nightStart;
+      add('night', Math.max(start, cursor), night.endMs, early && start < nightStart);
     }
     date = clock.addDays(date, 1);
   }
@@ -485,9 +506,9 @@ function planGapSleeps(gap: Gap, preferences: CrewPreferences, clock: HomeClock)
     add('before_duty', Math.max(lastSleep.startMs, cursor), lastSleep.endMs);
   }
 
-  // Nap after an early duty, if it leaves a clear run-up to the next main sleep
-  if (gap.prev && prevCategory === 'early_morning' && clock.hour(gap.start) < 16) {
-    const napEnd = gap.start + POST_EARLY_DUTY_NAP_MINUTES * MIN;
+  // Optional short nap after an early duty: only if it ends by the cut-off and leaves a clear run-up to the next main sleep
+  const napEnd = gap.start + POST_EARLY_DUTY_NAP_MINUTES * MIN;
+  if (gap.prev && prevCategory === 'early_morning' && napEnd <= clock.at(clock.date(gap.start), POST_EARLY_DUTY_NAP_LATEST_HOUR)) {
     const nextMain = out.filter((b) => b.kind !== 'nap_before_night' && b.startMs >= gap.start).sort((a, b) => a.startMs - b.startMs)[0];
     if (!nextMain || nextMain.startMs - napEnd >= 3 * HOUR) add('nap_after_early', gap.start, napEnd);
   }
@@ -551,8 +572,8 @@ const SLEEP_TEXT: Record<SleepBlock['kind'], { type: EventType; title: (h: strin
   },
   nap_after_early: {
     type: 'nasa_nap',
-    title: () => '💤 Nap after an early duty',
-    subtitle: 'Early starts usually cut sleep short; a nap helps you catch up',
+    title: () => '💤 Short nap, only if you need it',
+    subtitle: "Only if you can't stay awake: 20 minutes with an alarm. A longer nap leaves you groggy and makes tonight's early night harder",
     priority: 'optional',
   },
 };
@@ -658,10 +679,14 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
         ? citations.recovery_sleep
         : s.kind === 'nap_before_night'
         ? citations.pre_duty_90_nap
-        : s.kind === 'nap_after_early'
-        ? citations.nasa_nap_26
+        : s.kind === 'nap_after_early' || s.earlyNight
+        ? citations.after_early_duty
         : citations.anchor_sleep;
-    const subtitle = s.catchUp ? 'A little earlier tonight, because you logged a short sleep last night' : text.subtitle;
+    const subtitle = s.catchUp
+      ? 'A little earlier tonight, because you logged a short sleep last night'
+      : s.earlyNight
+      ? 'Early night after an early start: go to bed as soon as you feel sleepy. A longer night is how you recover'
+      : text.subtitle;
     events.push(
       make(s.id, text.type, text.title(hours), subtitle, s.startMs, s.endMs, citation, text.priority, '#8b5cf6', 'moon', clock.date(s.endMs), {
         userAdjustable: true,

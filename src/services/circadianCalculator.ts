@@ -90,6 +90,16 @@ export const CITATIONS = {
     actionableTip: 'Finish the nap well before you leave for the airport so any grogginess has passed.',
     sourceUrl: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC6710480/',
   },
+  after_early_duty: {
+    ruleId: 'NAP-03',
+    evidence: 'moderate',
+    organization: 'Peer-reviewed research',
+    studyTitle: 'Hilditch, Dorrian & Banks 2017; Brooks & Lack 2006; Banks et al. 2010: short naps, grogginess and recovery sleep',
+    keyFinding: 'Naps of about 10–20 minutes help within minutes with little grogginess; longer naps cause grogginess, which is worse after short sleep. After sleep loss, more recovery sleep restores more.',
+    explanation: 'After an early duty the app plans an earlier, longer night instead of a long nap, because a long evening nap uses up the tiredness that makes an early night easy. The 18:00 nap cut-off and the 1.5-hour earlier bedtime are our own rules of thumb; no study has tested them in cabin crew.',
+    actionableTip: "If you can't stay awake, nap 10–20 minutes with an alarm and finish by 18:00. Then go to bed as soon as you feel sleepy.",
+    sourceUrl: 'https://digital.library.adelaide.edu.au/items/3314e5ee-e2af-4e68-a541-99e22d7a654d',
+  },
   chrono_nutrition_window: {
     ruleId: 'MEAL-01',
     evidence: 'limited',

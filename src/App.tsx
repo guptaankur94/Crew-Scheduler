@@ -91,7 +91,9 @@ export default function App() {
   const savedPreset = savedState ? presets.find((p) => p.id === savedState.activePresetId) : undefined;
   
   // Navigation State: 'today' | 'roster' (Days) | 'mastersheet' (Month) | 'upload' (Rosters) | 'settings' | 'science'
-  const [activeView, setActiveView] = useState<NavView>('today');
+  // Today now lives at the top of the Duty screen ('roster'), so 'today' opens it
+  const [activeView, setActiveViewRaw] = useState<NavView>('roster');
+  const setActiveView = (view: NavView) => setActiveViewRaw(view === 'today' ? 'roster' : view);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
@@ -166,7 +168,7 @@ export default function App() {
   };
   /** Switches screens from the menu or tab bar; the Timeline then opens on today. */
   const navigateTo = (view: NavView) => {
-    if (view === 'roster') setTimelineJumpDate(undefined);
+    if (view === 'roster' || view === 'today') setTimelineJumpDate(undefined);
     setActiveView(view);
   };
   const [selectedEvent, setSelectedEvent] = useState<CircadianEvent | null>(null);
@@ -620,23 +622,12 @@ export default function App() {
             </div>
           )}
           {/* What moved in the plan after the latest update */}
-          {activeView === 'today' && planNotice && Date.now() - Date.parse(planNotice.at) < HEADS_UP_HOURS * 3600000 && (
+          {activeView === 'roster' && planNotice && Date.now() - Date.parse(planNotice.at) < HEADS_UP_HOURS * 3600000 && (
             <div className="mb-4">
               <PlanChangedCard notice={planNotice} onDismiss={() => showPlanNotice(null)} />
             </div>
           )}
 
-          {activeView === 'today' && (
-            <TodayPreview
-              plan={plan}
-              onSelectEvent={setSelectedEvent}
-              onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
-              onOpenScience={() => setActiveView('science')}
-              onOpenSettings={() => setActiveView('settings')}
-              onOpenTimeline={() => setActiveView('roster')}
-              onNavigateToUpload={() => setActiveView('upload')}
-            />
-          )}
 
           {activeView === 'roster' && (
             <RosterView
@@ -677,6 +668,19 @@ export default function App() {
                 ) : null;
               }}
               initialDate={timelineJumpDate}
+              renderToday={(openDate) => (
+                <TodayPreview
+                  asHeader
+                  plan={plan}
+                  onSelectEvent={setSelectedEvent}
+                  onUpdatePreferences={(updated) => setPreferences((p) => ({ ...p, ...updated }))}
+                  onOpenScience={() => setActiveView('science')}
+                  onOpenSettings={() => setActiveView('settings')}
+                  onOpenTimeline={() => undefined}
+                  onOpenDate={openDate}
+                  onNavigateToUpload={() => setActiveView('upload')}
+                />
+              )}
               onOpenMonthSummary={(dateStr) => {
                 setMonthViewMonth(`${dateStr.slice(0, 7)}-01`);
                 setActiveView('mastersheet');
@@ -759,8 +763,7 @@ export default function App() {
       {/* 3. Mobile Floating Bottom Navigation Bar (Ultra-convenient thumb reach) */}
       <div className="fixed bottom-0 left-0 right-0 z-30 lg:hidden border-t border-slate-800 bg-slate-950/95 backdrop-blur-md px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-around shadow-2xl">
         {[
-          { id: 'today' as NavView, label: 'Today', icon: <Clock className="h-4 w-4" /> },
-          { id: 'roster' as NavView, label: 'Days', icon: <Calendar className="h-4 w-4" /> },
+          { id: 'roster' as NavView, label: 'Duty', icon: <Clock className="h-4 w-4" /> },
           { id: 'mastersheet' as NavView, label: 'Month', icon: <CalendarDays className="h-4 w-4" /> },
           { id: 'upload' as NavView, label: 'Rosters', icon: <UploadCloud className="h-4 w-4" /> },
         ].map((tab) => {

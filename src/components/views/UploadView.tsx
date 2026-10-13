@@ -8,7 +8,9 @@ import { useWhatChanged } from '../WhatChangedDialog';
 import { TimeConvention } from '../../services/rosterTimes';
 import { normalizeDutyTimes } from '../../services/dutyTimes';
 import { daySignature } from '../../services/rosterFindings';
-import { apiFetch } from '../../services/platform';
+import { apiFetch, NO_SERVER_MESSAGE } from '../../services/platform';
+import { looksLikeAiAnswer, readAiAnswer } from '../../services/pastedRoster';
+import { ownAiPrompt } from '../../services/rosterPrompt';
 import { UploadedRosters } from '../UploadedRosters';
 import { FilePreviewModal } from '../FilePreviewModal';
 import { determineMimeType, prepareFileForUpload } from '../../services/rosterFiles';
@@ -223,6 +225,16 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const allRecords = useMemo(() => [...importRecords, ...recordsFromHistory(history, importRecords)], [importRecords, history]);
   const yourRosters = useMemo(() => visibleRecords(allRecords, currentRoster), [allRecords, currentRoster]);
   const [showPaste, setShowPaste] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const copyOwnAiPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(ownAiPrompt(new Date().toISOString().slice(0, 10)));
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 2500);
+    } catch {
+      setParseError('Could not copy. Allow clipboard access, or try another browser.');
+    }
+  };
 
   /**
    * Re-read, step 2: a clean slate for the roster's dates with the given reading. Corrections on those dates
@@ -766,7 +778,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const handleParseText = async (again?: { text: string; title: string; reread?: ImportRecord }) => {
     const text = again?.text ?? rawTextInput;
     if (!text.trim()) return;
-    if (!(await requestConsent())) return;
+    // An answer pasted from the person's own AI app is read here, on the device; nothing is sent
+    const ownAiAnswer = looksLikeAiAnswer(text);
+    if (!ownAiAnswer && !(await requestConsent())) return;
     setIsParsingBatch(true);
     setParseError(null);
     setSuccessMessage(null);
@@ -774,13 +788,15 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setParseWarnings([]);
 
     try {
-      const response = await apiFetch('/api/roster/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawText: text, timeConvention, homeBase: currentRoster.homeBase }),
-      });
-
-      const result = await response.json();
+      const result: any = ownAiAnswer
+        ? readAiAnswer(text, { timeConvention, homeBase: currentRoster.homeBase })
+        : await (
+            await apiFetch('/api/roster/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rawText: text, timeConvention, homeBase: currentRoster.homeBase }),
+            })
+          ).json();
       if (result.success && result.data) {
         importedStandbyRef.current = Array.isArray(result.data.standby) ? result.data.standby : [];
         importedOtherRef.current = Array.isArray(result.data.otherDuties) ? result.data.otherDuties : [];
@@ -815,7 +831,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
           applyReread(again.reread, uploadContent(newFlights));
           return;
         }
-        const textTitle = again?.title ?? 'Pasted text';
+        const textTitle = again?.title ?? (ownAiAnswer ? 'Read by your AI app' : 'Pasted text');
         const at = new Date().toISOString();
         const textFile = { file: new Blob([text], { type: 'text/plain' }), name: 'Pasted text', fingerprint: await textFingerprint(text) };
         if (hasOwnRoster) {
@@ -1315,10 +1331,24 @@ export const UploadView: React.FC<UploadViewProps> = ({
         </div>
       )}
 
+      {/* Why a file could not be read (and the way round it when there is no server) */}
+      {!isParsingBatch && fileBatch.some((f) => f.status === 'error') && (
+        <div className="space-y-1 rounded-xl border border-rose-900/60 bg-rose-950/20 px-3 py-2 text-xs text-rose-200">
+          {[...new Set(fileBatch.filter((f) => f.status === 'error').map((f) => f.error || 'This file could not be read.'))].map((m) => (
+            <p key={m}>{m}</p>
+          ))}
+          {fileBatch.some((f) => f.error === NO_SERVER_MESSAGE) && !showPaste && (
+            <button onClick={() => setShowPaste(true)} className="font-semibold text-sky-300 underline underline-offset-2 hover:text-white">
+              Read with your own AI app
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Another way to upload: paste the roster as text */}
       {!showPaste && (
         <button onClick={() => setShowPaste(true)} className="text-xs font-semibold text-slate-400 hover:text-white">
-          Or paste roster text instead
+          Or paste roster text, or read it with your own AI app (no server needed)
         </button>
       )}
 
@@ -1386,12 +1416,27 @@ export const UploadView: React.FC<UploadViewProps> = ({
       {/* Paste roster text (shown when chosen) */}
       {showPaste && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+          {/* Read with your own AI app: works without the app's server */}
+          <div className="rounded-xl border border-sky-900/60 bg-sky-950/20 p-4 space-y-2 text-xs text-slate-300">
+            <p className="font-bold uppercase tracking-wider text-sky-200">Read with your own AI app</p>
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>
+                <button onClick={copyOwnAiPrompt} className="font-semibold text-sky-300 underline underline-offset-2 hover:text-white">
+                  {promptCopied ? 'Copied ✓' : 'Copy the prompt'}
+                </button>
+              </li>
+              <li>Open ChatGPT, Claude, Gemini or another AI app. Attach your roster screenshots, paste the prompt and send.</li>
+              <li>Copy its whole answer, paste it below and tap Read. You check everything before it is saved.</li>
+            </ol>
+            <p className="text-[11px] text-slate-500">Your screenshots go to the AI app you choose, under its privacy rules. The answer is read here, on your phone.</p>
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-              Paste Raw Roster Text
+              Paste here
             </label>
             <p className="text-xs text-slate-400 mt-0.5">
-              Copy flight lines from your crew portal, SMS, or WhatsApp schedule message. Will merge into your active continuous timeline.
+              Your AI app's answer, or flight lines from your crew portal, SMS or WhatsApp (those are read by the app's server).
             </p>
           </div>
 
@@ -1409,7 +1454,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
             className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2.5 text-xs font-bold text-white transition-all disabled:opacity-50"
           >
             {isParsingBatch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            <span>Upload & Parse Text with Gemini</span>
+            <span>{looksLikeAiAnswer(rawTextInput) ? 'Read the answer' : 'Read with Gemini'}</span>
           </button>
         </div>
       )}

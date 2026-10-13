@@ -16,6 +16,17 @@ export function apiBase(): string {
 }
 
 /** fetch() for the app's own API, wherever the app is running. */
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${apiBase()}${path}`, init);
+/** Shown when the app's server cannot be reached (offline, or a copy of the app hosted without it, e.g. GitHub Pages). */
+export const NO_SERVER_MESSAGE = 'The reading server is not available here. Use "Read with your own AI app" (below the upload box) instead.';
+
+/** Calls the app's server. Every API answer is JSON, so anything else means there is no server here. */
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase()}${path}`, init);
+  } catch {
+    throw new Error(NO_SERVER_MESSAGE);
+  }
+  if (!(response.headers.get('content-type') ?? '').includes('json')) throw new Error(NO_SERVER_MESSAGE);
+  return response;
 }

@@ -8,3 +8,10 @@ coverage/
 !.env.example
 # Real rosters for measuring reading accuracy: personal data, never committed
 reading-eval/
+
+# Never commit app backups or real rosters (people's data stays out of Git)
+*backup*.json
+crewcircadian-*.json
+*.jpeg
+*.jpg
+*.heic

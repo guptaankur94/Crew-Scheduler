@@ -2,15 +2,15 @@
   "name": "CrewCircadian — Cabin Crew Fatigue & Rest Planner",
   "short_name": "CrewCircadian",
   "description": "Evidence-based sleep, nap, and chrono-nutrition planner for airline cabin crew based on NASA, ICAO, and circadian science.",
-  "start_url": "/",
-  "id": "/",
+  "start_url": "./",
+  "id": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#020617",
   "theme_color": "#020617",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
       "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"

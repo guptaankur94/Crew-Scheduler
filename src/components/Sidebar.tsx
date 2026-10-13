@@ -2,23 +2,19 @@ import React from 'react';
 import {
   Compass,
   Calendar,
-  DollarSign,
   UploadCloud,
   Sliders,
   BookOpen,
   ChevronLeft,
   ChevronRight,
-  Plane,
   Clock,
-  Sparkles,
   MapPin,
-  CheckCircle2,
-  FileText,
+  CalendarDays,
 } from 'lucide-react';
 import { CircadianPlan } from '../types/circadian';
-import { AIRPORTS } from '../data/airports';
+import { lookupAirport } from '../data/airports';
 
-export type NavView = 'today' | 'roster' | 'mastersheet' | 'salary' | 'upload' | 'settings' | 'science';
+export type NavView = 'today' | 'roster' | 'mastersheet' | 'upload' | 'settings' | 'science';
 
 interface SidebarProps {
   activeView: NavView;
@@ -39,65 +35,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile,
 }) => {
-  const { preferences, roster, salaryBreakdown } = plan;
+  const { preferences, roster } = plan;
 
   const navItems: { id: NavView; label: string; shortLabel: string; icon: React.ReactNode; badge?: string; desc: string }[] = [
     {
-      id: 'today',
-      label: "Today's Duty",
-      shortLabel: 'Today',
-      icon: <Clock className="h-4 w-4" />,
-      desc: 'Runway, Cab & Sleep',
-      badge: 'Live',
-    },
-    {
       id: 'roster',
-      label: 'Chrono Timeline',
-      shortLabel: 'Timeline',
-      icon: <Calendar className="h-4 w-4" />,
-      desc: '30-Day Sectors & Caps',
+      label: 'Duty',
+      shortLabel: 'Duty',
+      icon: <Clock className="h-4 w-4" />,
+      desc: 'Today and any day, step by step',
     },
     {
       id: 'mastersheet',
-      label: 'Master Duty Sheet',
-      shortLabel: 'Sheet',
-      icon: <FileText className="h-4 w-4" />,
-      desc: 'AIMS Table & Verification',
-      badge: 'AIMS',
-    },
-    {
-      id: 'salary',
-      label: 'Salary & Earnings',
-      shortLabel: 'Salary',
-      icon: <DollarSign className="h-4 w-4" />,
-      desc: 'Take-Home & Payslip',
-      badge: `${salaryBreakdown.currencySymbol}${Math.round(salaryBreakdown.totalEarnings / 1000)}k`,
+      label: 'Month',
+      shortLabel: 'Month',
+      icon: <CalendarDays className="h-4 w-4" />,
+      desc: 'Hours, calendar & checks',
     },
     {
       id: 'upload',
-      label: 'Roster & History',
-      shortLabel: 'Upload',
+      label: 'Rosters',
+      shortLabel: 'Rosters',
       icon: <UploadCloud className="h-4 w-4" />,
-      desc: 'Upload, History & Presets',
+      desc: 'Upload, re-read or remove',
     },
     {
       id: 'settings',
-      label: 'Buffers & Rhythm',
-      shortLabel: 'Buffers',
+      label: 'Settings',
+      shortLabel: 'Settings',
       icon: <Sliders className="h-4 w-4" />,
-      desc: 'Cab, Sleep & Timing',
+      desc: 'Commute, sleep & caffeine',
     },
     {
       id: 'science',
-      label: 'Science Lab',
+      label: 'The science',
       shortLabel: 'Science',
       icon: <BookOpen className="h-4 w-4" />,
-      desc: 'NASA & ICAO Studies',
+      desc: 'Sources behind the advice',
     },
   ];
 
-  const baseAirport = AIRPORTS[roster.homeBase] || {
-    city: roster.homeBase,
+  const baseAirport = {
+    city: lookupAirport(roster.homeBase)?.city || roster.homeBase,
     iata: roster.homeBase,
   };
 
@@ -118,7 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col justify-between border-r border-slate-800/80 bg-slate-950/95 backdrop-blur-xl transition-all duration-300 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col justify-between border-r border-slate-800/80 bg-slate-950/95 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-xl transition-all duration-300 ${
           isCollapsed ? 'w-18' : 'w-64'
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
@@ -135,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     CrewCircadian
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono tracking-wider uppercase">
-                    Aero-Chrono v2.4
+                    Rest planner for cabin crew
                   </span>
                 </div>
               )}
@@ -223,34 +202,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        {/* Bottom Crew Profile Badge */}
-        <div className="border-t border-slate-800/80 p-3">
-          {!isCollapsed ? (
-            <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-2.5 text-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Crew Position
-                </span>
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-mono text-slate-300 uppercase">
-                  {preferences.crewRank}
-                </span>
-              </div>
-              <p className="text-[11px] font-semibold text-white truncate">
-                {roster.crewName || 'Aviation Crew Member'}
-              </p>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/50">
-                <span>Rhythm: <strong className="text-emerald-400">Synced</strong></span>
-                <span>{preferences.currency}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex justify-center">
-              <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300" title={roster.crewName || 'Crew'}>
-                {roster.crewName ? roster.crewName[0].toUpperCase() : 'C'}
-              </div>
-            </div>
-          )}
-        </div>
       </aside>
     </>
   );

@@ -5,8 +5,12 @@ export interface AirportInfo {
   name: string;
   city: string;
   country: string;
-  tzOffset: number; // in hours from UTC, e.g. +5.5 for DEL/BOM, +4 for DXB
+  tzOffset: number; // standard-time hours from UTC, e.g. +5.5 for DEL/BOM, +4 for DXB
+  timeZone?: string; // IANA zone (e.g. 'Europe/London') for daylight-saving-aware offsets
 }
+
+/** How a roster time was printed: actual (flown, "A" prefix), estimated ("E" prefix) or scheduled (no prefix). */
+export type TimeKind = 'actual' | 'estimated' | 'scheduled';
 
 export interface FlightLeg {
   id: string;
@@ -24,7 +28,62 @@ export interface FlightLeg {
   aircraftType?: string;
   durationMinutes: number;
   isRedEye?: boolean;
+  isPositioning?: boolean; // travelling as a passenger to or from a duty (deadhead); duty time, not flying pay
+  tzUnverified?: boolean; // an airport's time zone could not be verified from the reference list; must be checked before saving
   bunkShift?: 'shift1' | 'shift2' | 'none'; // In-flight rest split for long-haul
+  userChange?: 'added' | 'callout' | 'delayed'; // set when the person added or changed this flight themselves, not a roster upload
+  userDelayMinutes?: number; // total delay the person entered for this flight
+  importedFrom?: ImportSource; // the upload this flight came from, so the app can say why it believes it
+  printed?: { date: string; dep: string; arr: string; arrDate?: string; report?: string; release?: string }; // times exactly as printed on the roster
+  /** Check-in of the duty this flight belongs to. The duty's day is this check-in's date (as rosters print it), even when
+   * a flight departs after midnight. Set by normalizeDutyTimes. */
+  dutyCheckInUtc?: string;
+  /** Whether the roster printed these times as actual (flown, e.g. "A0007"), estimated ("E0335") or scheduled. */
+  timeKinds?: { dep?: TimeKind; arr?: TimeKind };
+  timeConvention?: 'local' | 'home' | 'utc'; // which clock the printed times were read in
+  correctedByUser?: boolean; // the person fixed a reading mistake in this flight (Month screen)
+  operationalDelay?: { minutes: number; rosteredDepartureUtc: string; rosteredArrivalUtc: string; rosteredReleaseUtc: string }; // set only on the plan's working copy when the person reported a delay; never saved in the roster
+}
+
+/** A standby period from the roster: at home (on call) or at the airport (ready to fly). */
+export interface StandbyDuty {
+  id: string;
+  kind: 'home' | 'airport';
+  airport: string; // where the standby is held, usually the home base
+  startUtc: string;
+  endUtc: string;
+  importedFrom?: ImportSource;
+}
+
+/**
+ * Something the person told the app happened, kept separate from the roster (what the airline published).
+ * The plan uses the roster with these applied; the roster itself is never changed by them.
+ *   delay             a flight leaves late: departure, arrival and release move; the rostered report does not
+ *   standby_times     a standby's times were changed by crew control
+ *   standby_released  released from standby early (at or before its start means it was cancelled)
+ *   callout           called out from standby (or ad hoc) to one or more flights
+ *   cancelled         a rostered flight did not operate (the roster keeps it, the plan leaves it out)
+ */
+export type UserUpdate =
+  | { id: string; kind: 'delay'; sectorKey: string; minutes: number; createdAt: string }
+  | { id: string; kind: 'standby_times'; standbyKey: string; startUtc: string; endUtc: string; createdAt: string }
+  | { id: string; kind: 'standby_released'; standbyKey: string; atUtc: string; createdAt: string }
+  | { id: string; kind: 'callout'; standbyKey?: string; flights: FlightLeg[]; createdAt: string }
+  | { id: string; kind: 'cancelled'; sectorKey: string; createdAt: string };
+
+/** Which upload an item came from (shown as its source). */
+export interface ImportSource {
+  title: string; // file name or 'Pasted text'
+  at: string; // ISO time of the upload
+}
+
+/** A non-flying day listed on the roster. Dates are as printed on the roster (home-base dates). */
+export interface OtherDuty {
+  id: string;
+  kind: 'off' | 'leave' | 'sick' | 'training' | 'other';
+  date: string; // YYYY-MM-DD
+  code?: string; // as printed, e.g. 'OFF', 'AL', 'SCK', 'SIM'
+  importedFrom?: ImportSource;
 }
 
 export interface LayoverInfo {
@@ -53,14 +112,27 @@ export type EventType =
   | 'melatonin_shield'
   | 'wocl_risk'
   | 'rest_day'
-  | 'standby';
+  | 'standby'
+  | 'exercise_cutoff'
+  | 'alcohol_cutoff';
+
+/**
+ * How well a rule is supported: strong (consistent trials or reviews), moderate (some trials or expert guidance),
+ * limited (early or mixed evidence; shown as a gentle guide), practical (arithmetic on your roster and settings),
+ * regulation (a legal rule, not a health claim).
+ */
+export type EvidenceGrade = 'strong' | 'moderate' | 'limited' | 'practical' | 'regulation';
 
 export interface ScientificCitation {
-  organization: 'NASA Ames' | 'ICAO FRMS' | 'Salk Institute' | 'FAA/EASA' | 'Sleep Research Society';
+  /** Stable ID of the rule in the rule book (docs/RULE_BOOK.md), e.g. SLEEP-01. */
+  ruleId: string;
+  evidence: EvidenceGrade;
+  organization: string;
   studyTitle: string;
   keyFinding: string;
   explanation: string;
   actionableTip: string;
+  sourceUrl?: string; // link to the document the claim comes from
 }
 
 export interface PrepDetails {
@@ -83,6 +155,8 @@ export interface PrepDetails {
   debriefMinutes?: number;
   debriefStartHbt?: string;
   debriefEndHbt?: string;
+  isAwayFromBase?: boolean; // duty starts at an outstation (hotel), not at home
+  pickupLabel?: string; // e.g. 'Leave home' or 'Hotel pickup'
 }
 
 export interface CircadianEvent {
@@ -111,13 +185,22 @@ export type Chronotype = 'lark' | 'intermediate' | 'owl';
 export type CrewRank = 'junior' | 'senior' | 'lead';
 export type SalaryCurrency = 'INR' | 'AED' | 'USD';
 
+/** Usual caffeine: light = one coffee or a few cups of chai (≈100 mg), moderate = two coffees, strong = three or more, or energy drinks (≈400 mg). */
+export type CaffeineDose = 'light' | 'moderate' | 'strong';
+
 export interface CrewPreferences {
   airline: AirlineId;
   homeBaseIata: string;
   homeBaseTzOffset: number;
   chronotype: Chronotype;
   targetSleepHours: number;
-  caffeineCutoffHours: number; // 6 or 8 hours before sleep
+  caffeineCutoffHours: number; // hours before night sleep (follows caffeineDose when set)
+  /** How much caffeine the person usually has; decides the cut-off (Gardiner et al. 2025). */
+  caffeineDose?: CaffeineDose;
+  /** First-run set-up: 'pending' shows the welcome steps; absent or 'done' does not. */
+  onboarding?: 'pending' | 'done';
+  /** Which reminders the person switched on (all off unless chosen). */
+  reminders?: Partial<Record<'wake' | 'leave' | 'bedtime' | 'caffeine', boolean>>;
   preferredNapDuration: 25 | 26 | 45 | 90; // NASA 26m vs full cycle 90m
   groomingMinutes: number; // Time from wake-up to cab pickup (e.g. 60 min)
   cabBufferMinutes: number; // Time from cab pickup to reporting at base (e.g. 60 min)
@@ -132,10 +215,17 @@ export interface CrewPreferences {
   payslipUploaded?: boolean;
   payslipFileName?: string;
   // Wearable sleep sync override (Apple Health / Oura / Garmin)
-  actualLastSleepHours?: number;
-  actualSleepEfficiency?: number; // e.g. 85 for 85%
+  actualLastSleepHours?: number; // hours slept last night, as entered by the user
+  actualLastSleepLoggedAt?: string; // ISO time the entry was made; it stops applying after 48 hours
+  /** One-tap answers to "Did you get this sleep?", by the planned sleep's start (UTC). Never scored. Last 60 kept. */
+  sleepFeedback?: Record<string, 'yes' | 'partly' | 'no'>;
   useMelatoninProtocol?: boolean;
   bunkShiftAssignments?: Record<string, 'shift1' | 'shift2'>;
+  payPeriodStartDay?: number; // day of the month the salary window starts (1 = calendar month, up to 28)
+  rosterTimeConvention?: 'local' | 'home' | 'utc'; // how the person's rosters print times (default: each airport's local time)
+  usualBedtime?: string; // 'HH:MM' home time: the person's own bedtime on normal nights (overrides the chronotype default)
+  usualWakeTime?: string; // 'HH:MM' home time; with the bedtime it sets targetSleepHours
+  dutyLimitRules?: 'dgca-cc-iv' | 'dgca-cc-v-draft'; // which DGCA cabin crew rules the duty-limit guide uses (default: the one in force)
 }
 
 export interface SalaryBreakdown {
@@ -158,27 +248,38 @@ export interface SalaryBreakdown {
   rankTitle: string;
   isCustomRates?: boolean;
   source?: 'standard' | 'custom' | 'payslip';
+  periodStart?: string; // the window this estimate covers (home-base dates, inclusive)
+  periodEnd?: string;
+  periodLabel?: string; // e.g. 'October 2026' or '21 Sep – 20 Oct 2026'
 }
 
 export interface RosterData {
   id: string;
   airline: AirlineId;
-  crewName?: string;
   homeBase: string;
   homeBaseTzOffset: number;
   flights: FlightLeg[];
   layovers: LayoverInfo[];
-  periodStart?: string;
-  periodEnd?: string;
+  periodStart?: string; // first date the roster covers (YYYY-MM-DD), when the roster states it
+  periodEnd?: string; // last date the roster covers
   totalDays?: number;
   standbyHours?: number;
+  standbyDuties?: StandbyDuty[];
+  otherDuties?: OtherDuty[]; // OFF, leave, sick and training days as listed on the roster
   rawText?: string;
   parsedAt: string;
   sourceDocumentUrl?: string;
   sourceDocumentName?: string;
 }
 
-export type HistoryActionType = 'upload' | 'preset' | 'manual_edit' | 'cleared';
+export type HistoryActionType = 'upload' | 'preset' | 'manual_edit' | 'cleared' | 'undo';
+
+/** One day's changes in a history entry, in plain words. */
+export interface HistoryDayChange {
+  date: string; // YYYY-MM-DD
+  label: string; // e.g. 'Now free', 'Changed'
+  lines: string[]; // e.g. '6E 408 BLR→PNQ 04:30 → 04:12'
+}
 
 export interface RosterHistoryEntry {
   id: string;
@@ -192,6 +293,10 @@ export interface RosterHistoryEntry {
   dateRange?: string; // e.g. "Oct 01 - Oct 30, 2026"
   isActive: boolean;
   rosterSnapshot?: RosterData; // Snapshot to enable instant restore
+  previousSnapshot?: RosterData; // the roster just before this change; kept on the newest entry only, for Undo
+  changes?: HistoryDayChange[]; // what changed, day by day (roster updates)
+  updatesSnapshot?: UserUpdate[]; // the person's updates after this change
+  previousUpdates?: UserUpdate[]; // the person's updates just before this change; newest entry only, for Undo
   sourceDocumentUrl?: string;
   sourceDocumentName?: string;
 }
@@ -201,13 +306,21 @@ export interface DailyCircadianSummary {
   dayLabel: string; // e.g. "Mon, Oct 12"
   dayNumber: number; // 1 to 30
   isOffDay: boolean;
-  dutyType: 'flight' | 'off' | 'standby' | 'layover';
+  dutyType: 'flight' | 'off' | 'standby' | 'layover' | 'training' | 'leave' | 'sick';
   totalSleepHours: number;
   napsCount: number;
   eatingWindowHours: number;
   woclExposureMinutes: number;
   fatigueRiskLevel: 'low' | 'moderate' | 'high';
   keyGuidance: string;
+  outsideRoster?: boolean; // true for days the roster does not cover (usual home-time rhythm only)
+  noDuty?: boolean; // a blank day inside the roster: nothing at all listed for it (shown as "No duty", counted with days off)
+  outlook?: {
+    level: 'steady' | 'watch' | 'harder';
+    headline: string; // e.g. 'Harder day ahead'
+    reasons: string[]; // plain reasons, e.g. 'an early start (wake 03:30)'
+    tip: string;
+  };
   prepDetails?: PrepDetails;
   layoverStation?: {
     city: string;
@@ -240,9 +353,6 @@ export interface CircadianPlan {
     woclNightFlights: number;
     avgSleepPerDay: number;
     standbyHours: number;
-    cumulativeSleepDebtHours: number;
-    fdpCompliant: boolean;
-    maxFdpHours: number;
   };
   salaryBreakdown: SalaryBreakdown;
   generatedAt: string;
@@ -253,8 +363,6 @@ export interface CircadianPlan {
     nextMilestoneTitle: string;
     nextMilestoneTime: string;
     minutesUntilNext: number;
-    safteScore: number; // 0 to 100 ReadiScore biomathematical cognitive effectiveness
-    safteCategory: 'optimal' | 'moderate' | 'fatigue_risk';
     biologicalPhase: 'day' | 'night_nadir' | 'transition';
     immediateAction: ImmediateActionCard;
   };

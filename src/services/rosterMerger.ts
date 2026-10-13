@@ -1,4 +1,7 @@
-import { FlightLeg, RosterData } from '../types/circadian';
+import { FlightLeg } from '../types/circadian';
+import { normalizeFlightNumber } from './rosterKeys';
+
+export { normalizeFlightNumber };
 
 export interface RosterConflict {
   id: string;
@@ -15,13 +18,6 @@ export interface MergeAnalysisResult {
   newSectorsCount: number;
   nonConflictingMergedFlights: FlightLeg[];
   allIncomingFlights: FlightLeg[];
-}
-
-/**
- * Normalizes flight numbers for comparison (e.g. "6E 205" -> "6E205")
- */
-export function normalizeFlightNumber(fn: string): string {
-  return fn.toUpperCase().replace(/\s+/g, '');
 }
 
 /**
@@ -187,3 +183,4 @@ export function resolveAndMergeFlights(
     (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
   );
 }
+

@@ -1,4 +1,6 @@
-import { RosterData, RosterHistoryEntry } from '../types/circadian';
+import { RosterData, RosterHistoryEntry, UserUpdate } from '../types/circadian';
+import { kv } from './kv';
+import { compactHistory, expandHistory } from './historyCompact';
 
 const STORAGE_KEY = 'crew_roster_history_v1';
 
@@ -25,7 +27,6 @@ export function createEmptyRoster(homeBase = 'DEL', homeBaseTzOffset = 5.5): Ros
   return {
     id: `cleared-roster-${Date.now()}`,
     airline: 'None',
-    crewName: 'Cabin Crew',
     homeBase,
     homeBaseTzOffset,
     flights: [],
@@ -34,24 +35,33 @@ export function createEmptyRoster(homeBase = 'DEL', homeBaseTzOffset = 5.5): Ros
   };
 }
 
+function withoutCrewName(entry: RosterHistoryEntry): RosterHistoryEntry {
+  const strip = (r?: RosterData) => {
+    if (!r || !('crewName' in r)) return r;
+    const { crewName: _name, ...rest } = r as RosterData & { crewName?: string };
+    return rest;
+  };
+  return { ...entry, rosterSnapshot: strip(entry.rosterSnapshot), previousSnapshot: strip(entry.previousSnapshot) };
+}
+
 export function loadRosterHistory(): RosterHistoryEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kv.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
-    return [];
+    // Stored compactly (each flight once); the crew member's name is no longer kept and is dropped if present
+    return expandHistory(parsed).map(withoutCrewName);
   } catch (err) {
-    console.warn('Failed to load roster history from localStorage', err);
+    console.warn('Failed to load roster history', err);
     return [];
   }
 }
 
 export function saveRosterHistory(entries: RosterHistoryEntry[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    kv.setItem(STORAGE_KEY, JSON.stringify(compactHistory(entries)));
   } catch (err) {
-    console.warn('Failed to save roster history to localStorage', err);
+    console.warn('Failed to save roster history', err);
   }
 }
 
@@ -60,8 +70,9 @@ export function recordRosterAction(
 ): RosterHistoryEntry[] {
   const current = loadRosterHistory();
   
-  // Mark previous entries as not active if the new one is active
-  const updatedCurrent = current.map((item) => ({
+  // Mark previous entries as not active if the new one is active. Only the newest entry keeps the
+  // roster from before its change (for Undo), so storage stays small.
+  const updatedCurrent = current.map(({ previousSnapshot: _dropped, previousUpdates: _droppedUpdates, ...item }) => ({
     ...item,
     isActive: entry.isActive ? false : item.isActive,
   }));
@@ -88,7 +99,7 @@ export function deleteRosterHistoryItem(id: string): RosterHistoryEntry[] {
 
 export function clearRosterHistoryLogs(): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    kv.removeItem(STORAGE_KEY);
   } catch (err) {
     console.warn('Failed to clear roster history', err);
   }
@@ -102,4 +113,16 @@ export function setActiveHistoryItem(id: string): RosterHistoryEntry[] {
   }));
   saveRosterHistory(updated);
   return updated;
+}
+
+/**
+ * The newest change can be undone while the saved roster is still exactly what that change produced.
+ * Returns that entry, or undefined when there is nothing safe to undo.
+ */
+export function undoableEntry(history: RosterHistoryEntry[], current: RosterData, currentUpdates: UserUpdate[] = []): RosterHistoryEntry | undefined {
+  const latest = history[0];
+  if (!latest?.previousSnapshot || !latest.rosterSnapshot || latest.actionType === 'undo') return undefined;
+  if (JSON.stringify(latest.rosterSnapshot) !== JSON.stringify(current)) return undefined;
+  if (latest.updatesSnapshot && JSON.stringify(latest.updatesSnapshot) !== JSON.stringify(currentUpdates)) return undefined;
+  return latest;
 }

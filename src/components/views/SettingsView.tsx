@@ -1,19 +1,22 @@
-import React from 'react';
-import { Chronotype, CrewPreferences, CrewRank, RosterData, SalaryCurrency } from '../../types/circadian';
-import { AIRPORTS } from '../../data/airports';
+import { RemindersSettings } from '../RemindersSettings';
+import { saveOrShareFile } from '../../services/saveFile';
+import { CAFFEINE_CHOICES, UsualSleep } from '../SleepSettings';
+import { CAFFEINE_HOURS, DAYTIME_SLEEP_EXTRA_HOURS } from '../../services/planEngine';
+import React, { useEffect, useRef, useState } from 'react';
+import { RecentChanges } from '../RecentChanges';
+import { deleteAllStoredFiles, listStoredFiles } from '../../services/fileStore';
+import { TIME_CONVENTION_LABEL, TimeConvention } from '../../services/rosterTimes';
+import { createBackupFromDevice, decryptBackup, deleteAllLocalData, encryptBackup, isEncryptedBackup, parseBackup, writeRestoredData } from '../../services/backup';
+import { getAiConsentDate, withdrawAiConsent } from '../../services/aiConsent';
+import { CaffeineDose, Chronotype, CircadianPlan, CrewPreferences, RosterData, RosterHistoryEntry } from '../../types/circadian';
+import { AIRPORTS, getAirportTzOffset } from '../../data/airports';
 import {
   Sliders,
   Moon,
-  Coffee,
   Clock,
   Car,
   Bell,
-  Sun,
   MapPin,
-  DollarSign,
-  UserCheck,
-  Shield,
-  Zap,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -21,14 +24,99 @@ interface SettingsViewProps {
   roster: RosterData;
   onUpdatePreferences: (updated: Partial<CrewPreferences>) => void;
   onChangeHomeBase: (iata: string, tzOffset: number) => void;
+  /** Every change to the roster, with Undo on the newest and restore to an earlier point. */
+  history?: RosterHistoryEntry[];
+  onUndoLatest?: () => void;
+  onRestoreHistoryEntry?: (entry: RosterHistoryEntry) => void;
+  /** For the reminders preview. */
+  plan?: CircadianPlan;
 }
+
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   preferences,
   roster,
   onUpdatePreferences,
   onChangeHomeBase,
+  history = [],
+  onUndoLatest,
+  onRestoreHistoryEntry,
+  plan,
 }) => {
+  // Usual caffeine; older saved choices of 6 or 8 hours map to light or moderate
+  const dose: CaffeineDose = preferences.caffeineDose ?? (preferences.caffeineCutoffHours >= 12 ? 'strong' : preferences.caffeineCutoffHours >= 8 ? 'moderate' : 'light');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dataMessage, setDataMessage] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [aiConsentDate, setAiConsentDate] = useState(() => getAiConsentDate());
+
+  // Optional password protection for backups, and a password asked for when restoring a protected one
+  const [protect, setProtect] = useState(false);
+  const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [locked, setLocked] = useState<string | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState('');
+
+  const handleExport = async () => {
+    if (protect && (password.length < 8 || password !== password2)) {
+      setDataMessage({ text: password.length < 8 ? 'Choose a password of at least 8 characters.' : 'The two passwords do not match.', tone: 'error' });
+      return;
+    }
+    const backup = createBackupFromDevice();
+    const content = protect ? await encryptBackup(backup, password) : backup;
+    await saveOrShareFile(`crewcircadian-backup-${new Date().toISOString().slice(0, 10)}${protect ? '-protected' : ''}.json`, content, 'application/json');
+    if (protect) {
+      setPassword('');
+      setPassword2('');
+    }
+    setDataMessage({ text: 'Backup saved. Keep the file somewhere safe, such as your files app or email.', tone: 'ok' });
+  };
+
+  const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const text = await file.text();
+    if (isEncryptedBackup(text)) {
+      setLocked(text);
+      setUnlockPassword('');
+      setDataMessage(null);
+      return;
+    }
+    restoreFrom(text);
+  };
+
+  const unlockAndRestore = async () => {
+    if (!locked) return;
+    const plain = await decryptBackup(locked, unlockPassword);
+    if (!plain) {
+      setDataMessage({ text: 'That password does not open this backup.', tone: 'error' });
+      return;
+    }
+    setLocked(null);
+    restoreFrom(plain);
+  };
+
+  const restoreFrom = (text: string) => {
+    const result = parseBackup(text, preferences);
+    if ('error' in result) {
+      setDataMessage({ text: result.error, tone: 'error' });
+      return;
+    }
+    writeRestoredData(result);
+    window.location.reload();
+  };
+
+  const [keptFiles, setKeptFiles] = useState<{ count: number; bytes: number } | null>(null);
+  useEffect(() => {
+    listStoredFiles().then((files) => setKeptFiles({ count: files.length, bytes: files.reduce((s, f) => s + f.size, 0) }));
+  }, []);
+
+  const handleDeleteAll = () => {
+    deleteAllLocalData();
+    window.location.reload();
+  };
+
   const quickBases = [
     { iata: 'DEL', name: 'Delhi', tzOffset: 5.5 },
     { iata: 'BOM', name: 'Mumbai', tzOffset: 5.5 },
@@ -51,10 +139,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
           <div>
             <h2 className="text-base font-bold text-white">
-              Pre-Flight Buffers & Circadian Preferences
+              Settings
             </h2>
             <p className="text-xs text-slate-400">
-              Customize morning grooming, cab travel times, core sleep targets, and home base anchors.
+              Only settings that change your plan are shown here.
             </p>
           </div>
         </div>
@@ -65,7 +153,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
           <Clock className="h-4 w-4 text-sky-400" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-            1. Pre-Flight Departure Buffers (Runway Engine)
+            1. Getting to work
           </h3>
         </div>
         <p className="text-xs text-slate-400">
@@ -138,42 +226,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
           <Moon className="h-4 w-4 text-purple-400" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-            2. Circadian Biology & Sleep Science
+            2. Sleep & caffeine
           </h3>
         </div>
 
-        {/* Chronotype Selection */}
+        {/* Chronotype: nudges the usual bedtime */}
         <div className="space-y-2">
-          <label className="font-bold uppercase tracking-wider text-slate-300 text-xs">
-            Personal Chronotype (Biological Clock Inclination)
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[
-              {
-                id: 'lark' as Chronotype,
-                title: '🌅 Morning Lark',
-                desc: 'Alert early. Sleep shifted 45m earlier. Great for early check-ins.',
-              },
-              {
-                id: 'intermediate' as Chronotype,
-                title: '🌤️ Intermediate',
-                desc: 'Balanced diurnal rhythm. Standard clinical sleep windows.',
-              },
-              {
-                id: 'owl' as Chronotype,
-                title: '🦉 Night Owl',
-                desc: 'Alert in late evenings. Naturally resilient on red-eye turnarounds.',
-              },
-            ].map((c) => {
+          <label className="font-bold uppercase tracking-wider text-slate-300 text-xs">Are you a morning or evening person?</label>
+          <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 ${preferences.usualBedtime ? 'opacity-50' : ''}`}>
+            {([
+              { id: 'lark', title: '🌅 Morning person', desc: 'Usual bedtime about 45 minutes earlier (around 22:15).' },
+              { id: 'intermediate', title: '🌤️ In between', desc: 'Usual bedtime around 23:00.' },
+              { id: 'owl', title: '🦉 Evening person', desc: 'Usual bedtime about 45 minutes later (around 23:45).' },
+            ] as { id: Chronotype; title: string; desc: string }[]).map((c) => {
               const isSelected = preferences.chronotype === c.id;
               return (
                 <button
                   key={c.id}
                   onClick={() => onUpdatePreferences({ chronotype: c.id })}
                   className={`rounded-xl border p-3 text-left transition-all ${
-                    isSelected
-                      ? 'border-purple-500 bg-purple-950/30 ring-1 ring-purple-500 shadow-sm'
-                      : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                    isSelected ? 'border-purple-500 bg-purple-950/30 ring-1 ring-purple-500' : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
                   }`}
                 >
                   <p className="font-bold text-white text-xs">{c.title}</p>
@@ -182,137 +254,106 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               );
             })}
           </div>
+          <p className="text-[11px] text-slate-500">
+            {preferences.usualBedtime ? 'You have set your usual bedtime below, so this choice is not used. ' : ''}This only moves your bedtime on nights without an early start. It is approximate: people with the same answer
+            can differ by several hours, so adjust any sleep with "Move this" if it does not suit you.
+          </p>
         </div>
 
         {/* Target Sleep Hours & Caffeine Clearance */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          {/* Target Sleep Duration */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-xs uppercase text-slate-300">Target Core Sleep</span>
-              <span className="font-mono font-bold text-purple-300 text-sm">
-                {preferences.targetSleepHours} Hours
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Hours of restorative nocturnal sleep required to clear homeostatic sleep pressure.
-            </p>
-            <input
-              type="range"
-              min="6.0"
-              max="9.0"
-              step="0.5"
-              value={preferences.targetSleepHours}
-              onChange={(e) => onUpdatePreferences({ targetSleepHours: parseFloat(e.target.value) })}
-              className="w-full accent-purple-400 cursor-pointer"
-            />
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Usual sleep on normal nights, like a phone's sleep schedule: bedtime and wake-up */}
+          <UsualSleep preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
 
-          {/* Caffeine Clearance Buffer */}
+          {/* Caffeine: the usual amount decides the cut-off before sleep */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-xs uppercase text-slate-300">Caffeine Clearance Buffer</span>
-              <span className="font-mono font-bold text-amber-300 text-sm">
-                {preferences.caffeineCutoffHours} Hours Pre-Sleep
-              </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-xs uppercase text-slate-300">How much caffeine do you usually have?</span>
+              <span className="shrink-0 font-mono font-bold text-amber-300 text-sm">{CAFFEINE_HOURS[dose]} h before sleep</span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Caffeine half-life clearance buffer to prevent disruption of Stage 3 slow-wave sleep.
-            </p>
-            <div className="flex gap-2 pt-1">
-              {[6, 8].map((hrs) => (
+            <div className="grid gap-2 pt-1">
+              {CAFFEINE_CHOICES.map((c) => (
                 <button
-                  key={hrs}
-                  onClick={() => onUpdatePreferences({ caffeineCutoffHours: hrs })}
-                  className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
-                    preferences.caffeineCutoffHours === hrs
-                      ? 'bg-amber-600 text-white shadow-sm'
-                      : 'border border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                  key={c.dose}
+                  onClick={() => onUpdatePreferences({ caffeineDose: c.dose, caffeineCutoffHours: CAFFEINE_HOURS[c.dose] })}
+                  aria-pressed={dose === c.dose}
+                  className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${
+                    dose === c.dose ? 'bg-amber-600 text-white shadow-sm' : 'border border-slate-800 bg-slate-900 text-slate-300 hover:text-white'
                   }`}
                 >
-                  {hrs} Hours (Clearance)
+                  <span>{c.label}</span>
+                  <span className="shrink-0 font-mono">stop {CAFFEINE_HOURS[c.dose]} h before</span>
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-
-        {/* Wearable Sleep Sync Override (Apple Health / Oura / Garmin) */}
-        <div className="rounded-xl border border-indigo-900/50 bg-indigo-950/20 p-4 space-y-3 pt-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-indigo-900/30 pb-2">
-            <div>
-              <span className="font-bold text-xs uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
-                <Zap className="h-4 w-4 text-indigo-400" /> Wearable Sleep Sync Override (Biometric Calibration)
-              </span>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Adjusts the SAFTE alertness curve based on actual recorded sleep rather than scheduled plan.
-              </p>
-            </div>
-            <span className="rounded bg-indigo-900/40 border border-indigo-700/50 px-2 py-0.5 text-[9px] font-mono text-indigo-300 self-start sm:self-center">
-              Apple Health • Oura • Garmin
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div>
-              <div className="flex justify-between text-slate-300 mb-1">
-                <span>Last Night Actual Sleep:</span>
-                <span className="font-mono font-bold text-white">
-                  {preferences.actualLastSleepHours !== undefined ? `${preferences.actualLastSleepHours} hrs` : `${preferences.targetSleepHours} hrs (Default)`}
-                </span>
-              </div>
-              <input
-                type="range"
-                min="4.0"
-                max="10.0"
-                step="0.5"
-                value={preferences.actualLastSleepHours ?? preferences.targetSleepHours}
-                onChange={(e) => onUpdatePreferences({ actualLastSleepHours: parseFloat(e.target.value) })}
-                className="w-full accent-indigo-400 cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-slate-300 mb-1">
-                <span>Wearable Sleep Efficiency:</span>
-                <span className="font-mono font-bold text-white">
-                  {preferences.actualSleepEfficiency ?? 85}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min="60"
-                max="100"
-                step="1"
-                value={preferences.actualSleepEfficiency ?? 85}
-                onChange={(e) => onUpdatePreferences({ actualSleepEfficiency: parseInt(e.target.value) })}
-                className="w-full accent-indigo-400 cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Melatonin Phase Response Curve (PRC) Protocol */}
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 flex items-center justify-between text-xs">
-          <div>
-            <span className="font-bold text-white block">
-              Low-Dose Melatonin Timer (0.5mg–3mg Phase Response Curve)
-            </span>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Calculates precise pre-sleep administration window for rapid eastward/westward circadian clock shifts.
+            <p className="text-[11px] text-slate-400">
+              Chai and tea count too. Before a daytime sleep (after a night duty) the app stops caffeine {DAYTIME_SLEEP_EXTRA_HOURS} hours earlier still,
+              because caffeine disturbs daytime sleep more.
             </p>
           </div>
-          <button
-            onClick={() => onUpdatePreferences({ useMelatoninProtocol: !preferences.useMelatoninProtocol })}
-            className={`rounded-xl px-3 py-1.5 font-bold transition-all ${
-              preferences.useMelatoninProtocol
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            {preferences.useMelatoninProtocol ? 'Active ✓' : 'Enable'}
-          </button>
         </div>
+
+
+        {plan && <RemindersSettings plan={plan} preferences={preferences} onUpdatePreferences={onUpdatePreferences} />}
+
+        {/* Last night's sleep: a short night moves the next bedtime earlier */}
+        <div className="rounded-xl border border-indigo-900/50 bg-indigo-950/20 p-4 space-y-3">
+          <div>
+            <span className="font-bold text-xs uppercase tracking-wider text-indigo-300">How did you sleep last night?</span>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Enter roughly how many hours you slept (from memory or your watch). If it was short, tonight's bedtime moves up
+              to an hour earlier. The entry stops applying after two days.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[4, 5, 6, 7, 8, 9].map((h) => {
+              const isRecent =
+                preferences.actualLastSleepLoggedAt !== undefined &&
+                Date.now() - Date.parse(preferences.actualLastSleepLoggedAt) < 48 * 3600000;
+              const selected = isRecent && preferences.actualLastSleepHours === h;
+              return (
+                <button
+                  key={h}
+                  onClick={() => onUpdatePreferences({ actualLastSleepHours: h, actualLastSleepLoggedAt: new Date().toISOString() })}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                    selected ? 'bg-indigo-600 text-white' : 'border border-slate-800 bg-slate-950 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {h === 4 ? '4h or less' : h === 9 ? '9h or more' : `${h}h`}
+                </button>
+              );
+            })}
+            {preferences.actualLastSleepLoggedAt && (
+              <button
+                onClick={() => onUpdatePreferences({ actualLastSleepHours: undefined, actualLastSleepLoggedAt: undefined })}
+                className="rounded-lg px-3 py-1.5 text-xs text-slate-400 underline underline-offset-2"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Melatonin: information only, no doses */}
+        <details className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs">
+          <summary className="cursor-pointer font-bold text-white">About melatonin</summary>
+          <div className="mt-3 space-y-2 leading-relaxed text-slate-300">
+            <p>
+              Melatonin is a hormone your body releases in the evening. As a supplement, research shows it can help with jet
+              lag when the timing is right, but the evidence for shift work is weak, and taking it at the wrong time can push
+              your body clock the wrong way.
+            </p>
+            <p>
+              Products vary a lot: one study found actual content ranged from far below to several times the amount on the
+              label.
+            </p>
+            <p>
+              Its legal status differs between countries (it needs a prescription in some), and airlines may have rules about
+              taking it before duty. This app does not suggest doses or times. Please ask your airline doctor or a
+              pharmacist before using it.
+            </p>
+          </div>
+        </details>
       </div>
 
       {/* 3. Home Base Airport & Position Rank */}
@@ -320,7 +361,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
           <MapPin className="h-4 w-4 text-emerald-400" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-            3. Home Base Anchor & Position Rank
+            3. Home base
           </h3>
         </div>
 
@@ -335,7 +376,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               return (
                 <button
                   key={b.iata}
-                  onClick={() => onChangeHomeBase(b.iata, b.tzOffset)}
+                  onClick={() => onChangeHomeBase(b.iata, getAirportTzOffset(b.iata, new Date()) ?? b.tzOffset)}
                   className={`rounded-xl border p-2 text-center transition-all ${
                     isCurrent
                       ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300 font-bold ring-1 ring-emerald-500'
@@ -350,60 +391,159 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* Seniority Rank & Currency */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-          {/* Rank */}
-          <div className="space-y-1.5">
-            <label className="font-bold uppercase tracking-wider text-slate-300 text-xs">
-              Crew Position / Seniority
-            </label>
-            <div className="flex gap-2">
-              {[
-                { id: 'junior' as CrewRank, label: 'Junior Crew' },
-                { id: 'senior' as CrewRank, label: 'Senior Crew' },
-                { id: 'lead' as CrewRank, label: 'Inflight Lead' },
-              ].map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => onUpdatePreferences({ crewRank: r.id })}
-                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all ${
-                    preferences.crewRank === r.id
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'border border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Currency */}
-          <div className="space-y-1.5">
-            <label className="font-bold uppercase tracking-wider text-slate-300 text-xs">
-              Salary Calculation Currency
-            </label>
-            <div className="flex gap-2">
-              {[
-                { id: 'INR' as SalaryCurrency, label: '₹ INR' },
-                { id: 'AED' as SalaryCurrency, label: 'AED' },
-                { id: 'USD' as SalaryCurrency, label: '$ USD' },
-              ].map((curr) => (
-                <button
-                  key={curr.id}
-                  onClick={() => onUpdatePreferences({ currency: curr.id })}
-                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all ${
-                    preferences.currency === curr.id
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'border border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {curr.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* How the roster prints times: decides how printed times are read */}
+        <div className="space-y-2 border-t border-slate-800 pt-4">
+          <label htmlFor="time-convention" className="font-bold uppercase tracking-wider text-slate-300 text-xs">
+            How does your roster show times?
+          </label>
+          <select
+            id="time-convention"
+            value={preferences.rosterTimeConvention ?? 'local'}
+            onChange={(e) => onUpdatePreferences({ rosterTimeConvention: e.target.value as TimeConvention })}
+            className="block rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+          >
+            {(Object.keys(TIME_CONVENTION_LABEL) as TimeConvention[]).map((c) => (
+              <option key={c} value={c}>
+                {TIME_CONVENTION_LABEL[c]}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-400">
+            Most rosters print each time in the local time of that airport, so a Singapore arrival is in Singapore time. If your roster says which
+            clock it uses (e.g. "All times UTC"), that is used instead. You can also change it when checking an upload.
+          </p>
         </div>
+
+        {/* Which DGCA rules the duty-limit guide on the Month screen uses */}
+        <label className="flex items-start gap-2 border-t border-slate-800 pt-4 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={preferences.dutyLimitRules === 'dgca-cc-v-draft'}
+            onChange={(e) => onUpdatePreferences({ dutyLimitRules: e.target.checked ? 'dgca-cc-v-draft' : 'dgca-cc-iv' })}
+          />
+          <span>
+            Preview the draft DGCA duty-limit rules (CAR 7-J-I Issue V, October 2025)
+            <span className="block text-slate-500">The duty-limit guide normally uses the rules in force (Issue IV, since 1 November 2018). The draft is stricter and not in force until DGCA notifies it.</span>
+          </span>
+        </label>
+
+      </div>
+
+      {/* Change history: everything that changed the roster, out of the way of everyday use */}
+      {history.length > 0 && (
+        <RecentChanges history={history} limit={50} onUndoLatest={onUndoLatest} onRestore={onRestoreHistoryEntry} />
+      )}
+
+      {/* 4. Your data */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+        <div className="border-b border-slate-800 pb-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">4. Your data</h3>
+        </div>
+        <p className="text-xs text-slate-400">
+          Your roster and settings are stored only on this device. Nothing is shared with your airline. Save a backup so
+          you can restore them if this browser's data is cleared or you switch devices.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleExport}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500"
+          >
+            Save a backup
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800"
+          >
+            Restore from a backup
+          </button>
+          <input ref={fileInputRef} type="file" accept="application/json,.json" onChange={handleRestore} className="hidden" />
+          <div className="basis-full space-y-2 text-xs text-slate-300">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={protect} onChange={(e) => setProtect(e.target.checked)} className="h-4 w-4 accent-blue-500" />
+              Protect the backup with a password (safe to email or keep in a cloud drive)
+            </label>
+            {protect && (
+              <div className="flex flex-wrap gap-2">
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (8+ characters)" aria-label="Backup password" className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white" />
+                <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} placeholder="Same password again" aria-label="Backup password again" className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white" />
+                <span className="basis-full text-slate-500">If you forget the password, the backup cannot be opened. It is not stored anywhere.</span>
+              </div>
+            )}
+            {locked && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+                <span>This backup is password-protected.</span>
+                <input type="password" value={unlockPassword} onChange={(e) => setUnlockPassword(e.target.value)} placeholder="Password" aria-label="Password to open the backup" className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white" />
+                <button onClick={unlockAndRestore} className="rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white hover:bg-blue-500">
+                  Open and restore
+                </button>
+                <button onClick={() => setLocked(null)} className="font-semibold text-slate-400 hover:text-white">
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="rounded-xl border border-rose-900 px-4 py-2 text-xs font-bold text-rose-300 hover:bg-rose-950"
+            >
+              Delete all my data
+            </button>
+          ) : (
+            <span className="flex items-center gap-2 text-xs text-rose-200">
+              Delete your roster, settings, history and kept roster files from this device?
+              <button onClick={handleDeleteAll} className="rounded-lg bg-rose-700 px-3 py-1.5 font-bold text-white hover:bg-rose-600">
+                Yes, delete
+              </button>
+              <button onClick={() => setConfirmDelete(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 font-bold text-slate-300">
+                Cancel
+              </button>
+            </span>
+          )}
+        </div>
+        {/* Original roster files kept on this device, so a roster can be read again without uploading it */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+          <span>
+            Kept roster files: {keptFiles === null ? '…' : `${keptFiles.count} ${keptFiles.count === 1 ? 'file' : 'files'}, ${(keptFiles.bytes / (1024 * 1024)).toFixed(1)} MB`} (on this
+            device only, for "Read again")
+          </span>
+          {!!keptFiles?.count && (
+            <button
+              onClick={async () => {
+                await deleteAllStoredFiles();
+                setKeptFiles({ count: 0, bytes: 0 });
+              }}
+              className="font-semibold text-rose-300 underline underline-offset-2"
+            >
+              Delete kept files
+            </button>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+          {aiConsentDate ? (
+            <span className="flex flex-wrap items-center gap-2">
+              You allowed roster reading by Google Gemini on{' '}
+              {new Date(aiConsentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+              <button
+                onClick={() => {
+                  withdrawAiConsent();
+                  setAiConsentDate(null);
+                }}
+                className="font-semibold text-rose-300 underline underline-offset-2"
+              >
+                Withdraw
+              </button>
+            </span>
+          ) : (
+            <span>AI reading is off. You will be asked before any file is sent to Google Gemini.</span>
+          )}
+        </div>
+        {dataMessage && (
+          <p role="status" className={`text-xs ${dataMessage.tone === 'ok' ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {dataMessage.text}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -1,14 +1,21 @@
-import React, { useState, useRef } from 'react';
-import { RosterData, RosterHistoryEntry, FlightLeg } from '../../types/circadian';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { useAiConsent } from '../AiConsentDialog';
+import { useRosterReview } from '../RosterReviewDialog';
+import { RosterData, RosterHistoryEntry, FlightLeg, OtherDuty, StandbyDuty } from '../../types/circadian';
 import { RosterPreset } from '../../data/rosterPresets';
-import { RosterHistoryTable } from '../RosterHistoryTable';
-import { ConflictResolutionModal } from '../ConflictResolutionModal';
-import {
-  analyzeRosterMerge,
-  resolveAndMergeFlights,
-  ConflictResolutionChoice,
-  RosterConflict,
-} from '../../services/rosterMerger';
+import { applyImport, combineFiles, describeChanges, diffRoster, hasNoChanges, importScope, rosterClock, RosterUpdateInfo, UploadContent } from '../../services/rosterDiff';
+import { useWhatChanged } from '../WhatChangedDialog';
+import { TimeConvention } from '../../services/rosterTimes';
+import { normalizeDutyTimes } from '../../services/dutyTimes';
+import { daySignature } from '../../services/rosterFindings';
+import { apiFetch } from '../../services/platform';
+import { UploadedRosters } from '../UploadedRosters';
+import { FilePreviewModal } from '../FilePreviewModal';
+import { determineMimeType, prepareFileForUpload } from '../../services/rosterFiles';
+import { fileFingerprint, importedWith, rememberImport } from '../../services/importFingerprints';
+import { addImportRecord, cleanSlate, ImportRecord, loadImportRecords, markRemoved, ownedDates, periodOf, recordsFromHistory, replaceRecordReading, visibleRecords, withoutDates } from '../../services/importRecords';
+import { deleteStoredFile, getStoredFile, keepFile, textFingerprint } from '../../services/fileStore';
+import { shortRange } from '../../services/periodStats';
 import {
   Upload,
   Sparkles,
@@ -17,44 +24,86 @@ import {
   Check,
   AlertCircle,
   Loader2,
-  Calendar,
   CheckCircle2,
   Plane,
   RefreshCw,
   Clock,
-  Layers,
-  History,
   Trash2,
-  AlertTriangle,
   Files,
   X,
   Plus,
   ArrowRight,
-  UploadCloud,
-  FileCode,
   Eye,
   ZoomIn,
-  ChevronLeft,
-  ChevronRight,
   ShieldCheck,
-  GitMerge,
 } from 'lucide-react';
 
 interface UploadViewProps {
   currentRoster: RosterData;
+  /** Files shared to the app from elsewhere ("Share → CrewCircadian"), to stage here once. */
+  incomingFiles?: File[];
+  onIncomingFilesTaken?: () => void;
   presets: RosterPreset[];
   activePresetId: string;
   history: RosterHistoryEntry[];
   onSelectPreset: (preset: RosterPreset) => void;
-  onRosterParsed: (roster: RosterData, sourceTitle?: string, customDescription?: string) => void;
+  /** update: for an update of the saved roster, what changed (adjustments on other days are kept). */
+  onRosterParsed: (roster: RosterData, sourceTitle?: string, customDescription?: string, update?: RosterUpdateInfo) => void;
   onViewRosterTimeline: () => void;
-  onRestoreRoster: (entry: RosterHistoryEntry) => void;
-  onClearActiveRoster: () => void;
-  onDeleteHistoryItem: (id: string) => void;
-  onClearAllHistory: () => void;
-  onAddManualSector?: (flight: FlightLeg) => void;
-  onMergeRosterSnapshot?: (snapshot: RosterData, title: string) => void;
   onViewMasterSheet?: () => void;
+  /** Present when the newest roster change can be undone. */
+  onUndoLatest?: () => void;
+  /** How the person's rosters print times (Settings), and remembering a choice made on the check screen. */
+  timeConvention?: TimeConvention;
+  onTimeConventionChosen?: (convention: TimeConvention) => void;
+}
+
+/** Combines standby periods, dropping exact repeats (same kind and start). */
+function mergeStandby(existing: StandbyDuty[] | undefined, incoming: StandbyDuty[]): StandbyDuty[] {
+  const all = [...(existing ?? []), ...incoming];
+  const seen = new Set<string>();
+  return all
+    .filter((sb) => {
+      const key = `${sb.kind}-${sb.startUtc}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc));
+}
+
+/** Combines non-flying days (OFF, leave, sick, training); a newer entry for the same date replaces the older one. */
+function mergeOther(existing: OtherDuty[] | undefined, incoming: OtherDuty[]): OtherDuty[] {
+  const byDate = new Map<string, OtherDuty>();
+  for (const d of [...(existing ?? []), ...incoming]) byDate.set(d.date, d);
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Widens a start/end pair to include another file's stated dates (several screenshots of one roster). */
+function mergePeriodBounds(current: { start?: string; end?: string }, start?: string, end?: string): { start?: string; end?: string } {
+  const valid = (d?: string) => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : undefined);
+  const s = [current.start, valid(start)].filter(Boolean) as string[];
+  const e = [current.end, valid(end)].filter(Boolean) as string[];
+  return { start: s.sort()[0], end: e.sort()[e.length - 1] };
+}
+
+/** The dates the combined roster covers: from the earliest stated start to the latest stated end. */
+function mergePeriod(existing: RosterData | undefined, incoming: { start?: string; end?: string }): { periodStart?: string; periodEnd?: string } {
+  const starts = [existing?.periodStart, incoming.start].filter(Boolean) as string[];
+  const ends = [existing?.periodEnd, incoming.end].filter(Boolean) as string[];
+  if (!starts.length || !ends.length) return {};
+  return { periodStart: starts.sort()[0], periodEnd: ends.sort()[ends.length - 1] };
+}
+
+/** Marks every item of an upload with where it came from, so the app can always say why it believes it. */
+function withSource(upload: UploadContent, title: string, at: string = new Date().toISOString()): UploadContent {
+  const importedFrom = { title, at };
+  return {
+    ...upload,
+    flights: upload.flights.map((f) => ({ ...f, importedFrom })),
+    standby: (upload.standby ?? []).map((sb) => ({ ...sb, importedFrom })),
+    otherDuties: (upload.otherDuties ?? []).map((d) => ({ ...d, importedFrom })),
+  };
 }
 
 export interface FileBatchItem {
@@ -70,7 +119,6 @@ export interface FileBatchItem {
   airline?: string;
   homeBase?: string;
   homeBaseTzOffset?: number;
-  crewName?: string;
   error?: string;
 }
 
@@ -82,18 +130,243 @@ export const UploadView: React.FC<UploadViewProps> = ({
   onSelectPreset,
   onRosterParsed,
   onViewRosterTimeline,
-  onRestoreRoster,
-  onClearActiveRoster,
-  onDeleteHistoryItem,
-  onClearAllHistory,
-  onAddManualSector,
-  onMergeRosterSnapshot,
   onViewMasterSheet,
+  incomingFiles,
+  onIncomingFilesTaken,
+  onUndoLatest,
+  timeConvention = 'local',
+  onTimeConventionChosen,
 }) => {
-  const [activeTab, setActiveTab] = useState<'upload' | 'samples' | 'text' | 'history'>('upload');
+  // A sample roster is replaced by the first real upload, never mixed with it
+  const isViewingSample = presets.some((p) => p.id === activePresetId);
+  const { requestConsent, dialog: consentDialog } = useAiConsent();
+  const { reviewFlights, dialog: reviewDialog } = useRosterReview();
+  const { reviewChanges, dialog: changesDialog } = useWhatChanged();
+
+  /** True when an upload would change nothing in the saved roster (see rosterDiff). */
+  const isAlreadyUpToDate = (upload: UploadContent) => {
+    const clock = rosterClock(currentRoster);
+    const scope = importScope(upload, currentRoster, clock);
+    return !scope || hasNoChanges(diffRoster(currentRoster, upload, scope.dates, clock), scope);
+  };
+
+  /**
+   * Saves an upload over the saved roster: the person sees what changed day by day, then only the dates the
+   * upload covers are updated (newer roster wins there), and everything else stays exactly as saved.
+   */
+  const saveOverSavedRoster = async (
+    upload: UploadContent,
+    meta: { title: string; airline: string },
+    options: { at?: string; keepSources?: boolean; clearUpdates?: boolean } = {}
+  ): Promise<{ outcome: 'saved' | 'no_changes' | 'cancelled'; parsedAt?: string; summary?: string; saved?: UploadContent; scopeDates?: string[] }> => {
+    // A new upload's items remember where they came from; a restored upload keeps its original source
+    if (!options.keepSources) upload = withSource(upload, meta.title, options.at);
+    const clock = rosterClock(currentRoster);
+    const scope = importScope(upload, currentRoster, clock);
+    if (!scope || hasNoChanges(diffRoster(currentRoster, upload, scope.dates, clock), scope)) {
+      return { outcome: 'no_changes', parsedAt: currentRoster.parsedAt };
+    }
+    const review = await reviewChanges(currentRoster, upload, scope, clock);
+    if (!review) return { outcome: 'cancelled' };
+    const applied = applyImport(currentRoster, upload, review.scopeDates, review.diff, clock, review.choices);
+    const changedDates = review.diff.days.map((d) => d.date);
+    const parsedAt = new Date().toISOString();
+    const roster: RosterData = {
+      id: `roster-${Date.now()}`,
+      airline: meta.airline,
+      homeBase: currentRoster.homeBase,
+      homeBaseTzOffset: currentRoster.homeBaseTzOffset,
+      flights: applied.flights,
+      layovers: currentRoster.layovers || [],
+      standbyDuties: applied.standby,
+      otherDuties: applied.otherDuties,
+      ...mergePeriod(currentRoster, { start: review.scopeDates[0], end: review.scopeDates[review.scopeDates.length - 1] }),
+      parsedAt,
+    };
+    const summary = changedDates.length
+      ? `${changedDates.length} ${changedDates.length === 1 ? 'day' : 'days'} changed (${changedDates.map((d) => shortRange(d, d)).join(', ')})`
+      : 'Small corrections saved';
+    onRosterParsed(roster, meta.title, summary, {
+      changedDates,
+      changes: describeChanges(review.diff, clock),
+      ...(options.clearUpdates ? { clearUpdatesOn: review.scopeDates } : {}),
+    });
+    return { outcome: 'saved', parsedAt, summary, saved: upload, scopeDates: review.scopeDates };
+  };
+
+  // Uploaded rosters: what each upload read (and its kept original files), for restoring or reading again
+  const [importRecords, setImportRecords] = useState<ImportRecord[]>(loadImportRecords);
+  const recordUpload = async (
+    content: UploadContent,
+    info: { title: string; at: string; source: 'files' | 'text'; dates: string[]; convention?: TimeConvention; files: { file: Blob; name: string; fingerprint: string | null }[] }
+  ) => {
+    const files = await Promise.all(
+      info.files.map(async (f) => ({ name: f.name, type: f.file.type, size: f.file.size, fingerprint: f.fingerprint, stored: await keepFile(f.fingerprint, f.file, f.name) }))
+    );
+    setImportRecords(
+      addImportRecord({
+        id: `import-${info.at}`,
+        title: info.title,
+        uploadedAt: info.at,
+        source: info.source,
+        files,
+        ...(content.periodStart && content.periodEnd ? { period: { start: content.periodStart, end: content.periodEnd } } : {}),
+        dates: info.dates,
+        tailDates: content.tailDates ?? [],
+        convention: info.convention,
+        read: { flights: content.flights, standby: content.standby ?? [], otherDuties: content.otherDuties ?? [] },
+      })
+    );
+  };
+
+  // "Your rosters": uploads made before records existed are worked out from history snapshots
+  const allRecords = useMemo(() => [...importRecords, ...recordsFromHistory(history, importRecords)], [importRecords, history]);
+  const yourRosters = useMemo(() => visibleRecords(allRecords, currentRoster), [allRecords, currentRoster]);
+  const [showPaste, setShowPaste] = useState(false);
+
+  /**
+   * Re-read, step 2: a clean slate for the roster's dates with the given reading. Corrections on those dates
+   * go; delays and callouts stay (they are kept separately). Saved with history and Undo.
+   */
+  const applyReread = (record: ImportRecord, content: UploadContent, files?: ImportRecord['files']) => {
+    const dates = ownedDates(record, allRecords);
+    const range = shortRange(dates[0], dates[dates.length - 1]);
+    const tagged = withSource(content, record.title, record.uploadedAt);
+    const read = { flights: tagged.flights, standby: tagged.standby ?? [], otherDuties: tagged.otherDuties ?? [] };
+    const clock = rosterClock(currentRoster);
+    const items = cleanSlate(currentRoster, dates, read);
+    const diff = diffRoster(currentRoster, { ...tagged, visibleDates: dates }, dates, clock);
+    const changedDates = diff.days.map((d) => d.date);
+    onRosterParsed(
+      { ...currentRoster, id: `roster-${Date.now()}`, flights: items.flights, standbyDuties: items.standby, otherDuties: items.otherDuties, parsedAt: new Date().toISOString() },
+      `Re-read: ${range} roster`,
+      changedDates.length ? `${changedDates.length} ${changedDates.length === 1 ? 'day' : 'days'} changed` : 'Nothing changed',
+      { changedDates, changes: describeChanges(diff, clock) }
+    );
+    setImportRecords(replaceRecordReading(record, read, files));
+    setSuccessMessage(`Roster updated: re-read ${range} (${changedDates.length ? `${changedDates.length} ${changedDates.length === 1 ? 'day' : 'days'} changed` : 'no changes'}).`);
+  };
+
+  /** Re-read, step 1: read the kept file again (with the check screen), or use what was read at upload. */
+  const rereadRoster = async (record: ImportRecord) => {
+    setParseError(null);
+    setSuccessMessage(null);
+    const kept = record.source === 'history' ? [] : await Promise.all(record.files.map((f) => (f.fingerprint ? getStoredFile(f.fingerprint) : Promise.resolve(null))));
+    if (!kept.length || kept.some((k) => !k)) {
+      // The file was not kept: start again from what was read at upload (no AI)
+      applyReread(record, { flights: record.read.flights, standby: record.read.standby, otherDuties: record.read.otherDuties });
+      return;
+    }
+    if (record.source === 'text') {
+      await handleParseText({ text: await kept[0]!.blob.text(), title: record.title, reread: record });
+      return;
+    }
+    const items: FileBatchItem[] = kept.map((k, i) => ({
+      id: `reread-${Date.now()}-${i}`,
+      file: new File([k!.blob], k!.name, { type: k!.type }),
+      name: k!.name,
+      sizeKb: Math.round(k!.size / 1024),
+      type: k!.type,
+      previewUrl: k!.type.startsWith('image/') ? URL.createObjectURL(k!.blob) : undefined,
+      status: 'queued',
+    }));
+    await startProcessingBatch({ items, title: record.title, reread: record });
+  };
+
+  // Entries left over from the person's own edits when no roster remains (e.g. a day marked off by hand
+  // outside the last roster's dates): shown plainly with a way to clear them, so a blank slate is possible
+  const isSample = presets.some((p) => p.id === activePresetId);
+  const leftovers = !isSample && yourRosters.length === 0
+    ? [
+        ...currentRoster.flights.map((f) => rosterClock(currentRoster).date(Date.parse(f.departureTimeUtc))),
+        ...(currentRoster.standbyDuties ?? []).map((sb) => rosterClock(currentRoster).date(Date.parse(sb.startUtc))),
+        ...(currentRoster.otherDuties ?? []).map((d) => d.date),
+      ].sort()
+    : [];
+  const clearLeftovers = () => {
+    const { periodStart: _s, periodEnd: _e, ...rest } = currentRoster;
+    onRosterParsed(
+      { ...rest, id: `roster-${Date.now()}`, flights: [], standbyDuties: [], otherDuties: [], parsedAt: new Date().toISOString() },
+      'Cleared leftover entries',
+      `Cleared ${leftovers.length} leftover ${leftovers.length === 1 ? 'entry' : 'entries'} not part of any roster.`,
+      { changedDates: [...new Set(leftovers)], changes: [] }
+    );
+    setSuccessMessage('Roster updated: leftover entries cleared. Your plan is now a blank slate.');
+  };
+
+  /** Remove: the roster's days leave the plan and its kept file is deleted (Undo brings the days back). */
+  const removeRoster = async (record: ImportRecord) => {
+    setParseError(null);
+    const dates = ownedDates(record, allRecords);
+    const range = shortRange(dates[0], dates[dates.length - 1]);
+    const remaining = yourRosters.filter((r) => r.record.id !== record.id);
+    // Removing the last roster leaves a true blank slate: nothing at all is left behind
+    const items = remaining.length ? withoutDates(currentRoster, dates) : { flights: [], standby: [], otherDuties: [] };
+    const { periodStart, periodEnd, ...rest } = currentRoster;
+    void periodStart;
+    void periodEnd;
+    onRosterParsed(
+      { ...rest, id: `roster-${Date.now()}`, flights: items.flights, standbyDuties: items.standby, otherDuties: items.otherDuties, ...periodOf(remaining), parsedAt: new Date().toISOString() },
+      `Removed: ${range} roster`,
+      `The ${range} roster was removed from your plan.`,
+      { changedDates: dates, changes: [{ date: dates[0], label: 'Removed', lines: [`${range} roster removed`] }] }
+    );
+    setImportRecords(markRemoved(record));
+    const stillUsed = new Set(loadImportRecords().filter((r) => !r.removedAt).flatMap((r) => r.files.map((f) => f.fingerprint)));
+    for (const f of record.files) if (f.fingerprint && !stillUsed.has(f.fingerprint)) await deleteStoredFile(f.fingerprint);
+    setSuccessMessage(`Roster updated: removed ${range}.`);
+  };
+
+  // Standby periods read along with the flights in the current import
+  const importedStandbyRef = useRef<StandbyDuty[]>([]);
+  // Non-flying days and the stated roster dates read in the current import
+  const importedOtherRef = useRef<OtherDuty[]>([]);
+  const importedPeriodRef = useRef<{ start?: string; end?: string }>({});
+  // Dates the documents in the current import actually show (blank and OFF days included)
+  const importedVisibleRef = useRef<string[]>([]);
+  // Extra days shown beyond a roster's own period: they fill gaps but never replace what is saved
+  const importedTailRef = useRef<string[]>([]);
+  const uploadContent = (flights: FlightLeg[]): UploadContent => ({
+    // Check-in on the first sector of each duty, debrief on the last, so comparisons with the saved roster are like for like
+    flights: normalizeDutyTimes(flights),
+    standby: importedStandbyRef.current,
+    otherDuties: importedOtherRef.current,
+    periodStart: importedPeriodRef.current.start,
+    periodEnd: importedPeriodRef.current.end,
+    visibleDates: importedVisibleRef.current,
+    tailDates: importedTailRef.current,
+  });
+  const hasOwnRoster = currentRoster.flights.length > 0 && !isViewingSample;
+
+  /** What the check screen shows besides the flights: standby, listed days, the dates read, and (when there is a
+   * saved roster) the days that read exactly as already saved, so only the changes need checking. */
+  const reviewDays = (flights: FlightLeg[]) => {
+    const content = uploadContent(flights);
+    const standby = content.standby ?? [];
+    const otherDuties = content.otherDuties ?? [];
+    const read: RosterData = { ...currentRoster, flights: content.flights, standbyDuties: standby, otherDuties };
+    const clock = rosterClock(currentRoster);
+    const dates = [
+      ...new Set([
+        ...(content.visibleDates ?? []),
+        ...content.flights.map((f) => clock.date(Date.parse(f.departureTimeUtc))),
+        ...standby.map((s) => clock.date(Date.parse(s.startUtc))),
+        ...otherDuties.map((o) => o.date),
+      ]),
+    ];
+    return {
+      standby,
+      otherDuties,
+      dates: content.visibleDates ?? [],
+      unchanged: hasOwnRoster ? dates.filter((d) => daySignature(read, d) === daySignature(currentRoster, d)) : [],
+    };
+  };
+
   const [isParsingBatch, setIsParsingBatch] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Flights the server refused to guess at; shown so the user can add them by hand
+  const [parseWarnings, setParseWarnings] = useState<string[]>([]);
   const [batchSummary, setBatchSummary] = useState<{
     totalUniqueFlights: number;
     filesCount: number;
@@ -104,109 +377,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [fileBatch, setFileBatch] = useState<FileBatchItem[]>([]);
   const [currentProcessingIdx, setCurrentProcessingIdx] = useState<number>(-1);
   const [rawTextInput, setRawTextInput] = useState('');
-  const [showClearConfirmModal, setShowClearConfirmModal] = useState<boolean>(false);
   
   // Lightbox modal for enlarged preview verification
   const [previewModalIndex, setPreviewModalIndex] = useState<number | null>(null);
 
-  // Smart Conflict Resolution State
-  const [pendingConflictData, setPendingConflictData] = useState<{
-    conflicts: RosterConflict[];
-    identicalCount: number;
-    newSectorsCount: number;
-    incomingFlights: FlightLeg[];
-    sourceTitle: string;
-    customDescription: string;
-    detectedAirline: string;
-    detectedCrewName: string;
-    detectedHomeBase: string;
-    detectedHomeBaseTzOffset: number;
-  } | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Helper to determine clean MIME type
-  const determineMimeType = (file: File): string => {
-    if (file.type && file.type !== 'image/jpg') {
-      return file.type;
-    }
-    const name = file.name.toLowerCase();
-    if (name.endsWith('.pdf')) return 'application/pdf';
-    if (name.endsWith('.png')) return 'image/png';
-    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
-    if (name.endsWith('.webp')) return 'image/webp';
-    if (name.endsWith('.heic')) return 'image/heic';
-    if (name.endsWith('.heif')) return 'image/heif';
-    return 'image/png';
-  };
-
-  // Helper to optimize and convert images via Canvas before upload
-  const prepareFileForUpload = (file: File): Promise<{ base64Data: string; mimeType: string }> => {
-    return new Promise((resolve) => {
-      const mime = determineMimeType(file);
-
-      // If PDF, read directly
-      if (mime === 'application/pdf') {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve({ base64Data: e.target?.result as string, mimeType: 'application/pdf' });
-        reader.onerror = () => resolve({ base64Data: '', mimeType: 'application/pdf' });
-        reader.readAsDataURL(file);
-        return;
-      }
-
-      // For images, load into an Image element and optimize resolution via canvas
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        try {
-          const maxDim = 2400;
-          let w = img.width;
-          let h = img.height;
-
-          if (w > maxDim || h > maxDim) {
-            if (w > h) {
-              h = Math.round((h * maxDim) / w);
-              w = maxDim;
-            } else {
-              w = Math.round((w * maxDim) / h);
-              h = maxDim;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, w, h);
-            ctx.drawImage(img, 0, 0, w, h);
-            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.92);
-            resolve({ base64Data: optimizedBase64, mimeType: 'image/jpeg' });
-            return;
-          }
-        } catch {
-          // Canvas failed, fallback to raw base64
-        }
-
-        // Fallback: read directly
-        const reader = new FileReader();
-        reader.onload = (e) => resolve({ base64Data: e.target?.result as string, mimeType: mime });
-        reader.readAsDataURL(file);
-      };
-
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        const reader = new FileReader();
-        reader.onload = (e) => resolve({ base64Data: e.target?.result as string, mimeType: mime });
-        reader.readAsDataURL(file);
-      };
-
-      img.src = url;
-    });
-  };
 
   // Stage incoming files for user verification BEFORE processing
   const stageIncomingFiles = (incomingFiles: File[]) => {
@@ -229,8 +404,15 @@ export const UploadView: React.FC<UploadViewProps> = ({
     }));
 
     setFileBatch((prev) => [...prev, ...newItems]);
-    setActiveTab('upload');
   };
+  // Files shared from another app: staged like files picked here (the person then starts reading them)
+  useEffect(() => {
+    if (!incomingFiles?.length) return;
+    stageIncomingFiles(incomingFiles);
+    onIncomingFilesTaken?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingFiles]);
+
 
   // Remove a single file from the staging queue
   const removeFileFromBatch = (id: string, e?: React.MouseEvent) => {
@@ -257,24 +439,47 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setParseError(null);
     setSuccessMessage(null);
     setBatchSummary(null);
+    setParseWarnings([]);
     setPreviewModalIndex(null);
   };
 
   // Process all staged files with Gemini AI
-  const startProcessingBatch = async () => {
-    if (fileBatch.length === 0) return;
+  /** Reads the staged files, or the kept files of an earlier upload ("Read again"). */
+  const startProcessingBatch = async (again?: { items: FileBatchItem[]; title: string; reread?: ImportRecord }) => {
+    const batch = again?.items ?? fileBatch;
+    if (batch.length === 0) return;
+    if (!(await requestConsent())) return;
+    if (again) setFileBatch(again.items);
 
     setParseError(null);
     setSuccessMessage(null);
     setBatchSummary(null);
+    setParseWarnings([]);
     setIsParsingBatch(true);
 
-    const itemsToProcess = [...fileBatch];
+    const itemsToProcess = [...batch];
+    // The same files imported again, with nothing changed since: no need to read them again (unless asked to)
+    const fingerprints = await Promise.all(itemsToProcess.map((item) => fileFingerprint(item.file)));
+    if (!again && hasOwnRoster && fingerprints.every((h) => h && importedWith(h) === currentRoster.parsedAt)) {
+      setIsParsingBatch(false);
+      setSuccessMessage('Already imported. No changes: your roster is already up to date.');
+      setFileBatch([]);
+      return;
+    }
     const allExtractedFlights: FlightLeg[] = [];
-    let detectedAirline = currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
+    importedStandbyRef.current = [];
+    importedOtherRef.current = [];
+    importedPeriodRef.current = {};
+    importedVisibleRef.current = [];
+    importedTailRef.current = [];
+    // Each file's content kept apart, so overlapping rosters can be decided date by date (see combineFiles)
+    const fileContents: UploadContent[] = [];
+    // Which clock the times were read in: the roster's own statement wins over the setting
+    let batchTimes: { convention: TimeConvention; stated: boolean } = { convention: timeConvention, stated: false };
+    const batchWarnings: string[] = [];
+    let detectedAirline = !isViewingSample && currentRoster.airline !== 'None' ? currentRoster.airline : 'Airline';
     let detectedHomeBase = currentRoster.homeBase || 'DEL';
     let detectedHomeBaseTzOffset = currentRoster.homeBaseTzOffset || 5.5;
-    let detectedCrewName = currentRoster.crewName || 'Cabin Crew';
     const breakdown: { fileName: string; count: number }[] = [];
 
     // Process files one by one sequentially
@@ -289,12 +494,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
       try {
         const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(currentItem.file);
 
-        const response = await fetch('/api/roster/parse', {
+        const response = await apiFetch('/api/roster/parse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             imageBase64: base64Data,
             mimeType: resolvedMime,
+            timeConvention,
+            homeBase: currentRoster.homeBase,
           }),
         });
 
@@ -312,12 +519,27 @@ export const UploadView: React.FC<UploadViewProps> = ({
           if (typeof result.data.homeBaseTzOffset === 'number') {
             detectedHomeBaseTzOffset = result.data.homeBaseTzOffset;
           }
-          if (result.data.crewName) {
-            detectedCrewName = result.data.crewName;
-          }
 
           allExtractedFlights.push(...flights);
+          if (Array.isArray(result.data.standby)) importedStandbyRef.current.push(...result.data.standby);
+          if (Array.isArray(result.data.otherDuties)) importedOtherRef.current.push(...result.data.otherDuties);
+          importedPeriodRef.current = mergePeriodBounds(importedPeriodRef.current, result.data.periodStart, result.data.periodEnd);
+          if (Array.isArray(result.data.visibleDates)) importedVisibleRef.current.push(...result.data.visibleDates);
+          if (result.data.timeConventionStated && !batchTimes.stated) batchTimes = { convention: result.data.timeConvention, stated: true };
+          fileContents.push({
+            flights,
+            standby: Array.isArray(result.data.standby) ? result.data.standby : [],
+            otherDuties: Array.isArray(result.data.otherDuties) ? result.data.otherDuties : [],
+            periodStart: result.data.periodStart,
+            periodEnd: result.data.periodEnd,
+            visibleDates: Array.isArray(result.data.visibleDates) ? result.data.visibleDates : [],
+          });
           breakdown.push({ fileName: currentItem.name, count: flights.length });
+          if (Array.isArray(result.data.warnings) && result.data.warnings.length > 0) {
+            const fileWarnings: string[] = result.data.warnings;
+            batchWarnings.push(...fileWarnings);
+            setParseWarnings((prev) => [...prev, ...fileWarnings]);
+          }
 
           setFileBatch((prev) =>
             prev.map((item) =>
@@ -351,14 +573,54 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setIsParsingBatch(false);
     setCurrentProcessingIdx(-1);
 
-    // If at least one flight was extracted across all files:
+    // Several files: each date is decided by the roster whose own period covers it (a newer roster wins), and
+    // screenshots of the same roster are merged with each flight, standby or day kept once (by stable key)
+    const batchClock = rosterClock(hasOwnRoster ? currentRoster : { homeBase: detectedHomeBase, homeBaseTzOffset: detectedHomeBaseTzOffset });
+    const combined = combineFiles(fileContents, batchClock);
+    allExtractedFlights.splice(0, allExtractedFlights.length, ...combined.content.flights);
+    importedStandbyRef.current = combined.content.standby ?? [];
+    importedOtherRef.current = combined.content.otherDuties ?? [];
+    importedVisibleRef.current = combined.content.visibleDates ?? [];
+    importedTailRef.current = combined.content.tailDates ?? [];
+    batchWarnings.push(...combined.warnings);
+    if (combined.warnings.length) setParseWarnings((prev) => [...prev, ...combined.warnings]);
+
+    // Nothing new compared with the saved roster: say so, and save nothing
+    if (allExtractedFlights.length > 0 && hasOwnRoster && isAlreadyUpToDate(uploadContent(allExtractedFlights))) {
+      rememberImport(fingerprints, currentRoster.parsedAt);
+      setSuccessMessage('No changes: your roster is already up to date.');
+      setFileBatch([]);
+      return;
+    }
+
+    // If at least one flight was extracted across all files, let the user check them before anything is saved
     if (allExtractedFlights.length > 0) {
-      const title =
+      const reviewed = await reviewFlights(
+        allExtractedFlights,
+        itemsToProcess.map((item) => ({ name: item.name, url: item.type.startsWith('image/') ? item.previewUrl : undefined })),
+        batchWarnings,
+        {
+          ...batchTimes,
+          homeBase: hasOwnRoster ? currentRoster.homeBase : detectedHomeBase,
+          days: reviewDays(allExtractedFlights),
+        }
+      );
+      if (!reviewed) {
+        setParseError('Nothing was saved. Upload again when you are ready.');
+        return;
+      }
+      if (!batchTimes.stated && reviewed.convention !== timeConvention) onTimeConventionChosen?.(reviewed.convention);
+      const confirmed = reviewed.flights;
+      allExtractedFlights.splice(0, allExtractedFlights.length, ...confirmed);
+      if (allExtractedFlights.length === 0) return;
+      const at = new Date().toISOString();
+      const recordFiles = itemsToProcess.map((item, i) => ({ file: item.file, name: item.name, fingerprint: fingerprints[i] }));
+      const title = again?.title ?? (
         itemsToProcess.length === 1
           ? itemsToProcess[0].name
           : `${itemsToProcess.length} Roster Files (${itemsToProcess[0].name}${
               itemsToProcess.length > 1 ? ` +${itemsToProcess.length - 1} more` : ''
-            })`;
+            })`);
 
       const breakdownStr = breakdown.map((b) => `${b.fileName}: ${b.count}`).join(', ');
       const description =
@@ -366,90 +628,64 @@ export const UploadView: React.FC<UploadViewProps> = ({
           ? `Extracted ${allExtractedFlights.length} flight legs via Gemini Aero-OCR`
           : `Extracted ${allExtractedFlights.length} flight legs from ${itemsToProcess.length} files (${breakdownStr})`;
 
-      // SMART CONTINUOUS TIMELINE MERGING:
-      // If there's an existing active roster, check for conflicts and continuous overlap!
-      if (currentRoster.flights.length > 0) {
-        const mergeAnalysis = analyzeRosterMerge(currentRoster.flights, allExtractedFlights);
+      // Re-read: a clean slate for that roster's dates with this reading (no "What changed?": the person asked to start again)
+      if (again?.reread) {
+        const files = await Promise.all(recordFiles.map(async (f) => ({ name: f.name, type: f.file.type, size: f.file.size, fingerprint: f.fingerprint, stored: !!f.fingerprint })));
+        applyReread(again.reread, uploadContent(allExtractedFlights), files);
+        setFileBatch([]);
+        return;
+      }
 
-        if (mergeAnalysis.hasConflicts) {
-          // Open the Conflict Resolution Dialog!
-          setPendingConflictData({
-            conflicts: mergeAnalysis.conflicts,
-            identicalCount: mergeAnalysis.identicalCount,
-            newSectorsCount: mergeAnalysis.newSectorsCount,
-            incomingFlights: allExtractedFlights,
-            sourceTitle: title,
-            customDescription: description,
-            detectedAirline,
-            detectedCrewName,
-            detectedHomeBase,
-            detectedHomeBaseTzOffset,
-          });
-          return;
-        } else {
-          // Seamless non-conflicting continuous timeline merge!
-          const mergedFlights = mergeAnalysis.nonConflictingMergedFlights;
-
-          const mergedRoster: RosterData = {
-            id: `roster-continuous-${Date.now()}`,
-            airline: detectedAirline,
-            crewName: detectedCrewName,
-            homeBase: detectedHomeBase,
-            homeBaseTzOffset: detectedHomeBaseTzOffset,
-            flights: mergedFlights,
-            layovers: currentRoster.layovers || [],
-            parsedAt: new Date().toISOString(),
-          };
-
-          onRosterParsed(
-            mergedRoster,
-            title,
-            `Extended continuous timeline to ${mergedFlights.length} sectors (${mergeAnalysis.identicalCount} overlapping sectors verified, ${mergeAnalysis.newSectorsCount} new sectors added).`
-          );
-
-          setBatchSummary({
-            totalUniqueFlights: mergedFlights.length,
-            filesCount: itemsToProcess.length,
-            breakdown,
-          });
-
-          setSuccessMessage(
-            `Smart Timeline Merge: Successfully combined with active schedule! Total continuous timeline now has ${mergedFlights.length} flight sectors.`
-          );
+      // A saved roster already exists: show what changed and update only the dates this upload covers
+      if (hasOwnRoster) {
+        const saved = await saveOverSavedRoster(
+          uploadContent(allExtractedFlights),
+          { title, airline: detectedAirline },
+          { at }
+        );
+        if (saved.outcome === 'cancelled') {
+          setParseError('Nothing was saved. Upload again when you are ready.');
           return;
         }
+        rememberImport(fingerprints, saved.parsedAt);
+        if (saved.outcome === 'saved' && saved.saved) {
+          await recordUpload(saved.saved, { title, at, source: 'files', dates: saved.scopeDates ?? [], convention: reviewed.convention, files: recordFiles });
+        }
+        setSuccessMessage(saved.outcome === 'no_changes' ? 'No changes: your roster is already up to date.' : `Roster updated: ${saved.summary}.`);
+        // Saved: back to a clean upload box, so "Your rosters" is right below
+        setFileBatch([]);
+        return;
       }
 
       // Initial clean roster (no previous active flights)
-      // 1. Deduplicate
-      const seenKeys = new Set<string>();
-      const initialFlights: FlightLeg[] = [];
-      for (const leg of allExtractedFlights) {
-        const depHourKey = leg.departureTimeUtc ? leg.departureTimeUtc.slice(0, 13) : leg.id;
-        const normFlightNo = leg.flightNumber.toUpperCase().replace(/\s+/g, '');
-        const key = `${normFlightNo}_${depHourKey}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          initialFlights.push(leg);
-        }
-      }
-
-      initialFlights.sort(
-        (a, b) => new Date(a.departureTimeUtc).getTime() - new Date(b.departureTimeUtc).getTime()
-      );
+      // Already combined by stable key above; each item remembers which upload it came from
+      const tagged = withSource(uploadContent(allExtractedFlights), title, at);
+      const initialFlights = tagged.flights;
+      importedStandbyRef.current = tagged.standby ?? [];
 
       const newRoster: RosterData = {
         id: `roster-init-${Date.now()}`,
         airline: detectedAirline,
-        crewName: detectedCrewName,
         homeBase: detectedHomeBase,
         homeBaseTzOffset: detectedHomeBaseTzOffset,
         flights: initialFlights,
         layovers: [],
+        standbyDuties: mergeStandby([], importedStandbyRef.current),
+        otherDuties: mergeOther([], importedOtherRef.current),
+        ...mergePeriod(undefined, importedPeriodRef.current),
         parsedAt: new Date().toISOString(),
       };
 
       onRosterParsed(newRoster, title, description);
+      rememberImport(fingerprints, newRoster.parsedAt);
+      await recordUpload(tagged, {
+        title,
+        at,
+        source: 'files',
+        dates: importScope(tagged, null, batchClock)?.dates ?? [],
+        convention: reviewed.convention,
+        files: recordFiles,
+      });
 
       setBatchSummary({
         totalUniqueFlights: initialFlights.length,
@@ -457,11 +693,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
         breakdown,
       });
 
-      setSuccessMessage(
-        itemsToProcess.length === 1
-          ? `Successfully uploaded "${itemsToProcess[0].name}" and extracted ${initialFlights.length} flight legs!`
-          : `Successfully parsed ${itemsToProcess.length} files and created continuous timeline of ${initialFlights.length} flight sectors!`
-      );
+      setSuccessMessage(`Roster saved: ${initialFlights.length} ${initialFlights.length === 1 ? 'flight' : 'flights'} read from ${itemsToProcess.length === 1 ? itemsToProcess[0].name : `${itemsToProcess.length} files`}.`);
+      setFileBatch([]);
     } else {
       setParseError(
         'Could not extract any valid flight sectors from the uploaded file(s). Please verify that the screenshots or PDFs contain readable flight tables.'
@@ -469,50 +702,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
     }
   };
 
-  // Handle resolutions from Conflict Resolution Modal
-  const handleResolveConflicts = (resolutions: Record<string, ConflictResolutionChoice>) => {
-    if (!pendingConflictData) return;
-
-    const mergedFlights = resolveAndMergeFlights(
-      currentRoster.flights,
-      pendingConflictData.incomingFlights,
-      resolutions
-    );
-
-    const mergedRoster: RosterData = {
-      id: `roster-continuous-${Date.now()}`,
-      airline: pendingConflictData.detectedAirline,
-      crewName: pendingConflictData.detectedCrewName,
-      homeBase: pendingConflictData.detectedHomeBase,
-      homeBaseTzOffset: pendingConflictData.detectedHomeBaseTzOffset,
-      flights: mergedFlights,
-      layovers: currentRoster.layovers || [],
-      parsedAt: new Date().toISOString(),
-    };
-
-    onRosterParsed(
-      mergedRoster,
-      pendingConflictData.sourceTitle,
-      `Resolved schedule revisions. Continuous timeline now spans ${mergedFlights.length} flight sectors.`
-    );
-
-    setBatchSummary({
-      totalUniqueFlights: mergedFlights.length,
-      filesCount: fileBatch.length,
-      breakdown: fileBatch.map((f) => ({ fileName: f.name, count: f.flightsCount || 0 })),
-    });
-
-    setSuccessMessage(
-      `Schedule Revisions Applied: Merged into continuous timeline! Total active flights: ${mergedFlights.length}.`
-    );
-
-    setPendingConflictData(null);
-  };
-
   // Retry an individual file
   const retrySingleFile = async (itemId: string) => {
     const item = fileBatch.find((f) => f.id === itemId);
     if (!item) return;
+    if (!(await requestConsent())) return;
 
     setFileBatch((prev) =>
       prev.map((f) => (f.id === itemId ? { ...f, status: 'processing', error: undefined } : f))
@@ -520,12 +714,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
     try {
       const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(item.file);
-      const response = await fetch('/api/roster/parse', {
+      const response = await apiFetch('/api/roster/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageBase64: base64Data,
           mimeType: resolvedMime,
+          timeConvention,
+          homeBase: currentRoster.homeBase,
         }),
       });
 
@@ -566,69 +762,98 @@ export const UploadView: React.FC<UploadViewProps> = ({
     e.target.value = '';
   };
 
-  const handleParseText = async () => {
-    if (!rawTextInput.trim()) return;
+  /** Reads pasted text, or the kept text of an earlier upload ("Read again"). */
+  const handleParseText = async (again?: { text: string; title: string; reread?: ImportRecord }) => {
+    const text = again?.text ?? rawTextInput;
+    if (!text.trim()) return;
+    if (!(await requestConsent())) return;
     setIsParsingBatch(true);
     setParseError(null);
     setSuccessMessage(null);
     setBatchSummary(null);
+    setParseWarnings([]);
 
     try {
-      const response = await fetch('/api/roster/parse', {
+      const response = await apiFetch('/api/roster/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawText: rawTextInput }),
+        body: JSON.stringify({ rawText: text, timeConvention, homeBase: currentRoster.homeBase }),
       });
 
       const result = await response.json();
       if (result.success && result.data) {
-        const newFlights: FlightLeg[] = result.data.flights || [];
-        
-        if (currentRoster.flights.length > 0) {
-          const mergeAnalysis = analyzeRosterMerge(currentRoster.flights, newFlights);
-          if (mergeAnalysis.hasConflicts) {
-            setPendingConflictData({
-              conflicts: mergeAnalysis.conflicts,
-              identicalCount: mergeAnalysis.identicalCount,
-              newSectorsCount: mergeAnalysis.newSectorsCount,
-              incomingFlights: newFlights,
-              sourceTitle: 'Pasted Raw Schedule Text',
-              customDescription: `Extracted ${newFlights.length} flight legs from text`,
-              detectedAirline: result.data.airline || currentRoster.airline,
-              detectedCrewName: result.data.crewName || currentRoster.crewName || 'Cabin Crew',
-              detectedHomeBase: result.data.homeBase || currentRoster.homeBase,
-              detectedHomeBaseTzOffset: result.data.homeBaseTzOffset || currentRoster.homeBaseTzOffset,
-            });
-            return;
-          } else {
-            const merged = mergeAnalysis.nonConflictingMergedFlights;
-            const continuous: RosterData = {
-              id: `roster-text-merged-${Date.now()}`,
-              airline: result.data.airline || currentRoster.airline,
-              crewName: result.data.crewName || currentRoster.crewName || 'Cabin Crew',
-              homeBase: result.data.homeBase || currentRoster.homeBase,
-              homeBaseTzOffset: result.data.homeBaseTzOffset || currentRoster.homeBaseTzOffset,
-              flights: merged,
-              layovers: currentRoster.layovers || [],
-              parsedAt: new Date().toISOString(),
-            };
-            onRosterParsed(continuous, 'Pasted Raw Schedule Text', `Merged into continuous timeline (${merged.length} sectors)`);
-            setSuccessMessage(`Merged text sectors into continuous timeline (${merged.length} total flights)!`);
-            return;
-          }
+        importedStandbyRef.current = Array.isArray(result.data.standby) ? result.data.standby : [];
+        importedOtherRef.current = Array.isArray(result.data.otherDuties) ? result.data.otherDuties : [];
+        importedPeriodRef.current = mergePeriodBounds({}, result.data.periodStart, result.data.periodEnd);
+        importedVisibleRef.current = Array.isArray(result.data.visibleDates) ? result.data.visibleDates : [];
+        importedTailRef.current =
+          combineFiles(
+            [{ flights: result.data.flights || [], standby: importedStandbyRef.current, otherDuties: importedOtherRef.current, periodStart: result.data.periodStart, periodEnd: result.data.periodEnd, visibleDates: importedVisibleRef.current }],
+            rosterClock(currentRoster)
+          ).content.tailDates ?? [];
+        const textWarnings: string[] = Array.isArray(result.data.warnings) ? result.data.warnings : [];
+        setParseWarnings(textWarnings);
+        if (hasOwnRoster && isAlreadyUpToDate(uploadContent(result.data.flights || []))) {
+          setSuccessMessage('No changes: your roster is already up to date.');
+          return;
         }
+        const reviewed = await reviewFlights(result.data.flights || [], [], textWarnings, {
+          convention: result.data.timeConvention ?? timeConvention,
+          stated: !!result.data.timeConventionStated,
+          homeBase: result.data.homeBase || currentRoster.homeBase,
+          days: reviewDays(result.data.flights || []),
+        });
+        if (reviewed && !result.data.timeConventionStated && reviewed.convention !== timeConvention) onTimeConventionChosen?.(reviewed.convention);
+        const confirmed = reviewed?.flights;
+        if (!confirmed || confirmed.length === 0) {
+          setParseError('Nothing was saved. Paste your roster again when you are ready.');
+          return;
+        }
+        const newFlights: FlightLeg[] = confirmed;
+        
+        if (again?.reread) {
+          applyReread(again.reread, uploadContent(newFlights));
+          return;
+        }
+        const textTitle = again?.title ?? 'Pasted text';
+        const at = new Date().toISOString();
+        const textFile = { file: new Blob([text], { type: 'text/plain' }), name: 'Pasted text', fingerprint: await textFingerprint(text) };
+        if (hasOwnRoster) {
+          const saved = await saveOverSavedRoster(
+            uploadContent(newFlights),
+            { title: textTitle, airline: result.data.airline || currentRoster.airline },
+            { at }
+          );
+          if (saved.outcome === 'cancelled') setParseError('Nothing was saved. Paste your roster again when you are ready.');
+          else setSuccessMessage(saved.outcome === 'no_changes' ? 'No changes: your roster is already up to date.' : `Roster updated: ${saved.summary}.`);
+          if (saved.outcome === 'saved' && saved.saved) {
+            await recordUpload(saved.saved, { title: textTitle, at, source: 'text', dates: saved.scopeDates ?? [], convention: reviewed?.convention, files: [textFile] });
+          }
+          return;
+        }
+        const taggedText = withSource(uploadContent(newFlights), textTitle, at);
 
         const parsed: RosterData = {
           id: `roster-text-${Date.now()}`,
           airline: result.data.airline || 'Airline',
-          crewName: result.data.crewName || 'Cabin Crew',
           homeBase: result.data.homeBase || 'DEL',
           homeBaseTzOffset: result.data.homeBaseTzOffset || 5.5,
-          flights: newFlights,
+          flights: taggedText.flights,
           layovers: [],
+          standbyDuties: taggedText.standby ?? [],
+          otherDuties: taggedText.otherDuties ?? [],
+          ...mergePeriod(undefined, importedPeriodRef.current),
           parsedAt: new Date().toISOString(),
         };
-        onRosterParsed(parsed, 'Pasted Raw Schedule Text', `Extracted ${parsed.flights.length} flights from text`);
+        onRosterParsed(parsed, textTitle, `Extracted ${parsed.flights.length} flights from text`);
+        await recordUpload(taggedText, {
+          title: textTitle,
+          at,
+          source: 'text',
+          dates: importScope(taggedText, null, rosterClock(parsed))?.dates ?? [],
+          convention: reviewed?.convention,
+          files: [textFile],
+        });
         setSuccessMessage(`Parsed ${parsed.flights.length} flights from text!`);
       } else {
         setParseError(result.error || 'Failed to parse text. Please ensure flight numbers and dates are included.');
@@ -646,130 +871,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Header Banner */}
-      <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-slate-950 p-5 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-blue-400" />
-              <h2 className="text-base font-bold text-white">Roster Upload & Continuous Timeline Hub</h2>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Select or drop multiple roster screenshots across months (Jan, Feb, Mar). Verify thumbnails, resolve schedule revisions smartly, and build one uninterrupted continuous duty timeline.
-            </p>
-          </div>
-
-          {/* Current Active Roster Stat Pill */}
-          <div className="rounded-xl border border-blue-900/40 bg-blue-950/30 px-3 py-2 text-xs flex items-center gap-3">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-blue-300 tracking-wider block">Continuous Timeline</span>
-              <span className="font-mono font-bold text-white text-xs">
-                {currentRoster.flights.length > 0 ? (
-                  `${currentRoster.flights.length} Flights • Base ${currentRoster.homeBase}`
-                ) : (
-                  <span className="text-amber-400">Baseline Rest Cycle</span>
-                )}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {currentRoster.flights.length > 0 && (
-                <button
-                  onClick={() => setShowClearConfirmModal(true)}
-                  title="Clear or deactivate active roster"
-                  className="rounded-lg border border-rose-800/60 bg-rose-950/40 hover:bg-rose-900/60 px-2 py-1 text-[11px] font-bold text-rose-300 transition-colors flex items-center gap-1"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  <span className="hidden sm:inline">Deactivate</span>
-                </button>
-              )}
-              {currentRoster.flights.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  {onViewMasterSheet && (
-                    <button
-                      onClick={onViewMasterSheet}
-                      className="flex items-center gap-1 rounded-lg border border-emerald-700/60 bg-emerald-950/40 hover:bg-emerald-900/60 px-2.5 py-1 text-[11px] font-bold text-emerald-300 transition-colors shadow-sm"
-                      title="Cross-check parsed flight sheet against AIMS portal"
-                    >
-                      <FileText className="h-3 w-3 text-emerald-400" />
-                      <span>Quick Audit / View Master Sheet ➔</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={onViewRosterTimeline}
-                    className="rounded-lg bg-blue-600 hover:bg-blue-500 px-2.5 py-1 text-[11px] font-bold text-white transition-colors"
-                  >
-                    Timeline ➔
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('upload')}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all shrink-0 ${
-            activeTab === 'upload'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <Upload className="h-3.5 w-3.5" />
-          <span>Upload & Verify Roster</span>
-          {fileBatch.length > 0 && (
-            <span className="rounded-full bg-blue-900 px-1.5 py-0.2 text-[9px] font-mono text-white">
-              {fileBatch.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all shrink-0 ${
-            activeTab === 'history'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <History className="h-3.5 w-3.5" />
-          <span>Upload & Audit History</span>
-          <span
-            className={`rounded-full px-1.5 py-0.2 text-[9px] font-mono font-bold ${
-              activeTab === 'history' ? 'bg-blue-800 text-white' : 'bg-slate-800 text-slate-400'
-            }`}
-          >
-            {history.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('samples')}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all shrink-0 ${
-            activeTab === 'samples'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>Sample 30-Day Rosters</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('text')}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all shrink-0 ${
-            activeTab === 'text'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:bg-slate-900 hover:text-white'
-          }`}
-        >
-          <FileText className="h-3.5 w-3.5" />
-          <span>Paste Raw Text</span>
-        </button>
-      </div>
+      {consentDialog}
+      {reviewDialog}
+      {changesDialog}
+      {/* Privacy Notice */}
+      <p className="text-[11px] text-slate-500">
+        Privacy: files and text you submit here are sent to Google Gemini to be read. Your roster is then stored only in
+        this browser. Crop out anything you do not want to share before uploading.
+      </p>
 
       {/* Success Banner */}
       {successMessage && (
@@ -780,27 +889,32 @@ export const UploadView: React.FC<UploadViewProps> = ({
               <span className="font-bold text-white text-sm">{successMessage}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                onClick={() => setActiveTab('history')}
-                className="rounded-lg bg-emerald-800/60 hover:bg-emerald-700/80 px-2.5 py-1 font-bold text-emerald-100 text-xs"
-              >
-                View History Logs
-              </button>
+              {onUndoLatest && /updated/i.test(successMessage) && (
+                <button
+                  onClick={() => {
+                    onUndoLatest();
+                    setSuccessMessage('Undone: your roster is back as it was before this upload.');
+                  }}
+                  className="rounded-lg border border-emerald-500/50 px-2.5 py-1 font-bold text-emerald-100 text-xs hover:bg-emerald-800/60"
+                >
+                  Undo
+                </button>
+              )}
               {onViewMasterSheet && (
                 <button
                   onClick={onViewMasterSheet}
                   className="rounded-lg border border-emerald-500/50 bg-emerald-900/60 hover:bg-emerald-800/80 px-3 py-1 font-bold text-emerald-200 text-xs flex items-center gap-1 shadow-sm"
-                  title="Open Master Sheet in Split-Screen verification mode"
+                  title="Check the days in Month against your roster"
                 >
                   <FileText className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Quick Audit / View Master Sheet ➔</span>
+                  <span>Check in Month ➔</span>
                 </button>
               )}
               <button
                 onClick={onViewRosterTimeline}
                 className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1 font-bold text-white text-xs flex items-center gap-1 shadow-sm"
               >
-                <span>Go to Timeline</span>
+                <span>Go to Days</span>
                 <ArrowRight className="h-3 w-3" />
               </button>
             </div>
@@ -822,6 +936,28 @@ export const UploadView: React.FC<UploadViewProps> = ({
         </div>
       )}
 
+      {/* Flights left out because they could not be read reliably */}
+      {parseWarnings.length > 0 && (
+        <div role="alert" className="rounded-2xl border border-amber-800/60 bg-amber-950/30 p-4 text-xs space-y-2 text-amber-200">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-white text-sm">
+                {parseWarnings.length} item{parseWarnings.length === 1 ? '' : 's'} need your attention
+              </p>
+              <p className="text-amber-200/90">
+                Nothing was guessed. Check these against your roster and add any missing sector manually from the History tab.
+              </p>
+            </div>
+          </div>
+          <ul className="list-disc pl-9 space-y-0.5 font-mono text-[11px] text-amber-100/90">
+            {parseWarnings.map((warning, idx) => (
+              <li key={idx}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Error Alert with Smart Guidance */}
       {parseError && (
         <div className="rounded-2xl border border-rose-800/80 bg-rose-950/40 p-4 text-xs space-y-2 text-rose-200 shadow-sm">
@@ -838,7 +974,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setActiveTab('text')}
+                onClick={() => setShowPaste(true)}
                 className="rounded-lg bg-rose-900/50 hover:bg-rose-900/80 border border-rose-700/50 px-2.5 py-1 text-white font-semibold transition-colors"
               >
                 Paste Text Instead
@@ -864,8 +1000,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
         className="hidden"
       />
 
-      {/* Tab 1: Upload & Continuous Timeline Merging */}
-      {activeTab === 'upload' && (
+      {/* Upload a roster */}
+      {(
         <div className="space-y-6">
           {/* Main Dropzone / Multi-File Selector */}
           {fileBatch.length === 0 ? (
@@ -882,13 +1018,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
                   </div>
                   <div>
                     <p className="text-sm font-bold text-white">
-                      Click to choose or drag & drop your roster screenshots
+                      Upload your roster: choose or drop screenshots or a PDF
                     </p>
                     <p className="text-xs text-slate-400 mt-1 max-w-lg mx-auto">
-                      Upload rosters in chunks (e.g. Jan 1–21, Jan 21–Feb 20, Feb 15–Mar 15). The app will display thumbnail previews for verification, auto-merge overlapping dates, and prompt you if schedule revisions conflict.
-                    </p>
-                    <p className="text-[11px] text-blue-400/90 mt-1">
-                      ✓ Thumbnail Verification • ✓ Smart Overlap Deduplication • ✓ Uninterrupted Continuous Timeline
+                      You can add several files at once, such as two pages of one month. You will check what was read before anything is saved.
                     </p>
                   </div>
                   <div className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-500 transition-colors">
@@ -902,7 +1035,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800/80 pt-3 text-[11px] text-slate-400">
                 <span className="flex items-center gap-1.5">
                   <Plane className="h-3.5 w-3.5 text-blue-400" />
-                  <span>Compatible with IndiGo (AIMS, CrewLynx), Air India, Emirates, Etihad, Qatar, & DGCA/FAA formats</span>
+                  <span>Works with roster screenshots, PDFs and pasted text</span>
                 </span>
                 <span className="text-slate-500">Supports PNG, JPG, JPEG, WEBP, PDF</span>
               </div>
@@ -1124,11 +1257,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
                     </div>
                     <div>
                       <p className="text-sm font-bold text-white">
-                        {fileBatch.length} {fileBatch.length === 1 ? 'Roster File' : 'Roster Files'} Verified
+                        {fileBatch.length} {fileBatch.length === 1 ? 'Roster File' : 'Roster Files'} Ready
                       </p>
                       <p className="text-xs text-slate-300 mt-0.5">
                         {currentRoster.flights.length > 0
-                          ? `Ready to merge into active continuous timeline (${currentRoster.flights.length} existing sectors). Any conflicting dates will be flagged for review.`
+                          ? `Ready to merge into your saved roster (${currentRoster.flights.length} sectors). A newer roster replaces what is saved on the dates it covers; you will see exactly what changes before anything is saved.`
                           : 'Ready to ingest and extract flight duties, report times, and circadian rest buffers.'}
                       </p>
                     </div>
@@ -1143,7 +1276,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                     </button>
                     {/* BUTTON CLEARLY LABELED AS UPLOAD AS REQUESTED */}
                     <button
-                      onClick={startProcessingBatch}
+                      onClick={() => startProcessingBatch()}
                       className="w-1/2 sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-md shadow-blue-900/30 transition-all hover:scale-[1.02] text-center"
                     >
                       <Upload className="h-4 w-4" />
@@ -1165,7 +1298,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                       onClick={onViewRosterTimeline}
                       className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-colors"
                     >
-                      View in Duty Timeline ➔
+                      View in Days ➔
                     </button>
                     <button
                       onClick={clearAllStagedFiles}
@@ -1179,116 +1312,79 @@ export const UploadView: React.FC<UploadViewProps> = ({
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* EMBEDDED ROSTER HISTORY TABLE DIRECTLY IN UPLOAD TAB     */}
-          {/* ======================================================== */}
-          <div className="space-y-3 pt-3 border-t border-slate-800">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <History className="h-4 w-4 text-blue-400" />
-                <h3 className="text-sm font-bold text-white">Upload & Audit History Logs</h3>
-                <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-slate-300 font-bold">
-                  {history.length}
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-400 hidden sm:inline">
-                Deactivate, delete, or re-upload / merge past rosters with 1 tap
-              </span>
-            </div>
-
-            <RosterHistoryTable
-              history={history}
-              currentRoster={currentRoster}
-              onRestoreRoster={onRestoreRoster}
-              onClearActiveRoster={onClearActiveRoster}
-              onDeleteHistoryItem={onDeleteHistoryItem}
-              onClearAllHistory={onClearAllHistory}
-              onAddManualSector={onAddManualSector}
-              onOpenUploadTab={() => setActiveTab('upload')}
-              onUploadFiles={stageIncomingFiles}
-              isParsing={isParsingBatch}
-              onViewTimeline={onViewRosterTimeline}
-              onMergeRosterSnapshot={onMergeRosterSnapshot}
-            />
-          </div>
         </div>
       )}
 
-      {/* Tab 2: Upload & Audit History Standalone */}
-      {activeTab === 'history' && (
-        <RosterHistoryTable
-          history={history}
-          currentRoster={currentRoster}
-          onRestoreRoster={onRestoreRoster}
-          onClearActiveRoster={onClearActiveRoster}
-          onDeleteHistoryItem={onDeleteHistoryItem}
-          onClearAllHistory={onClearAllHistory}
-          onAddManualSector={onAddManualSector}
-          onOpenUploadTab={() => setActiveTab('upload')}
-          onUploadFiles={stageIncomingFiles}
-          isParsing={isParsingBatch}
-          onViewTimeline={onViewRosterTimeline}
-          onMergeRosterSnapshot={onMergeRosterSnapshot}
-        />
+      {/* Another way to upload: paste the roster as text */}
+      {!showPaste && (
+        <button onClick={() => setShowPaste(true)} className="text-xs font-semibold text-slate-400 hover:text-white">
+          Or paste roster text instead
+        </button>
       )}
 
-      {/* Tab 3: Sample 30-Day Presets */}
-      {activeTab === 'samples' && (
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400">
-            Pick from realistic pre-configured rosters to immediately preview circadian recommendations, monthly salary estimation, and pre-flight routines:
-          </p>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {presets.map((preset) => {
-              const isSelected = activePresetId === preset.id;
-              return (
-                <div
-                  key={preset.id}
-                  onClick={() => onSelectPreset(preset)}
-                  className={`rounded-2xl border p-4 transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-blue-500 bg-blue-950/20 ring-1 ring-blue-500 shadow-md'
-                      : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-white">{preset.name}</span>
-                        {isSelected && (
-                          <span className="rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 text-[9px] font-mono font-bold">
-                            Active
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-400 leading-snug">{preset.description}</p>
-                    </div>
-                  </div>
+      {/* Leftovers from the person's own edits, when no roster remains */}
+      {leftovers.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
+          {leftovers.length} leftover {leftovers.length === 1 ? 'entry' : 'entries'} from your own edits (
+          {[...new Set(leftovers)].map((d) => shortRange(d, d)).join(', ')}), not part of any roster.
+          <button onClick={clearLeftovers} className="font-semibold text-blue-300 hover:text-white">
+            Clear
+          </button>
+        </p>
+      )}
 
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-800/80 pt-2.5 text-[11px] text-slate-400">
-                    <span>
-                      Base: <strong className="text-slate-200">{preset.roster.homeBase}</strong>
-                    </span>
-                    <span>{preset.roster.flights.length} Flight Legs</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectPreset(preset);
-                      }}
-                      className="rounded-lg bg-slate-800 hover:bg-slate-700 px-2.5 py-1 text-xs font-semibold text-white transition-colors"
-                    >
-                      {isSelected ? 'Loaded ✓' : 'Load Roster'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {/* Your rosters: Re-read or Remove */}
+      <UploadedRosters
+        rosters={yourRosters}
+        busy={isParsingBatch}
+        onReread={rereadRoster}
+        onRemove={removeRoster}
+        loadOriginal={async (record) => {
+          const files = await Promise.all(
+            record.files.filter((f) => f.stored && f.fingerprint).map(async (f) => {
+              const stored = await getStoredFile(f.fingerprint!);
+              return stored ? { name: f.name, url: URL.createObjectURL(stored.blob), blob: stored.blob } : null;
+            })
+          );
+          return files.filter((f): f is { name: string; url: string; blob: Blob } => !!f);
+        }}
+      />
+
+      {/* One tap from undoing the last change */}
+      {history[0] && onUndoLatest && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          Last change: <span className="text-slate-200">{history[0].title}</span>
+          <button onClick={onUndoLatest} className="font-semibold text-blue-300 hover:text-white">
+            Undo
+          </button>
+        </p>
+      )}
+
+      {/* Before the first upload: a quiet way to try the app with a sample roster */}
+      {!hasOwnRoster && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <span>New here? Try a sample roster:</span>
+          {presets.map((preset) => {
+            const isSelected = activePresetId === preset.id;
+            return (
+              <button
+                key={preset.id}
+                onClick={() => onSelectPreset(preset)}
+                title={preset.description}
+                aria-pressed={isSelected}
+                className={`rounded-full border px-3 py-1 font-semibold transition-colors ${
+                  isSelected ? 'border-blue-500/70 bg-blue-950/40 text-blue-200' : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
+                }`}
+              >
+                {preset.name.split('(')[0].trim()}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {/* Tab 4: Raw Schedule Text */}
-      {activeTab === 'text' && (
+      {/* Paste roster text (shown when chosen) */}
+      {showPaste && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
@@ -1308,7 +1404,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
           />
 
           <button
-            onClick={handleParseText}
+            onClick={() => handleParseText()}
             disabled={isParsingBatch || !rawTextInput.trim()}
             className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2.5 text-xs font-bold text-white transition-all disabled:opacity-50"
           >
@@ -1318,168 +1414,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
         </div>
       )}
 
-      {/* SMART CONFLICT RESOLUTION MODAL */}
-      {pendingConflictData && (
-        <ConflictResolutionModal
-          conflicts={pendingConflictData.conflicts}
-          identicalCount={pendingConflictData.identicalCount}
-          newSectorsCount={pendingConflictData.newSectorsCount}
-          onResolve={handleResolveConflicts}
-          onCancel={() => setPendingConflictData(null)}
-        />
-      )}
-
-      {/* FULL-SCREEN LIGHTBOX / PREVIEW VERIFICATION MODAL */}
+      {/* Full-screen preview of a staged file */}
       {previewModalIndex !== null && fileBatch[previewModalIndex] && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6"
-          onClick={() => setPreviewModalIndex(null)}
-        >
-          <div
-            className="relative flex flex-col w-full max-w-4xl max-h-[90vh] rounded-3xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5 bg-slate-900/80">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600/20 text-blue-400 font-mono text-xs font-bold">
-                  {previewModalIndex + 1}/{fileBatch.length}
-                </span>
-                <div className="min-w-0">
-                  <h4 className="font-bold text-white text-sm truncate font-mono">
-                    {fileBatch[previewModalIndex].name}
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    {fileBatch[previewModalIndex].sizeKb} KB • Verify flight numbers, departure/arrival times & dates
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {!isParsingBatch && (
-                  <button
-                    onClick={() => removeFileFromBatch(fileBatch[previewModalIndex].id)}
-                    className="flex items-center gap-1.5 rounded-xl border border-rose-800/60 bg-rose-950/30 hover:bg-rose-900/60 px-2.5 py-1.5 text-xs text-rose-300 font-semibold transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Remove File</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => setPreviewModalIndex(null)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 p-2 text-slate-300 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Image Viewport */}
-            <div className="relative flex-1 overflow-auto bg-slate-950 p-4 flex items-center justify-center min-h-[300px]">
-              {fileBatch[previewModalIndex].previewUrl ? (
-                <img
-                  src={fileBatch[previewModalIndex].previewUrl}
-                  alt={fileBatch[previewModalIndex].name}
-                  className="max-h-[65vh] w-auto max-w-full object-contain rounded-xl shadow-lg border border-slate-800"
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center text-center p-8 space-y-3">
-                  <FileText className="h-16 w-16 text-rose-400" />
-                  <p className="text-white font-bold text-sm">{fileBatch[previewModalIndex].name}</p>
-                  <p className="text-xs text-slate-400 max-w-sm">
-                    This is a PDF roster document. Gemini Aero-OCR will parse the embedded vector tables directly.
-                  </p>
-                </div>
-              )}
-
-              {fileBatch.length > 1 && (
-                <>
-                  <button
-                    onClick={() =>
-                      setPreviewModalIndex((prev) =>
-                        prev !== null ? (prev === 0 ? fileBatch.length - 1 : prev - 1) : null
-                      )
-                    }
-                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/80 hover:bg-slate-800 p-2.5 text-white ring-1 ring-slate-700 backdrop-blur-sm transition-all"
-                    title="Previous file"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setPreviewModalIndex((prev) =>
-                        prev !== null ? (prev === fileBatch.length - 1 ? 0 : prev + 1) : null
-                      )
-                    }
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-900/80 hover:bg-slate-800 p-2.5 text-white ring-1 ring-slate-700 backdrop-blur-sm transition-all"
-                    title="Next file"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between border-t border-slate-800 px-5 py-3 bg-slate-900/70 text-xs">
-              <span className="text-slate-400">
-                Tip: If text appears blurry, ensure your screenshot was taken at full resolution.
-              </span>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPreviewModalIndex(null)}
-                  className="rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-1.5 font-bold text-white transition-colors"
-                >
-                  Confirm & Close Preview
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <FilePreviewModal items={fileBatch} index={previewModalIndex} onIndexChange={setPreviewModalIndex} onRemove={removeFileFromBatch} busy={isParsingBatch} />
       )}
 
-      {/* Clear Active Roster Modal */}
-      {showClearConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-rose-800/80 bg-slate-950 p-5 shadow-2xl space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/30">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-base font-bold text-white">Deactivate Active Continuous Timeline?</h4>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  This will temporarily unload the current <strong>{currentRoster.flights.length} flights</strong> from your active duty schedule and reset to baseline rest rhythm.
-                </p>
-                <p className="text-xs text-slate-400">
-                  Your roster is fully saved in your <strong>Upload & Audit History</strong> below. You can re-activate or merge it anytime with one tap.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                onClick={() => setShowClearConfirmModal(false)}
-                className="rounded-xl border border-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-900 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  onClearActiveRoster();
-                  setShowClearConfirmModal(false);
-                }}
-                className="flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 px-4 py-2 text-xs font-bold text-white transition-colors"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Yes, Deactivate Schedule</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

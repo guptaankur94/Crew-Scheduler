@@ -1,5 +1,5 @@
-import React from 'react';
-import { CircadianEvent } from '../types/circadian';
+import React, { useEffect, useRef } from 'react';
+import { CircadianEvent, EvidenceGrade } from '../types/circadian';
 import { X, Award, Lightbulb, Clock, Plus, Minus, CheckCircle2 } from 'lucide-react';
 
 interface EventDetailModalProps {
@@ -9,22 +9,43 @@ interface EventDetailModalProps {
   currentNudge: number;
 }
 
+const EVIDENCE_LABEL: Record<EvidenceGrade, string> = { strong: 'strong', moderate: 'moderate', limited: 'limited', practical: 'practical', regulation: 'regulation' };
+const EVIDENCE_HELP: Record<EvidenceGrade, string> = {
+  strong: 'Consistent results across trials or reviews.',
+  moderate: 'Supported by some trials or expert guidance.',
+  limited: 'Early or mixed evidence: a gentle guide only.',
+  practical: 'Worked out from your roster and settings.',
+  regulation: 'A legal rule, not a health claim.',
+};
+
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   event,
   onClose,
   onNudge,
   currentNudge,
 }) => {
+  // Escape closes the sheet (a ref keeps the listener from re-binding on every render)
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const open = !!event;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   if (!event) return null;
 
   const { scientificCitation } = event;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={event.title}>
       <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl sm:p-6">
         {/* Close Button */}
         <button
           onClick={onClose}
+          aria-label="Close"
           className="absolute right-4 top-4 rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
         >
           <X className="h-5 w-5" />
@@ -34,11 +55,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         <div className="space-y-1 pr-8">
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400 border border-blue-500/20">
-              {scientificCitation.organization} Study
+              Source: {scientificCitation.organization}
             </span>
             {event.priority === 'critical' && (
               <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-semibold text-red-400 border border-red-500/20">
-                Critical Safety Window
+                Important
               </span>
             )}
           </div>
@@ -61,17 +82,34 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         {/* Research Study Details */}
         <div className="mt-4 space-y-3">
           <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5">
+            <p className="mb-1.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+              <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono">Rule {scientificCitation.ruleId}</span>
+              <span className="rounded border border-slate-700 px-1.5 py-0.5" title={EVIDENCE_HELP[scientificCitation.evidence]}>
+                Evidence: {EVIDENCE_LABEL[scientificCitation.evidence]}
+              </span>
+              <span>{EVIDENCE_HELP[scientificCitation.evidence]}</span>
+            </p>
             <h4 className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
               <Award className="h-4 w-4" /> {scientificCitation.studyTitle}
             </h4>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-200">
               {scientificCitation.keyFinding}
             </p>
+            {scientificCitation.sourceUrl && (
+              <a
+                href={scientificCitation.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-[11px] text-blue-400 underline underline-offset-2 hover:text-blue-300"
+              >
+                Read the source
+              </a>
+            )}
           </div>
 
           <div className="space-y-1 text-xs text-slate-300">
             <strong className="text-slate-400 uppercase tracking-wider text-[10px]">
-              The Biological Mechanism:
+              Why it matters:
             </strong>
             <p className="leading-relaxed text-slate-300">{scientificCitation.explanation}</p>
           </div>
@@ -80,7 +118,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           <div className="flex items-start gap-2 rounded-xl border border-amber-900/30 bg-amber-950/20 p-3 text-xs text-amber-200">
             <Lightbulb className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
             <div>
-              <strong className="text-amber-300">Cabin Crew Action: </strong>
+              <strong className="text-amber-300">What to do: </strong>
               <span>{scientificCitation.actionableTip}</span>
             </div>
           </div>

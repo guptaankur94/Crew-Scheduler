@@ -1,4 +1,5 @@
 import { CircadianEvent, CircadianPlan } from '../types/circadian';
+import { saveOrShareFile } from './saveFile';
 
 // Helper to format ISO date into ICS format: YYYYMMDDTHHmmssZ
 function toIcsDate(isoUtc: string): string {
@@ -18,11 +19,12 @@ export function generateIcsFile(plan: CircadianPlan): string {
     'X-WR-TIMEZONE:UTC',
   ];
 
-  events.forEach((event: CircadianEvent) => {
+  // Guardrail notes (alcohol before duty, hard exercise before sleep) stay in the app, not in the calendar
+  events.filter((e) => e.type !== 'alcohol_cutoff' && e.type !== 'exercise_cutoff').forEach((event: CircadianEvent) => {
     const dtStart = toIcsDate(event.startUtc);
     const dtEnd = toIcsDate(event.endUtc);
     const summary = `${event.title}`;
-    const description = `${event.subtitle}\\n\\nScientific Basis: ${event.scientificCitation.organization} - ${event.scientificCitation.studyTitle}\\nTakeaway: ${event.scientificCitation.actionableTip}`;
+    const description = `${event.subtitle}\\n\\nSource: ${event.scientificCitation.organization} - ${event.scientificCitation.studyTitle}\\nTakeaway: ${event.scientificCitation.actionableTip}`;
 
     lines.push(
       'BEGIN:VEVENT',
@@ -73,15 +75,7 @@ export function generateIcsFile(plan: CircadianPlan): string {
   return lines.join('\r\n');
 }
 
-export function downloadIcsFile(plan: CircadianPlan) {
-  const icsContent = generateIcsFile(plan);
-  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `CrewCircadian_${plan.roster.airline}_${new Date().toISOString().slice(0, 10)}.ics`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+/** Downloads the calendar file in a browser; in the phone app opens the share sheet (e.g. to a calendar app). */
+export function downloadIcsFile(plan: CircadianPlan): Promise<void> {
+  return saveOrShareFile(`CrewCircadian_${new Date().toISOString().slice(0, 10)}.ics`, generateIcsFile(plan), 'text/calendar;charset=utf-8');
 }

@@ -36,7 +36,6 @@ export function getPresets(): RosterPreset[] {
       roster: {
         id: 'roster-30day-full',
         airline: 'airline',
-        crewName: 'Priya Sharma (Senior Flight Attendant)',
         homeBase: 'DEL',
         homeBaseTzOffset: 5.5,
         totalDays: 30,
@@ -569,7 +568,6 @@ export function getPresets(): RosterPreset[] {
       roster: {
         id: 'roster-indigo-dom-01',
         airline: 'airline',
-        crewName: 'Priya Sharma (Senior Flight Attendant)',
         homeBase: 'DEL',
         homeBaseTzOffset: 5.5,
         totalDays: 4,
@@ -653,7 +651,6 @@ export function getPresets(): RosterPreset[] {
       roster: {
         id: 'roster-redeye-02',
         airline: 'airline',
-        crewName: 'Karan Patel (Lead Flight Attendant)',
         homeBase: 'BOM',
         homeBaseTzOffset: 5.5,
         totalDays: 3,

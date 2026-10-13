@@ -1,0 +1,182 @@
+import { CrewPreferences, FlightLeg, RosterData, UserUpdate } from '../types/circadian';
+import { kv } from './kv';
+
+const STORAGE_KEY = 'crew_app_state_v1';
+
+export interface PersistedAppState {
+  roster: RosterData;
+  preferences: CrewPreferences;
+  customNudges: Record<string, number>;
+  activePresetId: string;
+  /** What the person reported happened (delays), kept apart from the roster. */
+  userUpdates?: UserUpdate[];
+  /** Days the person checked on the Month screen: date → signature of the day's entries when checked. */
+  checkedDays?: Record<string, string>;
+}
+
+const isValidIso = (value: unknown): value is string => typeof value === 'string' && !isNaN(Date.parse(value));
+
+const isValidFlight = (f: any): f is FlightLeg =>
+  !!f &&
+  typeof f.id === 'string' &&
+  typeof f.flightNumber === 'string' &&
+  typeof f.origin === 'string' &&
+  typeof f.destination === 'string' &&
+  isValidIso(f.departureTimeUtc) &&
+  isValidIso(f.arrivalTimeUtc) &&
+  isValidIso(f.reportTimeUtc) &&
+  isValidIso(f.releaseTimeUtc) &&
+  typeof f.originTzOffset === 'number' &&
+  typeof f.destTzOffset === 'number' &&
+  typeof f.durationMinutes === 'number';
+
+/** Checks one saved update (delay, standby change or callout) before it is used. */
+function isValidUpdate(u: any): u is UserUpdate {
+  if (!u || typeof u !== 'object' || typeof u.id !== 'string') return false;
+  switch (u.kind) {
+    case 'delay':
+      return typeof u.sectorKey === 'string' && typeof u.minutes === 'number' && isFinite(u.minutes) && u.minutes > 0;
+    case 'standby_times':
+      return typeof u.standbyKey === 'string' && isValidIso(u.startUtc) && isValidIso(u.endUtc) && u.startUtc < u.endUtc;
+    case 'standby_released':
+      return typeof u.standbyKey === 'string' && isValidIso(u.atUtc);
+    case 'callout':
+      return Array.isArray(u.flights) && u.flights.length > 0 && u.flights.every(isValidFlight);
+    case 'cancelled':
+      return typeof u.sectorKey === 'string';
+    default:
+      return false;
+  }
+}
+
+/**
+ * Checks that a value read from storage really is a roster the app can render.
+ * Blob preview links are dropped because they stop working once the page reloads.
+ */
+export function reviveRoster(value: any): RosterData | null {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.homeBase !== 'string' ||
+    typeof value.homeBaseTzOffset !== 'number' ||
+    !Array.isArray(value.flights) ||
+    !value.flights.every(isValidFlight)
+  ) {
+    return null;
+  }
+
+  const roster: RosterData = {
+    ...value,
+    airline: typeof value.airline === 'string' ? value.airline : 'Airline',
+    layovers: Array.isArray(value.layovers) ? value.layovers : [],
+    ...(Array.isArray(value.standbyDuties)
+      ? {
+          standbyDuties: value.standbyDuties.filter(
+            (sb: any) =>
+              sb && (sb.kind === 'home' || sb.kind === 'airport') && typeof sb.id === 'string' && isValidIso(sb.startUtc) && isValidIso(sb.endUtc)
+          ),
+        }
+      : {}),
+    ...(Array.isArray(value.otherDuties)
+      ? {
+          otherDuties: value.otherDuties.filter(
+            (d: any) =>
+              d &&
+              typeof d.id === 'string' &&
+              ['off', 'leave', 'sick', 'training', 'other'].includes(d.kind) &&
+              typeof d.date === 'string' &&
+              /^\d{4}-\d{2}-\d{2}$/.test(d.date)
+          ),
+        }
+      : {}),
+    parsedAt: isValidIso(value.parsedAt) ? value.parsedAt : new Date().toISOString(),
+  };
+  // Stated roster dates are kept only as a valid pair
+  const validDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!validDate(roster.periodStart) || !validDate(roster.periodEnd) || roster.periodStart! > roster.periodEnd!) {
+    delete roster.periodStart;
+    delete roster.periodEnd;
+  }
+  if (typeof roster.sourceDocumentUrl === 'string' && roster.sourceDocumentUrl.startsWith('blob:')) {
+    delete roster.sourceDocumentUrl;
+  }
+  return roster;
+}
+
+/**
+ * Loads the saved roster, preferences and adjustments.
+ * Returns null when nothing is saved or the saved data is unusable, so the app falls back to defaults.
+ */
+/**
+ * Checks a parsed object really is saved app state the app can use, filling in defaults for any
+ * preference added since it was saved. Returns null when it is unusable.
+ */
+export function reviveAppState(parsed: any, defaultPreferences: CrewPreferences): PersistedAppState | null {
+  const roster = reviveRoster(parsed?.roster);
+  if (!roster) return null;
+
+  const savedPrefs = parsed.preferences && typeof parsed.preferences === 'object' ? parsed.preferences : {};
+  const nudges: Record<string, number> = {};
+  if (parsed.customNudges && typeof parsed.customNudges === 'object') {
+    for (const [key, minutes] of Object.entries(parsed.customNudges)) {
+      if (typeof minutes === 'number' && isFinite(minutes)) nudges[key] = minutes;
+    }
+  }
+
+  return {
+    roster,
+    // Defaults first so a preference added in a later version is never undefined
+    preferences: { ...defaultPreferences, ...savedPrefs },
+    customNudges: nudges,
+    activePresetId: typeof parsed.activePresetId === 'string' ? parsed.activePresetId : 'custom-upload',
+    userUpdates: Array.isArray(parsed.userUpdates) ? parsed.userUpdates.filter(isValidUpdate) : [],
+    checkedDays:
+      parsed.checkedDays && typeof parsed.checkedDays === 'object'
+        ? (Object.fromEntries(Object.entries(parsed.checkedDays).filter(([d, sig]) => /^\d{4}-\d{2}-\d{2}$/.test(d) && typeof sig === 'string')) as Record<string, string>)
+        : {},
+  };
+}
+
+/**
+ * Loads the saved roster, preferences and adjustments.
+ * Returns null when nothing is saved or the saved data is unusable, so the app falls back to defaults.
+ */
+export function loadAppState(defaultPreferences: CrewPreferences): PersistedAppState | null {
+  try {
+    const raw = kv.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const state = reviveAppState(JSON.parse(raw), defaultPreferences);
+    // The crew member's name is no longer kept; names saved by earlier versions are dropped
+    if (state?.roster) delete (state.roster as { crewName?: string }).crewName;
+    return state;
+  } catch (err) {
+    console.warn('Failed to load saved app state', err);
+    return null;
+  }
+}
+
+/** The saved state exactly as stored, for backups. */
+export function loadRawAppState(): unknown {
+  try {
+    const raw = kv.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveAppState(state: PersistedAppState): void {
+  try {
+    kv.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.warn('Failed to save app state', err);
+  }
+}
+
+export function clearAppState(): void {
+  try {
+    kv.removeItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn('Failed to clear saved app state', err);
+  }
+}

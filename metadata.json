@@ -1,6 +1,0 @@
-{
-  "name": "CrewCircadian — Cabin Crew Fatigue & Nutrition Planner",
-  "description": "Evidence-based sleep, nap, and chrono-nutrition planner for airline cabin crew (IndiGo, Emirates, Etihad) based on NASA, ICAO, and circadian science.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

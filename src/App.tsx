@@ -52,6 +52,7 @@ import { planReminders } from './services/reminders';
 import { syncReminders } from './services/nativeReminders';
 import { listenForSharedRosters } from './services/sharedRosters';
 import { updateWidget } from './services/widgetSteps';
+import { syncCalendar } from './services/calendarSync';
 import { TodayPreview } from './components/views/TodayPreview';
 
 // Screens other than Today load when first opened, so the app starts with less code
@@ -538,9 +539,10 @@ export default function App() {
     const timer = setTimeout(() => {
       void syncReminders(planReminders(plan, preferences.reminders ?? {}, Date.now())).catch(() => {});
       void updateWidget(plan, Date.now());
+      void syncCalendar(plan, !!preferences.calendarSync);
     }, 1500);
     return () => clearTimeout(timer);
-  }, [plan, preferences.reminders]);
+  }, [plan, preferences.reminders, preferences.calendarSync]);
 
   // Roster files shared from another app open on the Rosters page
   const [sharedFiles, setSharedFiles] = useState<File[] | undefined>(undefined);

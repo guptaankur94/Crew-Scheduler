@@ -20,6 +20,10 @@
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>CrewCircadian keeps its own "CrewCircadian" calendar up to date with your duties, standby and planned sleep, when you switch this on in Settings. It only changes the events it created.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>CrewCircadian keeps its own "CrewCircadian" calendar up to date with your duties, standby and planned sleep, when you switch this on in Settings. It only changes the events it created.</string>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>CrewCircadian rings your wake-up alarm before each duty, even when your phone is on silent.</string>
 	<key>CAPACITOR_DEBUG</key>

@@ -204,6 +204,8 @@ export interface CrewPreferences {
   onboarding?: 'pending' | 'done';
   /** Which reminders the person switched on (all off unless chosen). */
   reminders?: Partial<Record<'wake' | 'leave' | 'bedtime' | 'caffeine', boolean>>;
+  /** Phone app: keep a "CrewCircadian" calendar on the phone in step with the plan (calendarSync.ts). Off unless switched on. */
+  calendarSync?: boolean;
   preferredNapDuration: 25 | 26 | 45 | 90; // NASA 26m vs full cycle 90m
   groomingMinutes: number; // Time from wake-up to cab pickup (e.g. 60 min)
   cabBufferMinutes: number; // Time from cab pickup to reporting at base (e.g. 60 min)

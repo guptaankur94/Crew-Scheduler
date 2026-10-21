@@ -6,6 +6,7 @@ import { rosterClock } from '../services/rosterKeys';
 import { isNativeApp } from '../services/platform';
 import { requestReminderPermission } from '../services/nativeReminders';
 import { requestWakeAlarmPermission } from '../services/wakeAlarm';
+import { CALENDAR_DAYS, requestCalendarAccess } from '../services/calendarSync';
 
 /** Reminders and alarms: all off until switched on, with a preview of the next few. */
 
@@ -61,6 +62,27 @@ export const RemindersSettings: React.FC<Props> = ({ plan, preferences, onUpdate
           </label>
         ))}
       </div>
+      <label className="flex cursor-pointer items-start gap-3 border-t border-slate-800 pt-3 text-sm text-slate-200">
+        <input
+          type="checkbox"
+          checked={!!preferences.calendarSync}
+          disabled={!native}
+          onChange={async (e) => {
+            const on = e.target.checked;
+            if (on && !(await requestCalendarAccess())) return;
+            onUpdatePreferences({ calendarSync: on });
+          }}
+          className="mt-1 h-4 w-4 accent-sky-500 disabled:opacity-40"
+        />
+        <span>
+          Keep my phone calendar updated
+          <span className="block text-[11px] text-slate-400">
+            {native
+              ? `Duties, getting ready, standby and planned sleep for the next ${CALENDAR_DAYS} days, in a separate "CrewCircadian" calendar that updates whenever your plan changes. Switching off removes that calendar.`
+              : 'In the CrewCircadian phone app. In a browser, use the calendar button at the top to save a calendar file.'}
+          </span>
+        </span>
+      </label>
       {upcoming.length > 0 && (
         <div className="border-t border-slate-800 pt-2 text-xs text-slate-300">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Coming up (home time)</p>

@@ -70,7 +70,7 @@ code it cannot run.
 | `services/nowNext.ts` | "Now" and "Next" at the top of the Duty screen |
 | `services/planChanges.ts` | "Your plan changed" after an update |
 | `services/monthDays.ts` | One line per day for the Month list |
-| `services/widgetSteps.ts` | Next steps for the Android widget |
+| `services/widgetSteps.ts` | Next steps for the home-screen widgets (Android and iPhone) |
 
 ### Roster handling
 | File | Role |
@@ -99,11 +99,14 @@ code it cannot run.
 | `services/aiConsent.ts` | The "OK to send to Gemini" answer |
 | `services/platform.ts` | Phone vs browser; server address (`VITE_API_BASE`); `apiFetch` |
 | `services/liveUpdate.ts` | Live updates |
-| `services/nativeReminders.ts` | Local notifications on the phone |
+| `services/nativeReminders.ts` | Local notifications on the phone, with Snooze / I'm up buttons |
 | `services/wakeAlarm.ts` | Native alarm (Android AlarmManager; iPhone AlarmKit on iOS 26+) |
 | `services/sharedRosters.ts` | Files arriving via "Share → CrewCircadian" |
 | `services/saveFile.ts` | Download (browser) or share sheet (phone) |
-| `services/icsExport.ts` | Calendar file export (one-time; no automatic sync yet) |
+| `services/icsExport.ts` | Calendar file export (one-time, browser and phone) |
+| `services/calendarSync.ts` | "Keep my phone calendar updated" (opt-in): a CrewCircadian calendar on the phone |
+| `services/liveActivity.ts` | iPhone duty-day Live Activity: which duty, its steps and countdown |
+| `services/feedback.ts` | "Send feedback": share sheet with version info, never roster data |
 | `data/airports.ts` + `data/airportDb.json` | Offline database of airports and time zones |
 | `data/rosterPresets.ts` | Sample rosters |
 | `utils/dateUtils.ts` | Date formatting |
@@ -128,9 +131,15 @@ code it cannot run.
 | `…/SharedRosterPlugin.java` | "Share → CrewCircadian" |
 | `ios/App/App/AppDelegate.swift`, `SceneDelegate.swift`, `MainViewController.swift` | Start the app, register plugins (SceneDelegate must use `MainViewController`) |
 | `ios/App/App/WakeAlarmPlugin.swift` | Alarm via AlarmKit (iOS 26+); not yet tested on a real iPhone |
+| `ios/App/App/NextStepWidgetPlugin.swift` | iPhone widget data (`setSteps`) and the Live Activity (`showDuty` / `endDuty`) |
+| `ios/App/App/CrewShared.swift` | Shared by app and widget: App Group ID, step format, Live Activity data |
+| `ios/App/NextStepWidget/` | The widget extension: home/lock-screen widget (`NextStepWidget.swift`), Live Activity (`DutyLiveActivity.swift`) |
+| `ios/App/App/App.entitlements`, `NextStepWidget.entitlements` | App Group `group.com.crewcircadian.app` |
+| `PrivacyInfo.xcprivacy` (app and widget) | Apple privacy manifests: no tracking; roster content only to read it |
 | `ios/App/CapApp-SPM/Package.swift` | Capacitor plugins in the iPhone build (updated by `npx cap sync ios`) |
 
-Not built yet on iPhone: home-screen/lock-screen widget, Live Activity, Share extension.
+Not built yet on iPhone: Share extension (sharing from Photos). Raise the build number before each tester build
+(installed apps keep their last live update until it changes).
 
 ## 3. Server (Render, online only)
 

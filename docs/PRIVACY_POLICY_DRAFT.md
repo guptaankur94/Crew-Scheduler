@@ -40,7 +40,20 @@ products. [Confirm the account type and log retention before launch.]
 
 Before uploading, crop out anything you do not want to share, such as a staff number.
 
-**Reminders** are scheduled on your phone; they are not sent through any server.
+**Reminders**, the **home-screen widget** and the **lock-screen Live Activity** are made on your phone; they are not
+sent through any server.
+
+**Calendar (only if you switch it on):** the app writes your duties, getting ready, standby and planned sleep into a
+separate "CrewCircadian" calendar on your phone. If your phone syncs its calendars to an account (for example iCloud
+or Google), that calendar is synced like any other, under that account's terms. Switching the option off deletes it.
+
+**App updates:** the app asks our server whether a newer version of its screens is available and downloads it. This
+request contains no personal data; like any web request it reveals your IP address to the server, which does not
+keep it beyond technical error logs.
+
+**Feedback:** if you tap "Send feedback", a message opens in the app you choose (for example WhatsApp or Mail),
+containing what you write plus the app version, phone model and screen. Nothing is sent unless you send it, and it
+never includes your roster.
 
 ## What we never do
 

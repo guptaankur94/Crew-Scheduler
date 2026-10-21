@@ -33,10 +33,13 @@ For a build that reads rosters on a real phone, point it at the hosted server fi
 |---|---|---|
 | Data saved as files the phone does not clear (`kv.ts`, `fileStore.ts`) | Yes | Yes |
 | Wake-up alarm that rings on silent (`WakeAlarm` plugin) | Yes: AlarmManager alarm clock, alarm volume, repeats until dismissed, restored after restart. Tested on the emulator | Yes on iOS 26+: AlarmKit. Bridge tested; the ring needs one "Allow" tap on a visible simulator or a phone (see below) |
-| Reminders (leave, wind down, last caffeine) | Notifications | Notifications |
+| Reminders (leave, wind down, last caffeine) | Notifications with buttons ("Snooze 10 min", "I'm up"); buttons registered, tested on the emulator | Same (not yet seen on a device) |
+| Keep my phone calendar updated (opt-in, `calendarSync.ts`) | Yes: a "CrewCircadian" calendar; tested on the emulator | Yes (same plugin; not yet tested on a device) |
 | Share → CrewCircadian | Yes, from any app (images and PDFs). Tested | "Open in CrewCircadian" for images and PDFs from Files, Mail, WhatsApp documents. From **Photos** needs a share extension (needs the Apple developer team) |
 | Saving files (calendar, backup, hours report) | Share sheet | Share sheet |
-| Home-screen widget (next step) | Yes (long-press the home screen → Widgets → CrewCircadian) | Needs an App Group (Apple developer team) |
+| Home-screen widget (next step) | Yes (long-press the home screen → Widgets → CrewCircadian) | Yes: home screen (small, medium) and lock screen, WidgetKit extension `ios/App/NextStepWidget/`; data via the App Group. Built and checked in the Simulator |
+| Duty-day Live Activity (lock screen + Dynamic Island countdown) | — | Yes (`liveActivity.ts`, `DutyLiveActivity.swift`): from 3 h before wake-up to sign-off. Checked in the Simulator |
+| Live updates of the screens and calculations (`liveUpdate.ts`) | Yes; tested end to end, online and offline | Yes (same plugin; not yet tested on a device) |
 | Light status-bar icons on the dark app | Capacitor `SystemBars` style DARK | Automatic |
 
 ### Testing the iPhone alarm
@@ -46,7 +49,35 @@ For a build that reads rosters on a real phone, point it at the hosted server fi
 3. Quick test without waiting for a duty: in Xcode, **Product → Scheme → Edit Scheme → Run → Arguments**, add
    `-wakeAlarmSelfTest`, press ▶: a test alarm rings 45 seconds after launch (development builds only).
 
-## Still to do (needs the Apple developer team)
+### Testing the widget and Live Activity in the Simulator
 
-iOS share extension (Photos share sheet), iOS widget, App Store and Play Store listings (drafts in
-`docs/STORE_LISTING.md`), and signing for TestFlight / Play internal testing.
+Development builds launched with `-liveActivitySelfTest` give the widget four test steps and start a test duty Live
+Activity (see `MainViewController.swift`). Open another app to see the countdown in the Dynamic Island.
+
+## Before every build you send to testers: raise the version
+
+Installed apps keep the last live update they downloaded until the **build number** changes. Before each TestFlight
+or Play upload, raise it:
+
+- iPhone: Xcode → App target → General → **Build** (and the same number on the NextStepWidgetExtension target).
+- Android: `android/app/build.gradle` → `versionCode` (+1) and `versionName`.
+
+When a change needs a new build and a live update, ship the build first.
+
+## When the Apple developer account is ready
+
+1. Xcode → open `ios/App/App.xcodeproj` (`npx cap open ios`).
+2. Select the **App** target → **Signing & Capabilities** → Team: your account. Xcode registers the bundle ID
+   `com.crewcircadian.app`.
+3. Same for the **NextStepWidgetExtension** target (bundle ID `com.crewcircadian.app.widget`).
+4. On both targets, check **App Groups** shows `group.com.crewcircadian.app` ticked (it is in the entitlements files;
+   Xcode registers it with Apple when the team is set). Without it the widget shows "Open the app".
+5. Plug in your iPhone (iOS 26+ for the alarm), choose it at the top, press ▶. Test: alarm, widget, Live Activity,
+   calendar, reminder buttons.
+6. TestFlight: Product → Archive → Distribute App → App Store Connect. Then in App Store Connect → TestFlight, add
+   testers by email (the first external build needs Apple's beta review, about a day).
+
+## Still to do
+
+iOS share extension (sharing from the Photos app; "Open in" already works), App Store and Play Store listings
+(drafts in `docs/STORE_LISTING.md`), crash reports and anonymous usage counts (need a service account).

@@ -20,14 +20,14 @@ async function checkOnce(): Promise<void> {
     const { CapacitorUpdater } = await import('@capgo/capacitor-updater');
     const response = await fetch(`${apiBase()}/updates/latest.json`, { cache: 'no-store' });
     if (!response.ok) return;
-    const latest = (await response.json()) as { version?: string; file?: string };
-    if (!latest.version || !latest.file || !/^[a-f0-9]{8,64}$/.test(latest.version)) return;
+    const latest = (await response.json()) as { version?: string; file?: string; checksum?: string };
+    if (!latest.version || !latest.file || !/^[a-f0-9]{8,64}$/.test(latest.version) || !/^[a-f0-9]{64}$/.test(latest.checksum ?? '')) return;
     const { bundle } = await CapacitorUpdater.current();
     if (bundle.version === latest.version) return;
     const { bundles } = await CapacitorUpdater.list();
     const ready =
       bundles.find((b) => b.version === latest.version && b.status === 'success') ??
-      (await CapacitorUpdater.download({ url: `${apiBase()}/updates/${latest.file}`, version: latest.version }));
+      (await CapacitorUpdater.download({ url: `${apiBase()}/updates/${latest.file}`, version: latest.version, checksum: latest.checksum }));
     await CapacitorUpdater.next({ id: ready.id });
   } catch (err) {
     // Offline or the server is unreachable: keep the version on the phone and try again later

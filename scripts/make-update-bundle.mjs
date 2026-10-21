@@ -74,5 +74,7 @@ mkdirSync(OUT, { recursive: true });
 const file = `bundle-${version}.zip`;
 const zip = Buffer.concat([...parts, ...central, end]);
 writeFileSync(join(OUT, file), zip);
-writeFileSync(join(OUT, 'latest.json'), JSON.stringify({ version, file, builtAt: new Date().toISOString() }) + '\n');
+// The app checks the downloaded zip against this SHA-256 before using it
+const checksum = createHash('sha256').update(zip).digest('hex');
+writeFileSync(join(OUT, 'latest.json'), JSON.stringify({ version, file, checksum, builtAt: new Date().toISOString() }) + '\n');
 console.log(`Live update ${version}: ${entries.length} files, ${(zip.length / 1024).toFixed(0)} KB`);

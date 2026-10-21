@@ -1,4 +1,5 @@
 import { RemindersSettings } from '../RemindersSettings';
+import { sendFeedback } from '../../services/feedback';
 import { saveOrShareFile } from '../../services/saveFile';
 import { CAFFEINE_CHOICES, UsualSleep } from '../SleepSettings';
 import { CAFFEINE_HOURS, DAYTIME_SLEEP_EXTRA_HOURS } from '../../services/planEngine';
@@ -146,6 +147,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Feedback while testing */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-900/50 bg-sky-950/20 p-4 text-xs text-slate-300">
+        <p>
+          <strong className="text-white">Something wrong, confusing or missing?</strong> Tell us: the message includes the app version, never your roster.
+        </p>
+        <button
+          onClick={async () => {
+            const result = await sendFeedback('Settings');
+            if (result === 'copied') alert('Copied: paste it into WhatsApp or an email.');
+          }}
+          className="shrink-0 rounded-xl bg-sky-600 px-3 py-1.5 font-bold text-white hover:bg-sky-500"
+        >
+          Send feedback
+        </button>
       </div>
 
       {/* 1. Pre-Flight Morning Departure Buffers */}

@@ -53,6 +53,7 @@ import { syncReminders } from './services/nativeReminders';
 import { listenForSharedRosters } from './services/sharedRosters';
 import { updateWidget } from './services/widgetSteps';
 import { syncCalendar } from './services/calendarSync';
+import { sendFeedback } from './services/feedback';
 import { TodayPreview } from './components/views/TodayPreview';
 
 // Screens other than Today load when first opened, so the app starts with less code
@@ -758,6 +759,7 @@ export default function App() {
               CrewCircadian gives general wellness guidance. It is not a medical device, does not assess fitness for duty,
               and is not endorsed by any airline, regulator or research body.
             </p>
+            <FeedbackLink screen={viewTitles[activeView] ?? activeView} />
           </div>
         </footer>
       </div>
@@ -797,5 +799,24 @@ export default function App() {
         currentNudge={selectedEvent ? customNudges[selectedEvent.id] || 0 : 0}
       />
     </div>
+  );
+}
+
+/** "Send feedback": the share sheet with a ready message (phone), or copied (browser). */
+function FeedbackLink({ screen }: { screen: string }) {
+  const [note, setNote] = useState<string | null>(null);
+  return (
+    <p className="pt-2">
+      <button
+        onClick={async () => {
+          const result = await sendFeedback(screen);
+          setNote(result === 'copied' ? 'Copied: paste it into WhatsApp or an email.' : result === 'failed' ? 'Could not open sharing on this device.' : null);
+        }}
+        className="font-semibold text-sky-300 underline underline-offset-2 hover:text-white"
+      >
+        Send feedback
+      </button>
+      {note && <span className="ml-2 text-slate-400">{note}</span>}
+    </p>
   );
 }

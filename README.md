@@ -1,6 +1,6 @@
 # CrewCircadian
 
-A calm rest planner for airline cabin crew. Upload a roster (screenshot, PDF or pasted text), check it once, and the app builds a sleep, nap, caffeine, light and meal plan around your duties, with flying and duty hours for the month. Product rules: see the Product Constitution; the advice rules are in `docs/RULE_BOOK.md`.
+A calm rest planner for airline cabin crew. Upload a roster (screenshot, PDF or pasted text), check it once, and the app builds a sleep, nap, caffeine, light and meal plan around your duties, with flying and duty hours for the month. Product rules: see the Product Constitution; the advice rules are in `docs/RULE_BOOK.md`. **How the app is built (read first): `docs/ARCHITECTURE.md`.**
 
 > This app gives general wellbeing guidance. It is not medical advice and does not replace your airline's fatigue-management rules or duty-time limits.
 

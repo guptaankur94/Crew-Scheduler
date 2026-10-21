@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY . .
-RUN npm run build
+RUN npm run build && npm run bundle:update
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 TRUST_PROXY=1
 EXPOSE 3000
 # Health check: the web app's front page answers

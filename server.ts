@@ -209,6 +209,17 @@ app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Unknown API endpoint.' });
 });
 
+// Live updates for the installed phone apps (scripts/make-update-bundle.mjs): the app checks latest.json and
+// downloads the zip of the newest screens. The phone app runs on another origin, so these allow it like the API does.
+app.use(
+  '/updates',
+  apiCors(allowedOrigins(process.env.ALLOWED_ORIGINS)),
+  express.static(path.resolve(__dirname, 'dist-update'), {
+    setHeaders: (res, filePath) => res.setHeader('Cache-Control', filePath.endsWith('latest.json') ? 'no-store' : 'public, max-age=31536000, immutable'),
+  }),
+  (_req: Request, res: Response) => res.status(404).json({ success: false, error: 'No live update here.' })
+);
+
 // Dev vs Production Vite Setup
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {

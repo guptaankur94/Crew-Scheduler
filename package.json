@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "bundle:update": "node scripts/make-update-bundle.mjs",
     "start": "NODE_ENV=production tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -25,6 +26,7 @@
     "@capacitor/filesystem": "^8.1.4",
     "@capacitor/local-notifications": "^8.3.1",
     "@capacitor/share": "^8.0.3",
+    "@capgo/capacitor-updater": "8.52.1",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",

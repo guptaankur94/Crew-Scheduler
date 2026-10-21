@@ -13,6 +13,11 @@
     "SystemBars": {
       "style": "DARK",
       "initialViewportFitValueHint": "cover"
+    },
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": "",
+      "appReadyTimeout": 10000
     }
   }
 }

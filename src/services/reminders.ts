@@ -63,7 +63,7 @@ export function planReminders(plan: CircadianPlan, settings: ReminderSettings, n
       }
     }
     if (settings.bedtime && (e.type === 'anchor_sleep' || e.type === 'recovery_sleep')) {
-      add({ id: `bed-${e.id}`, kind: 'bedtime', atUtc: new Date(Date.parse(e.startUtc) - 30 * MIN).toISOString(), alarm: false, title: `Wind down: sleep at ${e.startHbtStr}`, body: `Dim the lights; wake-up ${e.endHbtStr}.` });
+      add({ id: `bed-${e.id}`, kind: 'bedtime', atUtc: new Date(Date.parse(e.startUtc) - 30 * MIN).toISOString(), alarm: false, title: `Wind down: sleep at ${e.startHbtStr}`, body: e.upByHbt ? `Dim the lights. No alarm needed tomorrow: up by ${e.upByHbt}.` : `Dim the lights; wake-up ${e.endHbtStr}.` });
     }
     if (settings.caffeine && e.type === 'caffeine_cutoff') {
       add({ id: `caf-${e.id}`, kind: 'caffeine', atUtc: e.startUtc, alarm: false, title: 'Last caffeine for now', body: `No more coffee, tea or chai before your sleep at ${e.endHbtStr}.` });

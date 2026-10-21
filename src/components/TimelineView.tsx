@@ -227,6 +227,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                               <span className="text-sky-400 font-sans font-bold">({wakeNote ?? (endDateAviation !== currentDutyAviation ? 'evening before' : endWeekday === startWeekday ? 'Today' : actualFlights.length ? 'Duty morning' : 'This morning')})</span>
                             </span>
                           </div>
+                          {event.upByHbt && (
+                            <p className="text-[10px] text-emerald-300 pt-1 border-t border-slate-900 font-sans">
+                              🔕 <strong>No alarm needed:</strong> sleep as long as you can, and be up by <strong className="font-mono">{event.upByHbt}</strong>.
+                            </p>
+                          )}
                           {isPriorDayBedtime && endDateAviation === currentDutyAviation && (
                             <p className="text-[10px] text-amber-300/90 pt-1 border-t border-slate-900 font-sans">
                               💡 <strong>Why the evening before:</strong> Sleep starts the evening before (<strong>{startWeekday}, {startDateAviation}</strong> at {event.startHbtStr}) so that your {Math.round(event.durationMinutes / 30) / 2}h sleep finishes in time for today's {currentDutyWeekday} ({currentDutyAviation}) wake-up at {event.endHbtStr}.

@@ -33,7 +33,7 @@ test('report 05:00, home 17:00: optional 20-minute nap finished by 18:00, then b
   const night = plan.events.find((e) => e.type === 'anchor_sleep' && Date.parse(e.startUtc) > Date.parse(nap.endUtc));
   assert.ok(night);
   assert.equal(ist(night), '21:30', '1.5 h earlier than the usual 23:00');
-  assert.equal(istEnd(night), '06:30', 'keeps the usual wake-up, so the night is longer');
+  assert.equal(istEnd(night), '07:30', 'the next morning is free, so up to 10 hours of recovery sleep');
   assert.match(night.subtitle, /Early night/);
   assert.equal(night.scientificCitation.ruleId, 'NAP-03');
 });
@@ -48,4 +48,24 @@ test('home after 18:00 from an early duty: no nap, just the early night', () => 
 test('an early bedtime never goes before 21:00, even for someone who usually sleeps at 22:00', () => {
   const plan = generateCircadianPlan(roster([leg('a', 'DEL', 'BOM', '2026-10-10T06:15', '2026-10-10T08:30'), leg('b', 'BOM', 'DEL', '2026-10-10T13:00', '2026-10-10T15:00')]), { ...prefs, usualBedtime: '22:00' });
   assert.ok(plan.events.some((e) => e.type === 'anchor_sleep' && ist(e) === '21:00'));
+});
+
+test('early duty, then a home standby at 12:00 next day: early night up to 10 h, no alarm, up by 11:00 (getting ready before the standby)', () => {
+  const r = roster([leg('a', 'DEL', 'BOM', '2026-10-10T06:15', '2026-10-10T08:30'), leg('b', 'BOM', 'DEL', '2026-10-10T13:00', '2026-10-10T15:00')]);
+  r.standbyDuties = [{ id: 'sb', kind: 'home', airport: 'DEL', startUtc: '2026-10-11T06:30:00.000Z', endUtc: '2026-10-11T18:30:00.000Z' } as any];
+  const plan = generateCircadianPlan(r, prefs);
+  const night = plan.events.find((e) => e.type === 'anchor_sleep' && ist(e) === '21:30');
+  assert.ok(night);
+  assert.equal(istEnd(night), '07:30', 'a 10-hour recovery night, since the morning is free');
+  assert.equal(night.upByHbt, '11:00', 'standby 12:00 minus 60 min to get ready');
+  assert.match(night.subtitle, /No alarm needed/);
+  const sb = plan.events.find((e) => e.type === 'standby')!;
+  assert.match(sb.subtitle, /20-minute nap/);
+  assert.match(sb.subtitle, /late call-out/);
+  assert.equal(sb.scientificCitation.ruleId, 'STBY-01');
+});
+
+test('a night before an early check-in keeps its alarm (no "up by")', () => {
+  const plan = generateCircadianPlan(roster([leg('a', 'DEL', 'BOM', '2026-10-10T06:15', '2026-10-10T08:30'), leg('b', 'BOM', 'DEL', '2026-10-10T13:00', '2026-10-10T15:00'), leg('c', 'DEL', 'BOM', '2026-10-11T06:15', '2026-10-11T08:30')]), prefs);
+  assert.ok(!plan.events.some((e) => e.type === 'anchor_sleep' && e.upByHbt && e.endUtc.startsWith('2026-10-11')));
 });

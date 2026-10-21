@@ -159,6 +159,16 @@ export const CITATIONS = {
     explanation: 'In an FAA survey of US flight attendants, fear of oversleeping was one of the main things disturbing sleep before duty. A reliable alarm helps.',
     actionableTip: 'Set more than one alarm, and pack your bag, documents and uniform the evening before.',
   },
+  standby: {
+    ruleId: 'STBY-01',
+    evidence: 'moderate',
+    organization: 'ICAO / IATA / IFALPA',
+    studyTitle: 'Fatigue Management Guide for Airline Operators (2015); Hilditch, Dorrian & Banks 2017; Brooks & Lack 2006',
+    keyFinding: 'The guide advises crew on standby: "When feeling sleepy while waiting for call-out, attempt sleep (prioritize sleep over other activities)". Naps of about 10–20 minutes help quickly with little grogginess.',
+    explanation: 'A standby can end in a late call-out and a long day, so sleeping in beforehand and a short nap when sleepy both shorten the time you will have been awake by the end. Grogginess after a nap usually passes within 15–30 minutes, so allow that before you could be called. The "be up by" time is worked back from the standby start and your getting-ready time.',
+    actionableTip: 'No alarm before a midday standby: sleep as long as you can. If sleepy during the standby, nap 20 minutes with an alarm.',
+    sourceUrl: FMG_URL,
+  },
   wocl_risk: {
     ruleId: 'ALERT-01',
     evidence: 'moderate',

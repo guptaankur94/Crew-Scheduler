@@ -102,7 +102,7 @@ app.use('/api', apiLimiter.middleware, dailyAiLimit.middleware, (_req: Request, 
   if (!ai) {
     return res.status(503).json({
       success: false,
-      error: 'AI features are not configured. Add your GEMINI_API_KEY to the .env file and restart the server.',
+      error: 'Roster reading is not set up on this server yet (GEMINI_API_KEY is missing). You can still use "Read with your own AI app".',
     });
   }
   next();

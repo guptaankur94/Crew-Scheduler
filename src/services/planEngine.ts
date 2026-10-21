@@ -39,6 +39,10 @@ export const POST_EARLY_DUTY_NAP_LATEST_HOUR = 18;
 export const EARLY_NIGHT_ADVANCE_HOURS = 1.5;
 /** ...but not before this home-time hour. */
 export const EARLY_NIGHT_EARLIEST_HOUR = 21;
+/** When the next morning is free, the early night may run this long (recovery after sleep loss). */
+export const EARLY_NIGHT_MAX_HOURS = 10;
+/** A night counts as "no alarm needed" when the next commitment's wake-up is at least this long after the planned wake. */
+export const NO_ALARM_MARGIN_MINUTES = 90;
 /** Longest first sleep after a night duty, so the following night's sleep still works. */
 export const RECOVERY_SLEEP_MAX_HOURS = 5;
 /**
@@ -121,6 +125,7 @@ export interface PlanCitations {
   nasa_nap_26: ScientificCitation;
   pre_duty_90_nap: ScientificCitation;
   after_early_duty: ScientificCitation;
+  standby: ScientificCitation;
   chrono_nutrition_window: ScientificCitation;
   gut_rest_night: ScientificCitation;
   caffeine_cutoff: ScientificCitation;
@@ -140,6 +145,8 @@ interface SleepBlock extends Block {
   catchUp?: boolean;
   /** The first night after an early duty, started earlier than usual. */
   earlyNight?: boolean;
+  /** No alarm needed: the next commitment's wake-up (duty) or ready time (home standby). */
+  upByMs?: number;
   kind: 'night' | 'before_duty' | 'recovery' | 'nap_before_night' | 'nap_after_early';
   id: string;
   windowStart: number;
@@ -545,6 +552,17 @@ export interface PlanInput {
   citations: PlanCitations;
 }
 
+/** What a standby card says: what to do while waiting, a short nap if sleepy, and why sleeping in beforehand helps. */
+export function standbyAdvice(atAirport: boolean, shortSleep: boolean): string {
+  const start = atAirport
+    ? 'You are on duty at the airport and may be called to fly.'
+    : 'Keep your phone on and your bag ready.';
+  const nap = shortSleep
+    ? 'You logged a short sleep: if the standby allows, take a 20-minute nap in the early afternoon (alarm on), and allow 15–30 minutes to wake fully before you could be called.'
+    : 'If you feel sleepy, a 20-minute nap is fine (alarm on); allow 15–30 minutes to wake fully before you could be called.';
+  return `${start} ${nap} A late call-out makes a long day, so sleep in beforehand if you can.`;
+}
+
 const SLEEP_TEXT: Record<SleepBlock['kind'], { type: EventType; title: (h: string) => string; subtitle: string; priority: CircadianEvent['priority'] }> = {
   night: {
     type: 'anchor_sleep',
@@ -671,6 +689,23 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
   }
   const validSleeps = sleeps.filter((s) => s.endMs - s.startMs >= 20 * MIN);
 
+  // Nights before a late commitment: no alarm needed, but be up in time. The commitment is the next duty's
+  // wake-up, or getting ready for a home standby (an airport standby is a duty). After an early duty the
+  // early night may then run longer (up to EARLY_NIGHT_MAX_HOURS), never past the be-up time.
+  const commitments = [
+    ...duties.map((d) => wakeTimeFor(d, preferences)),
+    ...(roster.standbyDuties ?? [])
+      .filter((sb) => sb.kind === 'home')
+      .map((sb) => Date.parse(sb.startUtc) - (preferences.groomingMinutes || 60) * MIN),
+  ].sort((a, b) => a - b);
+  for (const s of validSleeps) {
+    if (s.kind !== 'night') continue;
+    const next = commitments.find((t) => t >= s.endMs);
+    const limit = Math.min(next ?? Infinity, s.windowEnd);
+    if (s.earlyNight) s.endMs = Math.max(s.endMs, Math.min(s.startMs + EARLY_NIGHT_MAX_HOURS * HOUR, limit));
+    if (next !== undefined && next - s.endMs >= NO_ALARM_MARGIN_MINUTES * MIN && next - s.endMs <= 14 * HOUR) s.upByMs = next;
+  }
+
   for (const s of validSleeps) {
     const text = SLEEP_TEXT[s.kind];
     const hours = ((s.endMs - s.startMs) / HOUR).toFixed(1);
@@ -682,14 +717,16 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
         : s.kind === 'nap_after_early' || s.earlyNight
         ? citations.after_early_duty
         : citations.anchor_sleep;
-    const subtitle = s.catchUp
+    const base = s.catchUp
       ? 'A little earlier tonight, because you logged a short sleep last night'
       : s.earlyNight
       ? 'Early night after an early start: go to bed as soon as you feel sleepy. A longer night is how you recover'
       : text.subtitle;
+    const subtitle = s.upByMs !== undefined ? `${base}. No alarm needed: sleep as long as you can, up by ${clock.time(s.upByMs)}` : base;
     events.push(
       make(s.id, text.type, text.title(hours), subtitle, s.startMs, s.endMs, citation, text.priority, '#8b5cf6', 'moon', clock.date(s.endMs), {
         userAdjustable: true,
+        ...(s.upByMs !== undefined ? { upByUtc: new Date(s.upByMs).toISOString(), upByHbt: clock.time(s.upByMs) } : {}),
       })
     );
   }
@@ -993,7 +1030,8 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
     }
   }
 
-  // 7. Standby periods from the roster
+  // 7. Standby periods from the roster, with what to do if sleepy (STBY-01)
+  const shortSleepBefore = (startMs: number) => !!catchUp && startMs > catchUp.loggedAtMs && startMs - catchUp.loggedAtMs < SLEEP_LOG_VALID_HOURS * HOUR;
   for (const sb of roster.standbyDuties ?? []) {
     const start = Date.parse(sb.startUtc);
     const end = Date.parse(sb.endUtc);
@@ -1003,12 +1041,10 @@ export function buildPlanEvents(input: PlanInput): PlanOutput {
         `standby-${sb.id}`,
         'standby',
         atAirport ? `🧳 Airport standby (${sb.airport})` : `📱 Home standby (${sb.airport})`,
-        atAirport
-          ? 'You are on duty at the airport and may be called to fly. Your sleep is planned around it.'
-          : 'Keep your phone on and your bag ready. Sleep as planned; a callout will change the plan.',
+        standbyAdvice(atAirport, shortSleepBefore(start)),
         start,
         end,
-        citations.prep,
+        citations.standby,
         atAirport ? 'critical' : 'recommended',
         '#a855f7',
         'phone',

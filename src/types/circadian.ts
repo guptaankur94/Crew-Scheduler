@@ -179,6 +179,9 @@ export interface CircadianEvent {
   userAdjustable?: boolean;
   notes?: string;
   prepDetails?: PrepDetails;
+  /** A night before a late commitment (standby or a later check-in): no alarm needed, but be up by this time. */
+  upByUtc?: string;
+  upByHbt?: string;
 }
 
 export type Chronotype = 'lark' | 'intermediate' | 'owl';

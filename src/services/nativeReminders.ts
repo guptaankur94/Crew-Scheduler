@@ -16,6 +16,44 @@ export function reminderNumber(id: string): number {
   return Math.abs(h) % 2_000_000_000;
 }
 
+/** Buttons on reminders: the wake-up can be snoozed or confirmed; other reminders can come back in 10 minutes. */
+export const SNOOZE_MINUTES = 10;
+const WAKE_ACTIONS = 'CREW_WAKE';
+const LATER_ACTIONS = 'CREW_LATER';
+let actionsReady: Promise<void> | null = null;
+
+/** Registers the reminder buttons and what they do (once per app start). Browser: does nothing. */
+export function initReminderActions(): Promise<void> {
+  if (!isNativeApp()) return Promise.resolve();
+  actionsReady ??= (async () => {
+    const { LocalNotifications } = await import('@capacitor/local-notifications');
+    await LocalNotifications.registerActionTypes({
+      types: [
+        { id: WAKE_ACTIONS, actions: [{ id: 'up', title: "I'm up" }, { id: 'snooze', title: `Snooze ${SNOOZE_MINUTES} min` }] },
+        { id: LATER_ACTIONS, actions: [{ id: 'snooze', title: `Remind me in ${SNOOZE_MINUTES} min` }] },
+      ],
+    });
+    await LocalNotifications.addListener('localNotificationActionPerformed', ({ actionId, notification }) => {
+      if (actionId !== 'snooze') return; // "I'm up" or a tap simply dismisses it
+      void LocalNotifications.schedule({
+        notifications: [
+          {
+            id: (notification.id + 7919) % 2_000_000_000, // a new ID, so the snoozed copy does not replace a planned reminder
+            title: notification.title,
+            body: notification.body,
+            actionTypeId: notification.actionTypeId,
+            schedule: { at: new Date(Date.now() + SNOOZE_MINUTES * 60000), allowWhileIdle: true },
+          },
+        ],
+      });
+    });
+  })().catch((err) => {
+    actionsReady = null;
+    console.warn('Reminder buttons unavailable', err);
+  });
+  return actionsReady;
+}
+
 /** Asks for permission to show reminders. Returns false if refused or not in the phone app. */
 export async function requestReminderPermission(): Promise<boolean> {
   if (!isNativeApp()) return false;
@@ -31,6 +69,7 @@ export async function syncReminders(reminders: Reminder[]): Promise<void> {
   const alarmsSet = await setWakeAlarms(wakes.map((r) => ({ id: reminderNumber(r.id), atMs: Date.parse(r.atUtc), title: r.title, body: r.body })));
   const asNotifications = alarmsSet ? reminders.filter((r) => !r.alarm) : reminders;
 
+  await initReminderActions();
   const { LocalNotifications } = await import('@capacitor/local-notifications');
   const { display } = await LocalNotifications.checkPermissions();
   const pending = await LocalNotifications.getPending();
@@ -42,6 +81,7 @@ export async function syncReminders(reminders: Reminder[]): Promise<void> {
       title: r.title,
       body: r.body,
       schedule: { at: new Date(r.atUtc), allowWhileIdle: true },
+      actionTypeId: r.kind === 'wake' ? WAKE_ACTIONS : LATER_ACTIONS,
     })),
   });
 }

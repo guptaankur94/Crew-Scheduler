@@ -5,6 +5,7 @@ import {ErrorBoundary} from './components/ErrorBoundary.tsx';
 import {requestPersistentStorage} from './services/backup.ts';
 import {initStorage} from './services/kv.ts';
 import {startLiveUpdates} from './services/liveUpdate.ts';
+import {initReminderActions} from './services/nativeReminders.ts';
 import './index.css';
 
 // Ask the browser to keep saved rosters even when storage runs low
@@ -23,4 +24,8 @@ initStorage()
     ),
   )
   // In the phone app: mark this version as working and fetch newer screens in the background
-  .then(() => startLiveUpdates());
+  .then(() => {
+    // Reminder buttons (Snooze, I'm up) must be ready even when the app is opened from a notification
+    void initReminderActions();
+    return startLiveUpdates();
+  });

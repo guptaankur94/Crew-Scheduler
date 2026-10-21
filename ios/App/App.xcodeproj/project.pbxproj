@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0E1D5CEE737FB76DD1B52BA6 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C5D1E535351E5102675AB21 /* Foundation.framework */; };
+		0F12E1F3A3EEBA95A4544437 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D950D0889F185204EA6EA5FF /* PrivacyInfo.xcprivacy */; };
 		15C86844BE8D27D8B187081A /* NextStepWidgetPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52554D0DED0248D157120C90 /* NextStepWidgetPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		33F1B18ECB1C9D35570CA967 /* CrewShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C45DDDB7FBCA8F6CCCD1307 /* CrewShared.swift */; };
@@ -23,6 +24,7 @@
 		A1C0FFEE0000000000000001 /* WakeAlarmPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0FFEE0000000000000002 /* WakeAlarmPlugin.swift */; };
 		A1C0FFEE0000000000000003 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0FFEE0000000000000004 /* MainViewController.swift */; };
 		C39F20D9B5829AC37294FB20 /* CrewWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0034F9BF9BC6BC054ACBD390 /* CrewWidgets.swift */; };
+		D5E0AD9F7CA3523EF6918702 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 195ECAAC4132126EF3FA2AC0 /* PrivacyInfo.xcprivacy */; };
 		D967B29AAFEC1AC79B8A7063 /* NextStepWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D707F646960797BBD7D553C0 /* NextStepWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DA2AB7BD4A767A0EA32A3906 /* DutyLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0FA074C71838BFA8BFE31C3 /* DutyLiveActivity.swift */; };
 		EC5B857E6940D39847A46586 /* NextStepWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE9F88B82BDF48B8AAE6874 /* NextStepWidget.swift */; };
@@ -56,6 +58,7 @@
 		0034F9BF9BC6BC054ACBD390 /* CrewWidgets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CrewWidgets.swift; sourceTree = "<group>"; };
 		03408B4284B25003466EA84D /* NextStepWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = NextStepWidget.entitlements; sourceTree = "<group>"; };
 		0BE9F88B82BDF48B8AAE6874 /* NextStepWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NextStepWidget.swift; sourceTree = "<group>"; };
+		195ECAAC4132126EF3FA2AC0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2C45DDDB7FBCA8F6CCCD1307 /* CrewShared.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CrewShared.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		4C5D1E535351E5102675AB21 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -76,6 +79,7 @@
 		A1C0FFEE0000000000000004 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		D0FA074C71838BFA8BFE31C3 /* DutyLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DutyLiveActivity.swift; sourceTree = "<group>"; };
 		D707F646960797BBD7D553C0 /* NextStepWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NextStepWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D950D0889F185204EA6EA5FF /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -135,6 +139,7 @@
 				2C45DDDB7FBCA8F6CCCD1307 /* CrewShared.swift */,
 				52554D0DED0248D157120C90 /* NextStepWidgetPlugin.swift */,
 				74C573E98FD08EE697E045FF /* App.entitlements */,
+				D950D0889F185204EA6EA5FF /* PrivacyInfo.xcprivacy */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -155,6 +160,7 @@
 				D0FA074C71838BFA8BFE31C3 /* DutyLiveActivity.swift */,
 				59BC7C3ED3AFA1E06DFF9D5F /* Info.plist */,
 				03408B4284B25003466EA84D /* NextStepWidget.entitlements */,
+				195ECAAC4132126EF3FA2AC0 /* PrivacyInfo.xcprivacy */,
 			);
 			name = NextStepWidget;
 			path = NextStepWidget;
@@ -260,6 +266,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				0F12E1F3A3EEBA95A4544437 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -267,6 +274,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D5E0AD9F7CA3523EF6918702 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -54,6 +54,8 @@ import { listenForSharedRosters } from './services/sharedRosters';
 import { updateWidget } from './services/widgetSteps';
 import { syncCalendar } from './services/calendarSync';
 import { sendFeedback } from './services/feedback';
+import { syncLiveActivity } from './services/liveActivity';
+import { isNativeApp } from './services/platform';
 import { TodayPreview } from './components/views/TodayPreview';
 
 // Screens other than Today load when first opened, so the app starts with less code
@@ -541,9 +543,23 @@ export default function App() {
       void syncReminders(planReminders(plan, preferences.reminders ?? {}, Date.now())).catch(() => {});
       void updateWidget(plan, Date.now());
       void syncCalendar(plan, !!preferences.calendarSync);
+      void syncLiveActivity(plan, Date.now());
     }, 1500);
     return () => clearTimeout(timer);
   }, [plan, preferences.reminders, preferences.calendarSync]);
+
+  // iPhone: refresh the duty's Live Activity (and the widget) whenever the app comes back to the front
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    let handle: { remove: () => Promise<void> } | undefined;
+    void import('@capacitor/app').then(({ App: CapApp }) =>
+      CapApp.addListener('resume', () => {
+        void syncLiveActivity(plan, Date.now());
+        void updateWidget(plan, Date.now());
+      }).then((h) => (handle = h))
+    );
+    return () => void handle?.remove();
+  }, [plan]);
 
   // Roster files shared from another app open on the Rosters page
   const [sharedFiles, setSharedFiles] = useState<File[] | undefined>(undefined);

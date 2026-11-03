@@ -67,7 +67,7 @@ The sample roster and all planning screens work straight away. To read your own 
 
 ## Privacy
 
-Files and text you upload are sent to Google Gemini to be read. Nothing is stored on the server. Crop out anything you do not want to share, such as bank details or ID numbers.
+IndiGo Personal Crew Schedule Report PDFs are read on the device and never sent anywhere. Other files and text you upload are sent to Google Gemini to be read. Nothing is stored on the server. Crop out anything you do not want to share, such as bank details or ID numbers.
 
 ## Known limitations
 

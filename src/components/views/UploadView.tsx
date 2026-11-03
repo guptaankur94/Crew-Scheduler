@@ -10,6 +10,7 @@ import { normalizeDutyTimes } from '../../services/dutyTimes';
 import { daySignature } from '../../services/rosterFindings';
 import { apiFetch, NO_SERVER_MESSAGE } from '../../services/platform';
 import { looksLikeAiAnswer, readAiAnswer } from '../../services/pastedRoster';
+import { readOnDevice } from '../../services/localRead';
 import { ownAiPrompt } from '../../services/rosterPrompt';
 import { UploadedRosters } from '../UploadedRosters';
 import { FilePreviewModal } from '../FilePreviewModal';
@@ -455,12 +456,31 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setPreviewModalIndex(null);
   };
 
-  // Process all staged files with Gemini AI
+  /** Sends one roster file to the server's AI reader; the answer has the same shape as an on-device read. */
+  const readWithAi = async (file: File) => {
+    const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(file);
+    const response = await apiFetch('/api/roster/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64: base64Data,
+        mimeType: resolvedMime,
+        timeConvention,
+        homeBase: currentRoster.homeBase,
+      }),
+    });
+    return response.json();
+  };
+
+  // Process all staged files: on the device when the app knows the format, otherwise with the AI reader
   /** Reads the staged files, or the kept files of an earlier upload ("Read again"). */
   const startProcessingBatch = async (again?: { items: FileBatchItem[]; title: string; reread?: ImportRecord }) => {
     const batch = again?.items ?? fileBatch;
     if (batch.length === 0) return;
-    if (!(await requestConsent())) return;
+    // Files the app reads itself (IndiGo schedule report PDFs) stay on the device; only the rest need the AI reader
+    const readOptions = { timeConvention, homeBase: currentRoster.homeBase };
+    const onDevice = await Promise.all(batch.map((item) => readOnDevice(item.file, readOptions)));
+    if (onDevice.some((r) => !r) && !(await requestConsent())) return;
     if (again) setFileBatch(again.items);
 
     setParseError(null);
@@ -504,20 +524,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
       );
 
       try {
-        const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(currentItem.file);
-
-        const response = await apiFetch('/api/roster/parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: base64Data,
-            mimeType: resolvedMime,
-            timeConvention,
-            homeBase: currentRoster.homeBase,
-          }),
-        });
-
-        const result = await response.json();
+        const result = onDevice[i] ?? (await readWithAi(currentItem.file));
 
         if (result.success && result.data && Array.isArray(result.data.flights) && result.data.flights.length > 0) {
           const flights: FlightLeg[] = result.data.flights;
@@ -718,26 +725,15 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const retrySingleFile = async (itemId: string) => {
     const item = fileBatch.find((f) => f.id === itemId);
     if (!item) return;
-    if (!(await requestConsent())) return;
+    const onDevice = await readOnDevice(item.file, { timeConvention, homeBase: currentRoster.homeBase });
+    if (!onDevice && !(await requestConsent())) return;
 
     setFileBatch((prev) =>
       prev.map((f) => (f.id === itemId ? { ...f, status: 'processing', error: undefined } : f))
     );
 
     try {
-      const { base64Data, mimeType: resolvedMime } = await prepareFileForUpload(item.file);
-      const response = await apiFetch('/api/roster/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: base64Data,
-          mimeType: resolvedMime,
-          timeConvention,
-          homeBase: currentRoster.homeBase,
-        }),
-      });
-
-      const result = await response.json();
+      const result = onDevice ?? (await readWithAi(item.file));
       if (result.success && result.data && Array.isArray(result.data.flights) && result.data.flights.length > 0) {
         setFileBatch((prev) =>
           prev.map((f) =>
@@ -892,8 +888,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
       {changesDialog}
       {/* Privacy Notice */}
       <p className="text-[11px] text-slate-500">
-        Privacy: files and text you submit here are sent to Google Gemini to be read. Your roster is then stored only in
-        this browser. Crop out anything you do not want to share before uploading.
+        Privacy: IndiGo schedule report PDFs are read on this device and never sent anywhere. Other files and text you
+        submit here are sent to Google Gemini to be read. Your roster is then stored only in this browser. Crop out
+        anything you do not want to share before uploading.
       </p>
 
       {/* Success Banner */}
@@ -1296,7 +1293,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                       className="w-1/2 sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-md shadow-blue-900/30 transition-all hover:scale-[1.02] text-center"
                     >
                       <Upload className="h-4 w-4" />
-                      <span>Upload & Process with AI ➔</span>
+                      <span>Read my roster ➔</span>
                     </button>
                   </div>
                 </div>

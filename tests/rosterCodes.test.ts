@@ -15,6 +15,13 @@ test('known roster codes always mean the same kind of day, whatever the spacing 
   assert.equal(standbyKindForCode('sby'), 'home');
 });
 
+test('IndiGo codes: Golden Day Off, home standby, domestic and international airport standby', () => {
+  assert.equal(dayKindForCode('OFG'), 'off');
+  assert.equal(standbyKindForCode('SBYP'), 'home');
+  assert.equal(standbyKindForCode('ASBD'), 'airport');
+  assert.equal(standbyKindForCode('ASBI'), 'airport');
+});
+
 test('the code dictionary overrides the reader when they disagree; unknown codes keep the reader choice', () => {
   const now = new Date('2026-10-06T12:00:00Z');
   const r = sanitizeParsedRoster(

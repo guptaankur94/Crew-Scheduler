@@ -11,6 +11,7 @@ import { OtherDuty } from '../types/circadian';
 const DAY_CODES: Record<string, OtherDuty['kind']> = {
   // Days off
   OFF: 'off', DO: 'off', 'D/O': 'off', RD: 'off', GD: 'off', 'G/D': 'off', WOFF: 'off', WKOFF: 'off', ROFF: 'off', 'DAY OFF': 'off',
+  OFG: 'off', // IndiGo: Golden Day Off
   // Leave
   AL: 'leave', CL: 'leave', PL: 'leave', LV: 'leave', LVE: 'leave', ML: 'leave', LEAVE: 'leave', HOL: 'leave',
   // Sick
@@ -23,6 +24,8 @@ const DAY_CODES: Record<string, OtherDuty['kind']> = {
 const STANDBY_CODES: Record<string, 'home' | 'airport'> = {
   SBY: 'home', HSBY: 'home', HSB: 'home', RSV: 'home', RSRV: 'home',
   ASBY: 'airport', ASB: 'airport', APSB: 'airport', 'AP SBY': 'airport',
+  // IndiGo: home standby; standby at the domestic or the international airport
+  SBYP: 'home', ASBD: 'airport', ASBI: 'airport',
 };
 
 const norm = (code: string) => code.trim().toUpperCase().replace(/\s+/g, ' ');

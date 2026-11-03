@@ -28,6 +28,7 @@ Only two features. Everything else works offline.
 
 | Feature | Code | Offline behaviour |
 |---|---|---|
+| Reading an IndiGo Personal Crew Schedule Report PDF | `src/services/localRead.ts` → `pdfText.ts` (pdf.js, loaded only for PDFs) → `scheduleReport.ts`, on the device | Works offline; nothing is sent anywhere |
 | Reading a roster screenshot or text (server asks Gemini) | `src/components/views/UploadView.tsx` via `apiFetch` in `src/services/platform.ts` | Clear message; "Read with your own AI app" still works (the pasted answer is read on the device) |
 | Live-update check | `src/services/liveUpdate.ts` (+ the `@capgo/capacitor-updater` plugin) | Skipped; the app keeps the version it has |
 
@@ -80,7 +81,9 @@ code it cannot run.
 | `services/rosterChecks.ts`, `services/rosterFindings.ts` | Doubtful rows and days (wrong time zone, long release, blank days) |
 | `services/rosterDiff.ts` | New upload vs saved roster ("What changed?") |
 | `services/rosterKeys.ts` | Stable identity of flights and standbys |
-| `services/rosterCodes.ts` | OFF, SBY, leave, sick, training codes |
+| `services/rosterCodes.ts` | OFF, SBY, leave, sick, training codes (and IndiGo's OFG, SBYP, ASBD, ASBI) |
+| `services/scheduleReport.ts` | Reads the IndiGo Personal Crew Schedule Report PDF from its text, checked against the report's own totals |
+| `services/pdfText.ts`, `services/localRead.ts` | PDF text with positions (pdf.js legacy build, for older phones); which files are read on the device |
 | `services/rosterFiles.ts` | File type and image shrinking before upload |
 | `services/importRecords.ts`, `services/importFingerprints.ts` | "Your rosters" list; recognising a file already uploaded |
 | `services/userUpdates.ts` | The person's own changes (delays, cancellations, call-outs), kept apart from the roster |

@@ -13,7 +13,8 @@
 - Your roster, plan and settings stay **on your phone** (or in your browser). We have no account system and no
   database of users.
 - When **you choose** to read a roster with AI, the image or text is sent through our server to **Google Gemini**
-  to be read, and the result comes back to your phone. We do not keep a copy.
+  to be read, and the result comes back to your phone. We do not keep a copy. IndiGo schedule report PDFs are read
+  on your phone itself and are not sent anywhere.
 - **No ads, no analytics or tracking, no selling of data, and nothing is ever shared with your airline or employer.**
 - You can export or delete everything at any time in Settings.
 

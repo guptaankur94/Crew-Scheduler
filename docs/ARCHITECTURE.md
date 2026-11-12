@@ -28,6 +28,7 @@ Only two features. Everything else works offline.
 
 | Feature | Code | Offline behaviour |
 |---|---|---|
+| Web version on GitHub Pages (`.github/workflows/deploy-pages.yml`, every push to `main` after the tests pass) | Static copy at `https://guptaankur94.github.io/Crew-Scheduler/`, no server: Gemini reading is unavailable there | Same as the website |
 | Reading an IndiGo Personal Crew Schedule Report PDF | `src/services/localRead.ts` → `pdfText.ts` (pdf.js, loaded only for PDFs) → `scheduleReport.ts`, on the device | Works offline; nothing is sent anywhere |
 | Reading a roster screenshot or text (server asks Gemini) | `src/components/views/UploadView.tsx` via `apiFetch` in `src/services/platform.ts` | Clear message; "Read with your own AI app" still works (the pasted answer is read on the device) |
 | Live-update check | `src/services/liveUpdate.ts` (+ the `@capgo/capacitor-updater` plugin) | Skipped; the app keeps the version it has |

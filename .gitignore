@@ -16,3 +16,5 @@ crewcircadian-*.json
 *.jpeg
 *.jpg
 *.heic
+# Screenshots at the top of the project (e.g. of a real duty) stay out of Git
+/*.png
